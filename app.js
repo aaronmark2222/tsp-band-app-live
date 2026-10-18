@@ -79,6 +79,7 @@ function songTypeLabel(song) {
 function showWorkspace() {
   $('#loading').classList.add('hidden');
   $('#login-screen').classList.add('hidden');
+  $('#first-login-screen').classList.add('hidden');
   $('#workspace').classList.remove('hidden');
   $('#member-name').textContent = state.member.name;
   $('#member-badge').textContent = state.member.name.slice(0, 1).toUpperCase();
@@ -87,11 +88,20 @@ function showWorkspace() {
 function showLogin() {
   $('#loading').classList.add('hidden');
   $('#workspace').classList.add('hidden');
+  $('#first-login-screen').classList.add('hidden');
   $('#login-screen').classList.remove('hidden');
 }
 
+function showFirstLoginPasswordSetup() {
+  $('#loading').classList.add('hidden');
+  $('#login-screen').classList.add('hidden');
+  $('#workspace').classList.add('hidden');
+  $('#first-login-screen').classList.remove('hidden');
+  $('#password-setup-error').textContent = '';
+}
+
 async function loadMember(user) {
-  const { data, error } = await db.from('members').select('id,name,slug,is_admin').eq('user_id', user.id).maybeSingle();
+  const { data, error } = await db.from('members').select('id,name,slug,is_admin,must_change_password').eq('user_id', user.id).maybeSingle();
   if (error) throw error;
   if (!data) throw new Error('This account is not linked to a band member. Ask Aaron to check the account setup.');
   state.member = data;
@@ -714,6 +724,7 @@ $('#login-form').addEventListener('submit', async (event) => {
   if (error) { $('#login-error').textContent = error.message; return; }
   try {
     await loadMember(data.user);
+    if (state.member.must_change_password) { showFirstLoginPasswordSetup(); return; }
     await Promise.all([loadData(), loadReadiness()]);
     showWorkspace();
     renderSongs();
@@ -721,6 +732,37 @@ $('#login-form').addEventListener('submit', async (event) => {
     await db.auth.signOut();
     $('#login-error').textContent = loadError.message || 'Could not open the band workspace.';
   }
+});
+
+$('#first-login-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const password = $('#new-password').value;
+  $('#password-setup-error').textContent = '';
+  if (password !== $('#confirm-password').value) {
+    $('#password-setup-error').textContent = 'The passwords do not match.';
+    return;
+  }
+  $('#save-password').disabled = true;
+  try {
+    const { error: passwordError } = await db.auth.updateUser({ password });
+    if (passwordError) throw passwordError;
+    const { error: completeError } = await db.rpc('complete_password_setup');
+    if (completeError) throw completeError;
+    state.member.must_change_password = false;
+    await Promise.all([loadData(), loadReadiness()]);
+    showWorkspace();
+    renderSongs();
+  } catch (error) {
+    $('#password-setup-error').textContent = error.message || 'Could not finish password setup. Please try again.';
+  } finally {
+    $('#save-password').disabled = false;
+  }
+});
+
+$('#password-setup-sign-out').addEventListener('click', async () => {
+  await db.auth.signOut();
+  state.member = null;
+  showLogin();
 });
 
 $('#sign-out').addEventListener('click', async () => { await db.auth.signOut(); state.member = null; showLogin(); });
@@ -847,6 +889,7 @@ db.auth.getSession().then(async ({ data, error }) => {
   if (error || !data.session) return showLogin();
   try {
     await loadMember(data.session.user);
+    if (state.member.must_change_password) return showFirstLoginPasswordSetup();
     await Promise.all([loadData(), loadReadiness()]);
     showWorkspace();
     renderSongs();
