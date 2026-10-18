@@ -27,7 +27,22 @@
         </div>
       </section>
 
-      <section id="workspace" class="workspace hidden">
+      <section id="first-login-screen" class="login-screen hidden">
+<div class="login-card">
+<img class="band-logo login-logo" src="assets/the-string-project-logo.png?v=20261019" alt="The String Project">
+<p class="eyebrow">WELCOME</p>
+<h1>Choose your<br>own password.</h1>
+<p class="muted">You signed in with a temporary password. Set a new one to continue.</p>
+<form id="first-login-form" class="stack">
+<label>New password<input id="new-password" type="password" autocomplete="new-password" minlength="8" required></label>
+<label>Confirm new password<input id="confirm-password" type="password" autocomplete="new-password" minlength="8" required></label>
+<button id="save-password" class="button primary" type="submit">Save password <span>→</span></button>
+<p id="password-setup-error" class="error" role="alert"></p>
+</form>
+<button id="password-setup-sign-out" class="text-button" type="button">Sign out</button>
+</div>
+</section>
+<section id="workspace" class="workspace hidden">
         <header class="topbar">
           <a class="brand" href="#songs"><img class="band-logo header-logo" src="assets/the-string-project-logo.png?v=20261019" alt="The String Project"><span>Band workspace</span></a>
           <nav class="tabs" aria-label="Main navigation">
