@@ -187,12 +187,12 @@ function songProgress(songId, songName) {
   return `<span class="song-progress-lines" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><span class="song-progress-line song-progress-line-band" style="--progress:${bandPercent}%"></span><span class="song-progress-line song-progress-line-personal" style="--progress:${personalPercent}%"></span></span>`;
 }
 function songPhraseInitials(phrase, phraseIndex) {
-  const words = phrase.trim().split(/\\s+/).filter(Boolean);
+  const words = phrase.trim().split(/\s+/).filter(Boolean);
   const base = words.map((word) => Array.from(word)[0].toUpperCase()).join('');
   const peers = [...new Set(state.songs.flatMap((song) => String(song.name).split('/').map((part, index) => index === phraseIndex ? part.trim() : null).filter(Boolean))
-    .filter((part) => part.split(/\\s+/).filter(Boolean).map((word) => Array.from(word)[0].toUpperCase()).join('') === base))];
+    .filter((part) => part.split(/\s+/).filter(Boolean).map((word) => Array.from(word)[0].toUpperCase()).join('') === base))];
   if (peers.length < 2) return base;
-  const peerWords = peers.map((part) => part.split(/\\s+/).filter(Boolean));
+  const peerWords = peers.map((part) => part.split(/\s+/).filter(Boolean));
   let distinction = null;
   for (let wordIndex = 0; wordIndex < words.length; wordIndex += 1) {
     const tokens = peerWords.map((parts) => parts[wordIndex]);
