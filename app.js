@@ -176,10 +176,16 @@ function songProgress(songId, songName) {
   const bandRemaining = applicable.length - bandDone;
   const personalPercent = mine.length ? Math.round((myDone / mine.length) * 100) : 100;
   const bandPercent = applicable.length ? Math.round((bandDone / applicable.length) * 100) : 100;
-  const label = `Work remaining for ${songName}: You have ${mine.length ? `${myRemaining} of ${mine.length} tasks left` : 'no assigned tasks'}; the band has ${applicable.length ? `${bandRemaining} of ${applicable.length} tasks left` : 'no tasks'}.`;
-  return `<span class="progress-rings" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><svg viewBox="0 0 36 36" aria-hidden="true" focusable="false"><circle class="progress-ring-track" cx="18" cy="18" r="15.5" pathLength="100"></circle><circle class="progress-ring-band" cx="18" cy="18" r="15.5" pathLength="100" stroke-dasharray="${bandPercent} 100"></circle><circle class="progress-ring-track progress-ring-inner-track" cx="18" cy="18" r="10.5" pathLength="100"></circle><circle class="progress-ring-personal" cx="18" cy="18" r="10.5" pathLength="100" stroke-dasharray="${personalPercent} 100"></circle></svg></span>`;
+  const readiness = (state.readiness || []).find((row) => row.song_id === songId);
+  const hasAbleSetWork = applicable.some((item) => item.category === 'ableset');
+  const allRequiredWorkDone = applicable.every(isWorkItemDone);
+  const ready = !!readiness?.ready;
+  const sentToMixOnly = !ready && readiness?.backing_track === 'Sent to Mix' && hasAbleSetWork && allRequiredWorkDone;
+  const ringStatus = ready ? ' status-ready' : sentToMixOnly ? ' status-sent-to-mix' : '';
+  const statusLabel = ready ? 'Ready' : sentToMixOnly ? 'All work done; backing track sent to mix' : 'In progress';
+  const label = `Status: ${statusLabel}. Work remaining for ${songName}: You have ${mine.length ? `${myRemaining} of ${mine.length} tasks left` : 'no assigned tasks'}; the band has ${applicable.length ? `${bandRemaining} of ${applicable.length} tasks left` : 'no tasks'}.`;
+  return `<span class="progress-rings${ringStatus}" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><svg viewBox="0 0 36 36" aria-hidden="true" focusable="false"><circle class="progress-ring-track" cx="18" cy="18" r="15.5" pathLength="100"></circle><circle class="progress-ring-band" cx="18" cy="18" r="15.5" pathLength="100" stroke-dasharray="${bandPercent} 100"></circle><circle class="progress-ring-track progress-ring-inner-track" cx="18" cy="18" r="10.5" pathLength="100"></circle><circle class="progress-ring-personal" cx="18" cy="18" r="10.5" pathLength="100" stroke-dasharray="${personalPercent} 100"></circle></svg></span>`;
 }
-
 function remainingWork(songId, memberOnly = false) {
   const open = songWorkItems(songId).filter((item) => !isWorkItemDone(item));
   return memberOnly ? open.filter((item) => item.owner_member_id === state.member.id).length : open.length;
@@ -244,7 +250,7 @@ function toggleSongDetails(songId, view) {
 function renderSongs() {
   const head = $('#songs-head');
   const body = $('#songs-body');
-  head.innerHTML = '<tr><th>SONG</th><th>WORK REMAINING</th><th>READY</th></tr>';
+  head.innerHTML = '<tr><th>SONG</th><th>STATUS</th></tr>';
   const term = $('#song-search').value.trim().toLowerCase();
   const language = $('#language-filter').value;
   const performance = $('#performance-filter').value;
@@ -278,12 +284,11 @@ function renderSongs() {
   updateFilterButton('song-filters-toggle', [language, performance, key].filter(Boolean).length);
   $('#clear-song-filters').classList.toggle('hidden', !anyFilter);
   body.innerHTML = sorted.map((song) => {
-    const ready = readiness.get(song.id);
     const expanded = state.expandedSongIds.has(song.id);
     const detailId = `song-detail-${song.id}`;
-    return `<tr class="song-overview"><td><button type="button" class="song-summary-toggle" data-song-id="${escapeHtml(song.id)}" data-view="songs" aria-expanded="${expanded}" aria-controls="${detailId}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${escapeHtml(song.id)} ${escapeHtml(song.name)}"><span class="song-id">${escapeHtml(song.id)}</span><span class="song-disclosure" aria-hidden="true"></span><span class="song-name">${escapeHtml(song.name)}</span></button></td><td><span class="song-progress">${songProgress(song.id, song.name)}</span></td><td>${ready?.ready ? '<span class="ready">Ready</span>' : '<span class="muted">—</span>'}</td></tr><tr id="${detailId}" class="song-detail-row ${expanded ? '' : 'hidden'}"><td colspan="3">${renderSongDetails(song.id)}</td></tr>`;
+    return `<tr class="song-overview"><td><button type="button" class="song-summary-toggle" data-song-id="${escapeHtml(song.id)}" data-view="songs" aria-expanded="${expanded}" aria-controls="${detailId}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${escapeHtml(song.id)} ${escapeHtml(song.name)}"><span class="song-id">${escapeHtml(song.id)}</span><span class="song-disclosure" aria-hidden="true"></span><span class="song-name">${escapeHtml(song.name)}</span></button></td><td><span class="song-progress">${songProgress(song.id, song.name)}</span></td></tr><tr id="${detailId}" class="song-detail-row ${expanded ? '' : 'hidden'}"><td colspan="2">${renderSongDetails(song.id)}</td></tr>`;
   }).join('');
-  if (!sorted.length) body.innerHTML = '<tr><td colspan="3" class="empty-state">No songs match these filters.</td></tr>';
+  if (!sorted.length) body.innerHTML = '<tr><td colspan="2" class="empty-state">No songs match these filters.</td></tr>';
 }
 
 function renderLanguageFilter() {
