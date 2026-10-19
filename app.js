@@ -187,7 +187,7 @@ function songProgress(songId, songName) {
   return `<span class="progress-rings" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><svg viewBox="0 0 36 36" aria-hidden="true" focusable="false"><circle class="progress-ring-track" cx="18" cy="18" r="15.5" pathLength="100"></circle><circle class="progress-ring-band" cx="18" cy="18" r="15.5" pathLength="100" stroke-dasharray="${bandPercent} 100"></circle><circle class="progress-ring-track progress-ring-inner-track" cx="18" cy="18" r="10.5" pathLength="100"></circle><circle class="progress-ring-personal" cx="18" cy="18" r="10.5" pathLength="100" stroke-dasharray="${personalPercent} 100"></circle></svg></span>`;
 }
 function songTitleMarkup(name, className) {
-  const initials = String(name).split(/\\s*\\/\\s*/).map((phrase) => phrase.trim().split(/\\s+/).filter(Boolean).map((word) => Array.from(word)[0]).join('')).join(' / ');
+  const initials = String(name).split('/').map((phrase) => phrase.trim().split(' ').filter(Boolean).map((word) => Array.from(word)[0]).join('')).join(' / ');
   return `<span class="${className} song-title-container"><span class="song-title-full" data-title-full>${escapeHtml(name)}</span><span class="song-title-initials" aria-hidden="true">${escapeHtml(initials)}</span></span>`;
 }
 
