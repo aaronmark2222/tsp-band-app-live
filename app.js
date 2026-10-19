@@ -813,6 +813,9 @@ $('#dashboard-song-list').addEventListener('change', (event) => {
   if (event.target.matches('.backing-track-select')) saveBackingTrackStatus(event.target);
   else if (event.target.matches('.status-select')) saveStatus(event.target);
 });
+$('#dashboard-work-widgets').addEventListener('change', (event) => {
+  if (event.target.matches('.status-select')) saveStatus(event.target);
+});
 $('#dashboard-song-list').addEventListener('focusin', (event) => { if (event.target.matches('.backing-track-select')) labelAutoBackingOption(event.target, true); });
 $('#dashboard-song-list').addEventListener('focusout', (event) => { if (event.target.matches('.backing-track-select')) labelAutoBackingOption(event.target, false); });
 $('#dashboard-song-list').addEventListener('click', (event) => {
