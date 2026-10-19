@@ -234,3 +234,8 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 
 ## 2026-10-19 UI update
 - In expanded song details, each viewer's own unfinished task is highlighted with the same muted orange accent used for personal progress. Task ownership follows the assigned member, including the existing Recorded-status admin ownership rule.
+
+
+
+## 2026-10-19 UI refinement
+- Updated the personal unfinished-task highlight to use a solid #f39a26 card, matching the personal progress ring, with black task-label text. Status controls retain their existing appearance and colors.
