@@ -1,4 +1,4 @@
-name: Deploy The String Project app to GitHub Pages
+name: Deploy TSP Work to GitHub Pages
 
 on:
   push:
