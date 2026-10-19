@@ -266,3 +266,8 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 
 ## 2026-10-19 UI adjustment
 - Aligned Setlists progress rings and Ready/Sent to Mix indicators in a shared fixed-width column.
+
+
+
+## 2026-10-19 Dashboard fix
+- Connected the Playback, Backing, and Other Work widget status controls to the shared save flow. Completing an item now saves it, refreshes readiness, and removes it from remaining work; Completed keeps its green status styling.
