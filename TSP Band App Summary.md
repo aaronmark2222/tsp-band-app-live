@@ -134,7 +134,7 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 
 - **Public repo** `aaronmark2222/tsp-band-app-live`: static site on GitHub Pages (`index.html`, `app.js`, `styles.css`, `assets/the-string-project-logo.png`, `apple-touch-icon.png`). `app.js` loads supabase-js from `esm.sh` at runtime. No build step.
 - **Deploy:** `.github/workflows/deploy.yml` runs on every push to `main` and publishes **only the files it explicitly copies**. Any new file must be added to that copy step.
-- **Consolidated source repository:** the private `aaronmark2222/tsp-band-app` has been consolidated into this public repository, including `PLAN.md`, `SETUP_SUPABASE.md`, `docs/APP_GUIDE.md`, and all 12 numbered SQL migrations. The live app and database were already connected; the Supabase project was not duplicated or changed.
+- **Consolidated source repository:** the former private `aaronmark2222/tsp-band-app` was copied into this public repository, including `PLAN.md`, `SETUP_SUPABASE.md`, `docs/APP_GUIDE.md`, and all 12 numbered SQL migrations, then deleted after the transfer. The live app and database were already connected; the Supabase project was not duplicated or changed.
 - Repository edits can be made through the connected GitHub tools. Prefer a dedicated branch for review; avoid committing directly to `main` when a change can trigger a production GitHub Pages deployment.
 - Hosting model borrowed from Marks Music (static page on GitHub Pages + Supabase), but the band app needs **per-member Supabase Auth logins and row-level security** instead of Marks Music's shared password.
 - Used mainly on iPhone as a Home Screen web app.
@@ -186,6 +186,8 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 - The previous TSP Work branding and summary PR was merged to `main`, and its GitHub Pages deployment completed successfully.
 
 
-### 19 Oct 2026 — GitHub deletion verification
+### 19 Oct 2026 — private repository consolidation and deletion
 
-- GitHub requires account-owner email verification before it will permit permanent deletion of `aaronmark2222/tsp-band-app`. The repository remains intact and has not been deleted; the transfer to `tsp-band-app-live` is complete.
+- Copied the private repository's project plan, setup guide, app guide, and all 12 numbered migrations into the public `aaronmark2222/tsp-band-app-live` repository.
+- After transfer verification and account-owner verification, permanently deleted `aaronmark2222/tsp-band-app` as requested.
+- The existing Supabase project and its production data remained unchanged.
