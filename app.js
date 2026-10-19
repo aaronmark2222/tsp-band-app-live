@@ -167,19 +167,17 @@ function labelAutoBackingOption(select, showAuto) {
   option.style.color = showAuto ? '#D0D0D0' : (BACKING_TRACK_COLORS[derived] || '#D0D0D0');
 }
 
-function progressRow(label, done, remaining, total, kind, songName) {
-  if (total === 0) return `<span class="progress-row"><span class="progress-label">${label}</span><span class="progress-empty">No tasks</span></span>`;
-  const percent = Math.round((done / total) * 100);
-  const remainingText = remaining === 0 ? 'Done' : `${remaining} left`;
-  return `<span class="progress-row" aria-label="${label}: ${done} of ${total} tasks done, ${remaining} remaining for ${escapeHtml(songName)}"><span class="progress-label">${label}</span><span class="progress-track"><span class="progress-fill ${kind}" style="width:${percent}%"></span></span><span class="progress-left">${remainingText}</span></span>`;
-}
-
 function songProgress(songId, songName) {
   const applicable = songWorkItems(songId);
   const mine = applicable.filter((item) => item.owner_member_id === state.member.id);
   const myDone = mine.filter(isWorkItemDone).length;
   const bandDone = applicable.filter(isWorkItemDone).length;
-  return `${progressRow('You', myDone, mine.length - myDone, mine.length, 'personal', songName)}${progressRow('Band', bandDone, applicable.length - bandDone, applicable.length, 'band', songName)}`;
+  const myRemaining = mine.length - myDone;
+  const bandRemaining = applicable.length - bandDone;
+  const personalPercent = mine.length ? Math.round((myDone / mine.length) * 100) : 100;
+  const bandPercent = applicable.length ? Math.round((bandDone / applicable.length) * 100) : 100;
+  const label = `Work remaining for ${songName}: You have ${mine.length ? `${myRemaining} of ${mine.length} tasks left` : 'no assigned tasks'}; the band has ${applicable.length ? `${bandRemaining} of ${applicable.length} tasks left` : 'no tasks'}.`;
+  return `<span class="progress-rings" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><svg viewBox="0 0 36 36" aria-hidden="true" focusable="false"><circle class="progress-ring-track" cx="18" cy="18" r="15.5" pathLength="100"></circle><circle class="progress-ring-band" cx="18" cy="18" r="15.5" pathLength="100" stroke-dasharray="${bandPercent} 100"></circle><circle class="progress-ring-track progress-ring-inner-track" cx="18" cy="18" r="10.5" pathLength="100"></circle><circle class="progress-ring-personal" cx="18" cy="18" r="10.5" pathLength="100" stroke-dasharray="${personalPercent} 100"></circle></svg></span>`;
 }
 
 function remainingWork(songId, memberOnly = false) {
