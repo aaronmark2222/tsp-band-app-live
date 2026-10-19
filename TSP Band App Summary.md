@@ -229,3 +229,8 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 ## 2026-10-19 UI update
 - Expanded song rows in Songs and Setlists display the full song title, wrapping as needed; collapsed narrow rows continue to use initials when the full title would overflow.
 - Opening a song scrolls its expanded details into view.
+
+
+
+## 2026-10-19 UI update
+- In expanded song details, each viewer's own unfinished task is highlighted with the same muted orange accent used for personal progress. Task ownership follows the assigned member, including the existing Recorded-status admin ownership rule.
