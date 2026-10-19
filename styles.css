@@ -275,3 +275,13 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .setlist-song-toggle .song-disclosure{grid-column:2;grid-row:1}
 .setlist-song-toggle .item-title{grid-column:3;grid-row:1}
 .setlist-song-toggle .progress-rings{grid-column:4;grid-row:1}
+
+/* Status is encoded by the ring pair: green for ready, blue for sent-to-mix-only. */
+.progress-rings.status-ready .progress-ring-personal{stroke:#71d17a}
+.progress-rings.status-ready .progress-ring-band{stroke:#205b2c}
+.progress-rings.status-sent-to-mix .progress-ring-personal{stroke:#62baff}
+.progress-rings.status-sent-to-mix .progress-ring-band{stroke:#1d4f80}
+.song-table{min-width:640px}
+.song-table th:first-child{width:74%}
+.song-table th:nth-child(2){width:26%;text-align:center}
+@media(max-width:600px){.song-table{min-width:0;table-layout:fixed}.song-table th:first-child{width:74%}.song-table th:nth-child(2){width:26%;text-align:center}.song-table td:nth-child(2){width:auto;text-align:center}}
