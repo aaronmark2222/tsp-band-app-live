@@ -280,3 +280,8 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 
 ## 2026-10-20 Dashboard correction
 - Dashboard headings now also reflect the categories of currently open tasks assigned to the viewed member, including tasks reassigned to the admin when marked Recorded. This keeps Recorded items visible in the appropriate group, including Other Work.
+
+
+## 2026-10-20 UI update
+- Replaced the personal and band progress rings with two compact horizontal progress lines, aligned in a fixed-width status column shared with Ready and Sent to Mix indicators in Songs and Setlists.
+- Song title initials now expand a distinguishing word prefix when multiple songs share the same initials. This distinguishes similar medley names such as Bollywood Dance, Bollywood Disco, and Bollywood DJ Medley.

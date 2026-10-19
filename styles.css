@@ -379,3 +379,41 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
   margin: 0;
   justify-content: center;
 }
+
+/* Use two compact progress lines in the same fixed indicator column as status labels. */
+.song-table th:nth-child(2),
+.song-table td:nth-child(2) { width: 104px; min-width: 104px; text-align: center; }
+.song-table .song-progress {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 84px;
+  min-height: 28px;
+  margin: 0 auto;
+}
+.song-progress-lines {
+  display: grid;
+  gap: 5px;
+  width: 84px;
+}
+.song-progress-line {
+  display: block;
+  width: 84px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: linear-gradient(to right, var(--progress-color) var(--progress), #474747 var(--progress));
+}
+.song-progress-line-band { --progress-color: #a0a0a0; }
+.song-progress-line-personal { --progress-color: #f39a26; }
+.setlist-song-toggle { grid-template-columns: 14px 54px minmax(0, 1fr) 84px; }
+.setlist-song-toggle > .song-progress {
+  grid-column: 4;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 84px;
+  min-height: 28px;
+  margin: 0;
+}

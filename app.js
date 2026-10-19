@@ -184,10 +184,39 @@ function songProgress(songId, songName) {
   if (ready) return '<span class="song-status-indicator" data-status="Ready">Ready</span>';
   if (sentToMixOnly) return '<span class="song-status-indicator" data-status="Sent to Mix">Sent to Mix</span>';
   const label = `Status: In progress. Work remaining for ${songName}: You have ${mine.length ? `${myRemaining} of ${mine.length} tasks left` : 'no assigned tasks'}; the band has ${applicable.length ? `${bandRemaining} of ${applicable.length} tasks left` : 'no tasks'}.`;
-  return `<span class="progress-rings" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><svg viewBox="0 0 36 36" aria-hidden="true" focusable="false"><circle class="progress-ring-track" cx="18" cy="18" r="15.5" pathLength="100"></circle><circle class="progress-ring-band" cx="18" cy="18" r="15.5" pathLength="100" stroke-dasharray="${bandPercent} 100"></circle><circle class="progress-ring-track progress-ring-inner-track" cx="18" cy="18" r="10.5" pathLength="100"></circle><circle class="progress-ring-personal" cx="18" cy="18" r="10.5" pathLength="100" stroke-dasharray="${personalPercent} 100"></circle></svg></span>`;
+  return `<span class="song-progress-lines" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><span class="song-progress-line song-progress-line-band" style="--progress:${bandPercent}%"></span><span class="song-progress-line song-progress-line-personal" style="--progress:${personalPercent}%"></span></span>`;
 }
+function songPhraseInitials(phrase, phraseIndex) {
+  const words = phrase.trim().split(/\s+/).filter(Boolean);
+  const base = words.map((word) => Array.from(word)[0].toUpperCase()).join('');
+  const peers = [...new Set(state.songs.flatMap((song) => String(song.name).split('/').map((part, index) => index === phraseIndex ? part.trim() : null).filter(Boolean))
+    .filter((part) => part.split(/\s+/).filter(Boolean).map((word) => Array.from(word)[0].toUpperCase()).join('') === base))];
+  if (peers.length < 2) return base;
+  const peerWords = peers.map((part) => part.split(/\s+/).filter(Boolean));
+  let distinction = null;
+  for (let wordIndex = 0; wordIndex < words.length; wordIndex += 1) {
+    const tokens = peerWords.map((parts) => parts[wordIndex]);
+    if (tokens.some((token) => !token) || new Set(tokens.map((token) => token.toLocaleLowerCase())).size !== tokens.length) continue;
+    const lengths = tokens.map((token, index) => {
+      for (let length = 1; length <= token.length; length += 1) {
+        const prefix = token.slice(0, length).toLocaleLowerCase();
+        if (tokens.every((other, otherIndex) => otherIndex === index || !other.toLocaleLowerCase().startsWith(prefix))) return length;
+      }
+      return token.length;
+    });
+    const score = lengths.reduce((sum, length) => sum + length, 0) + (wordIndex === 0 ? 1 : 0);
+    if (!distinction || score < distinction.score) distinction = { wordIndex, lengths, score, tokens };
+  }
+  if (!distinction) return base;
+  return words.map((word, index) => {
+    if (index !== distinction.wordIndex) return Array.from(word)[0].toUpperCase();
+    const prefix = word.slice(0, distinction.lengths[peers.indexOf(phrase.trim())] || 1);
+    return /^[A-Z0-9]+$/.test(word) ? prefix.toUpperCase() : prefix[0].toUpperCase() + prefix.slice(1).toLocaleLowerCase();
+  }).join('');
+}
+
 function songTitleMarkup(name, className) {
-  const initials = String(name).split('/').map((phrase) => phrase.trim().split(' ').filter(Boolean).map((word) => Array.from(word)[0]).join('')).join(' / ');
+  const initials = String(name).split('/').map((phrase, index) => songPhraseInitials(phrase, index)).join(' / ');
   return `<span class="${className} song-title-container"><span class="song-title-full" data-title-full>${escapeHtml(name)}</span><span class="song-title-initials" aria-hidden="true">${escapeHtml(initials)}</span></span>`;
 }
 
