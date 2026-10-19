@@ -224,3 +224,8 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 
 - Song titles remain on one line beside their IDs. When a full title no longer fits, the view switches to initials, preserving slash-separated medley groups (for example, “You Belong With Me / Love Story” becomes “YBWM / LS”).
 - The full name remains available through the row's accessible label. The behavior updates when the screen is resized and applies in both Songs and Setlists.
+
+
+## 2026-10-19 UI update
+- Expanded song rows in Songs and Setlists display the full song title, wrapping as needed; collapsed narrow rows continue to use initials when the full title would overflow.
+- Opening a song scrolls its expanded details into view.

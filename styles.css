@@ -300,3 +300,10 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .song-title-abbreviated .song-title-full{display:none}
 .song-title-abbreviated .song-title-initials{display:block}
 .setlist-song-toggle .song-title-container{white-space:nowrap;overflow:hidden}
+
+/* Expanded songs show their full title and bring the opened details into view. */
+.song-summary-toggle.song-expanded .song-title-full { display: inline; white-space: normal; overflow: visible; }
+.song-summary-toggle.song-expanded .song-title-initials { display: none; }
+
+.song-summary-toggle.song-expanded .song-title-container { white-space: normal; overflow: visible; }
+.song-summary-toggle.song-expanded .song-title-full { display: block; white-space: normal; overflow: visible; }
