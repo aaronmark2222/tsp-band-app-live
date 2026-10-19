@@ -191,3 +191,9 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 - Copied the private repository's project plan, setup guide, app guide, and all 12 numbered migrations into the public `aaronmark2222/tsp-band-app-live` repository.
 - After transfer verification and account-owner verification, permanently deleted `aaronmark2222/tsp-band-app` as requested.
 - The existing Supabase project and its production data remained unchanged.
+
+### 19 Oct 2026 — compact song work rings
+
+- Replaced the long per-song “You” and “Band” progress bars on the Songs and Setlists views with a compact concentric ring indicator. The inner orange ring represents the signed-in member's completed work; the outer gray ring represents completed band work. The unfilled arc shows work remaining.
+- Added an accessible label and tooltip with completed and remaining task counts for both scopes. Songs-table ring placement is narrow-screen friendly, and the table can fit small phone widths without its previous fixed minimum width.
+- This is a presentation-only change; task ownership, completion rules, readiness, and Supabase data are unchanged.
