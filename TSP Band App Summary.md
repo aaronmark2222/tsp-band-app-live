@@ -239,3 +239,9 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 
 ## 2026-10-19 UI refinement
 - Updated the personal unfinished-task highlight to use a solid #f39a26 card, matching the personal progress ring, with black task-label text. Status controls retain their existing appearance and colors.
+
+
+
+## 2026-10-19 UI correction
+- Strengthened the solid orange fill for personal unfinished task cards across focus and hover states, preserving the status controls' existing appearance.
+- Changed song expansion scrolling to align the overview row below the sticky header so the title and metadata remain visible.
