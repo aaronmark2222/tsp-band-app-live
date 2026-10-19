@@ -250,3 +250,8 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 
 ## 2026-10-19 UI adjustment
 - Optional Band Parts tasks are excluded from the personal orange unfinished-task highlight.
+
+
+
+## 2026-10-19 UI adjustment
+- Setlists song IDs now use the same accent color as Songs. Both lists use matching disclosure, fixed-width ID, and title columns for consistent ID and title alignment.
