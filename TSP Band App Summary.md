@@ -219,3 +219,8 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 - Restored the standard orange/gray personal and band progress rings for songs that are still in progress.
 - When all readiness conditions are met, the Status cell now says **Ready** in green. When the only blocker is the backing track being **Sent to Mix**, it says **Sent to Mix** in the matching blue status style. Neither state recolors the rings.
 - Moved the collapsed/open triangle indicator before the song ID in both Songs and Setlists.
+
+### 19 Oct 2026 — responsive song-title initials
+
+- Song titles remain on one line beside their IDs. When a full title no longer fits, the view switches to initials, preserving slash-separated medley groups (for example, “You Belong With Me / Love Story” becomes “YBWM / LS”).
+- The full name remains available through the row's accessible label. The behavior updates when the screen is resized and applies in both Songs and Setlists.
