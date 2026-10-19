@@ -269,8 +269,8 @@ async function toggleSongDetails(songId, view) {
   else renderSongs();
   requestAnimationFrame(() => {
     const target = view === 'setlists'
-      ? [...document.querySelectorAll('.setlist-song-toggle')].find((button) => button.dataset.songId === songId)?.closest('.setlist-row')?.querySelector('.setlist-song-details')
-      : document.querySelector(`#song-detail-${CSS.escape(songId)}`);
+      ? [...document.querySelectorAll('.setlist-song-toggle')].find((button) => button.dataset.songId === songId)?.closest('.setlist-row')
+      : document.querySelector(`#song-detail-${CSS.escape(songId)}`)?.previousElementSibling;
     if (target && !alreadyExpanded) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 }
