@@ -196,6 +196,7 @@ function updateSongTitleAbbreviations() {
     const fullTitle = button.querySelector('[data-title-full]');
     if (!fullTitle) return;
     button.classList.remove('song-title-abbreviated');
+    if (state.expandedSongIds.has(button.dataset.songId)) return;
     const overflows = fullTitle.scrollWidth > fullTitle.clientWidth + 1;
     button.classList.toggle('song-title-abbreviated', overflows);
   });
@@ -255,12 +256,18 @@ function renderSongDetails(songId) {
   }).join('')}</div>`;
 }
 
-function toggleSongDetails(songId, view) {
+async function toggleSongDetails(songId, view) {
   const alreadyExpanded = state.expandedSongIds.has(songId);
   state.expandedSongIds.clear();
   if (!alreadyExpanded) state.expandedSongIds.add(songId);
-  if (view === 'setlists') renderActiveSetlist();
+  if (view === 'setlists') await renderActiveSetlist();
   else renderSongs();
+  requestAnimationFrame(() => {
+    const target = view === 'setlists'
+      ? [...document.querySelectorAll('.setlist-song-toggle')].find((button) => button.dataset.songId === songId)?.closest('.setlist-row')?.querySelector('.setlist-song-details')
+      : document.querySelector(`#song-detail-${CSS.escape(songId)}`);
+    if (target && !alreadyExpanded) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
 }
 
 function renderSongs() {
@@ -302,7 +309,7 @@ function renderSongs() {
   body.innerHTML = sorted.map((song) => {
     const expanded = state.expandedSongIds.has(song.id);
     const detailId = `song-detail-${song.id}`;
-    return `<tr class="song-overview"><td><button type="button" class="song-summary-toggle" data-song-id="${escapeHtml(song.id)}" data-view="songs" aria-expanded="${expanded}" aria-controls="${detailId}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${escapeHtml(song.id)} ${escapeHtml(song.name)}"><span class="song-disclosure" aria-hidden="true"></span><span class="song-id">${escapeHtml(song.id)}</span>${songTitleMarkup(song.name, 'song-name')}</button></td><td><span class="song-progress">${songProgress(song.id, song.name)}</span></td></tr><tr id="${detailId}" class="song-detail-row ${expanded ? '' : 'hidden'}"><td colspan="2">${renderSongDetails(song.id)}</td></tr>`;
+    return `<tr class="song-overview"><td><button type="button" class="song-summary-toggle ${expanded ? 'song-expanded' : ''}" data-song-id="${escapeHtml(song.id)}" data-view="songs" aria-expanded="${expanded}" aria-controls="${detailId}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${escapeHtml(song.id)} ${escapeHtml(song.name)}"><span class="song-disclosure" aria-hidden="true"></span><span class="song-id">${escapeHtml(song.id)}</span>${songTitleMarkup(song.name, 'song-name')}</button></td><td><span class="song-progress">${songProgress(song.id, song.name)}</span></td></tr><tr id="${detailId}" class="song-detail-row ${expanded ? '' : 'hidden'}"><td colspan="2">${renderSongDetails(song.id)}</td></tr>`;
   }).join('');
   if (!sorted.length) body.innerHTML = '<tr><td colspan="2" class="empty-state">No songs match these filters.</td></tr>';
   requestAnimationFrame(updateSongTitleAbbreviations);
@@ -366,7 +373,7 @@ function renderSetlistItems(items, canEditSetlist) {
     const expanded = state.expandedSongIds.has(item.song_id);
     const canDrag = canEditSetlist && !filters.active;
     const summary = isSong
-      ? `<button type="button" class="song-summary-toggle setlist-song-toggle" data-song-id="${escapeHtml(item.song_id)}" data-view="setlists" aria-expanded="${expanded}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${escapeHtml(item.song_id)} ${escapeHtml(title)}"><span class="song-disclosure" aria-hidden="true"></span><span class="song-id">${escapeHtml(item.song_id)}</span>${songTitleMarkup(title, 'item-title song-title')}${songProgress(item.song_id, title)}</button>`
+      ? `<button type="button" class="song-summary-toggle setlist-song-toggle ${expanded ? 'song-expanded' : ''}" data-song-id="${escapeHtml(item.song_id)}" data-view="setlists" aria-expanded="${expanded}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${escapeHtml(item.song_id)} ${escapeHtml(title)}"><span class="song-disclosure" aria-hidden="true"></span><span class="song-id">${escapeHtml(item.song_id)}</span>${songTitleMarkup(title, 'item-title song-title')}${songProgress(item.song_id, title)}</button>`
       : `<div><div class="item-title">${escapeHtml(title)}</div><div class="item-detail">${escapeHtml(detail)}</div></div>`;
     const controls = canEditSetlist ? `<div class="item-controls">${canDrag ? `<button class="drag-handle" type="button" draggable="true" data-id="${item.id}" aria-label="Drag ${escapeHtml(title)} to reorder" title="Drag to reorder">⠿</button>` : ''}<button class="icon-button remove-item" data-id="${item.id}" title="Remove item" aria-label="Remove ${escapeHtml(title)}">×</button></div>` : '';
     const details = isSong && expanded ? `<div class="setlist-song-details">${renderSongDetails(item.song_id)}</div>` : '';
