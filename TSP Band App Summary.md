@@ -261,3 +261,8 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 ## 2026-10-19 UI adjustment
 - Centered song IDs in both Songs and Setlists.
 - Moved each Setlists song order number to the top-right of its row and reduced left padding around its disclosure icon, ID, and title.
+
+
+
+## 2026-10-19 UI adjustment
+- Aligned Setlists progress rings and Ready/Sent to Mix indicators in a shared fixed-width column.
