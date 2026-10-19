@@ -290,3 +290,13 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .setlist-song-toggle .song-id{grid-column:2;grid-row:1}
 .setlist-song-toggle .item-title{grid-column:3;grid-row:1}
 .setlist-song-toggle .progress-rings,.setlist-song-toggle .song-status-indicator{grid-column:4;grid-row:1}
+
+/* Keep each song ID and title on one line; switch to initials only when the full title overflows. */
+.song-summary-toggle:not(.setlist-song-toggle){flex-wrap:nowrap;min-width:0}
+.song-summary-toggle:not(.setlist-song-toggle) .song-title-container{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden}
+.song-title-container{display:block;min-width:0;white-space:nowrap;overflow:hidden}
+.song-title-full{display:block;white-space:nowrap;overflow:hidden;text-overflow:clip}
+.song-title-initials{display:none;white-space:nowrap;overflow:hidden;text-overflow:clip}
+.song-title-abbreviated .song-title-full{display:none}
+.song-title-abbreviated .song-title-initials{display:block}
+.setlist-song-toggle .song-title-container{white-space:nowrap;overflow:hidden}
