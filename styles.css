@@ -251,3 +251,16 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 @media(max-width:600px){.song-table{min-width:0;table-layout:fixed}.song-table th:nth-child(1){width:58%}.song-table th:nth-child(2){width:24%}.song-table th:nth-child(3){width:18%}.song-table td{padding-right:5px;padding-left:5px}.song-table td:nth-child(2){width:auto}.song-table .song-summary-toggle{gap:6px}.song-table .song-name{min-width:0;max-width:100%;overflow-wrap:anywhere}.song-table .song-id{font-size:10px}.song-table th{padding-right:5px;padding-left:5px}}
 
 .setlist-song-toggle{grid-template-columns:auto minmax(0,1fr) 36px}.setlist-song-toggle .progress-rings{grid-column:3;grid-row:1}
+
+/* Ableton-style song disclosure states: right-pointing when closed, downward when open. */
+.song-summary-toggle{min-width:0}
+.song-disclosure{position:relative;display:inline-flex;flex:0 0 20px;width:20px;height:20px;align-items:center;justify-content:center;border:1px solid #969696;border-radius:50%;vertical-align:middle}
+.song-disclosure::before{content:"";width:0;height:0;border-top:5px solid transparent;border-bottom:5px solid transparent;border-left:7px solid #d4d4d4;margin-left:2px;transition:transform .14s ease,margin .14s ease}
+.song-summary-toggle[aria-expanded="true"] .song-disclosure::before{transform:rotate(90deg);margin-left:0}
+.song-summary-toggle:hover .song-disclosure{border-color:#f39a26}
+.song-summary-toggle:hover .song-disclosure::before{border-left-color:#f39a26}
+.setlist-song-toggle{grid-template-columns:20px auto minmax(0,1fr) 36px}
+.setlist-song-toggle .song-disclosure{grid-column:1;grid-row:1}
+.setlist-song-toggle .song-id{grid-column:2;grid-row:1}
+.setlist-song-toggle .item-title{grid-column:3;grid-row:1}
+.setlist-song-toggle .progress-rings{grid-column:4;grid-row:1}
