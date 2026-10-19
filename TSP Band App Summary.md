@@ -163,7 +163,7 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 
 ## 13. Change log
 
-### 19 Oct 2026 — baseline clarification and rename preparation
+### 19 Oct 2026 — baseline clarification and TSP Work rename
 
 - User confirmed the iPhone icon issue is fixed and the login page works.
 - User confirmed database structures for several future features exist, but their frontend workflows are not implemented yet.
@@ -173,4 +173,6 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 - Connected live Supabase project `hzvfrvjuqvmkeqbrgmqu` reports `ACTIVE_HEALTHY`; 50 songs, 7 members, 18 task types, 6 languages, 1 setlist, and 1 gig.
 - Current live setlist summary view calculates 21 songs, 6,836 seconds (1:53:56), and zero seconds of breaks.
 - App display name requested: **TSP Work**. Repository name and Supabase project name are intentionally unchanged.
-- Safe implementation workflow: use branch `chore/tsp-work-name-and-summary`; do not deploy to production until changes are reviewed/approved.
+- Updated on branch `chore/tsp-work-name-and-summary`: browser title, mobile Home Screen app title, login eyebrow, workspace header, README heading/description, and GitHub Pages workflow display name now use **TSP Work**.
+- Added this summary to the public frontend repository. The local Markdown copy and repository copy are intended to stay synchronized.
+- Changes remain on the review branch and have **not** been merged to `main` or deployed to the live site. The GitHub repository name and Supabase project name remain unchanged.
