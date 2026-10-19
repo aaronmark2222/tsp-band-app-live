@@ -264,3 +264,14 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .setlist-song-toggle .song-id{grid-column:2;grid-row:1}
 .setlist-song-toggle .item-title{grid-column:3;grid-row:1}
 .setlist-song-toggle .progress-rings{grid-column:4;grid-row:1}
+
+/* Keep the disclosure mark subordinate to track names and align its column heading. */
+.song-disclosure{flex-basis:14px;width:14px;height:14px}
+.song-disclosure::before{border-top-width:4px;border-bottom-width:4px;border-left-width:5px;margin-left:1px}
+.song-summary-toggle[aria-expanded="true"] .song-disclosure::before{margin-left:0}
+.song-table th:nth-child(2){text-align:center}
+.setlist-song-toggle{grid-template-columns:auto 14px minmax(0,1fr) 36px}
+.setlist-song-toggle .song-id{grid-column:1;grid-row:1}
+.setlist-song-toggle .song-disclosure{grid-column:2;grid-row:1}
+.setlist-song-toggle .item-title{grid-column:3;grid-row:1}
+.setlist-song-toggle .progress-rings{grid-column:4;grid-row:1}
