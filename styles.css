@@ -324,3 +324,23 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 }
 .task-detail.task-detail-personal .task-label,
 .task-detail.task-detail-personal .task-label * { color: #111111 !important; }
+
+/* Use matching ID and title columns in Songs and Setlists. */
+.song-summary-toggle:not(.setlist-song-toggle) {
+  display: grid;
+  grid-template-columns: 14px 54px minmax(0, 1fr);
+  column-gap: 9px;
+  align-items: center;
+}
+.song-summary-toggle:not(.setlist-song-toggle) .song-disclosure { grid-column: 1; }
+.song-summary-toggle:not(.setlist-song-toggle) .song-id { grid-column: 2; }
+.song-summary-toggle:not(.setlist-song-toggle) .song-title-container { grid-column: 3; }
+.setlist-song-toggle {
+  grid-template-columns: 14px 54px minmax(0, 1fr) minmax(36px, max-content);
+  column-gap: 9px;
+}
+.setlist-song-toggle .song-disclosure { grid-column: 1; }
+.setlist-song-toggle .song-id { grid-column: 2; color: var(--lime); }
+.setlist-song-toggle .item-title { grid-column: 3; }
+.setlist-song-toggle .progress-rings,
+.setlist-song-toggle .song-status-indicator { grid-column: 4; }
