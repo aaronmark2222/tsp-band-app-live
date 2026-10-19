@@ -197,3 +197,8 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 - Replaced the long per-song “You” and “Band” progress bars on the Songs and Setlists views with a compact concentric ring indicator. The inner orange ring represents the signed-in member's completed work; the outer gray ring represents completed band work. The unfilled arc shows work remaining.
 - Added an accessible label and tooltip with completed and remaining task counts for both scopes. Songs-table ring placement is narrow-screen friendly, and the table can fit small phone widths without its previous fixed minimum width.
 - This is a presentation-only change; task ownership, completion rules, readiness, and Supabase data are unchanged.
+
+### 19 Oct 2026 — Ableton-style song disclosure icons
+
+- Added a circled triangle before every expandable song entry in the Songs and Setlists views. It points right while collapsed and down while expanded, matching the supplied Ableton track reference.
+- The icon follows the existing expanded/collapsed state and screen-reader state; no song data or task behavior changed.
