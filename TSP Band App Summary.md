@@ -99,7 +99,7 @@ A new, **separate Supabase project in Aaron's own account** (keeps guitar-studen
 - `0011_oct_30_setlist_and_guitar_tone_owner`
 - `first_login_password_setup`
 
-Earlier migration records also exist but were not enumerated in this live check. The live public schema has 15 tables, and row-level security is enabled on the inspected public tables. Reference data currently includes 7 members, 6 languages, 18 task types, and 12 percussion instruments. Database structures for medley constituents, deadlines, and percussion assignments exist, but their corresponding frontend workflows have not been implemented yet.
+Supabase's recorded migration history currently lists seven entries: `0006` through `0011`, plus `first_login_password_setup`. It does not list repository migrations `0001` through `0005`; preserve these files as project history, and do not rerun them against production without reconciling the live schema and migration history. The live public schema has 15 tables, and row-level security is enabled on the inspected public tables. Reference data currently includes 7 members, 6 languages, 18 task types, and 12 percussion instruments. Database structures for medley constituents, deadlines, and percussion assignments exist, but their corresponding frontend workflows have not been implemented yet.
 
 **What the frontend reads and writes:**
 
@@ -134,7 +134,7 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 
 - **Public repo** `aaronmark2222/tsp-band-app-live`: static site on GitHub Pages (`index.html`, `app.js`, `styles.css`, `assets/the-string-project-logo.png`, `apple-touch-icon.png`). `app.js` loads supabase-js from `esm.sh` at runtime. No build step.
 - **Deploy:** `.github/workflows/deploy.yml` runs on every push to `main` and publishes **only the files it explicitly copies**. Any new file must be added to that copy step.
-- **Private repo** `tsp-band-app`: migrations, CSV import, `SETUP_SUPABASE.md`, `DEPLOY_FIX_TO_GITHUB.md`, internal docs.
+- **Consolidated source repository:** the former private `aaronmark2222/tsp-band-app` has been copied into this public repository, including `PLAN.md`, `SETUP_SUPABASE.md`, `docs/APP_GUIDE.md`, and all 12 numbered SQL migrations. The live app and database were already connected; the Supabase project was not duplicated or changed.
 - Repository edits can be made through the connected GitHub tools. Prefer a dedicated branch for review; avoid committing directly to `main` when a change can trigger a production GitHub Pages deployment.
 - Hosting model borrowed from Marks Music (static page on GitHub Pages + Supabase), but the band app needs **per-member Supabase Auth logins and row-level security** instead of Marks Music's shared password.
 - Used mainly on iPhone as a Home Screen web app.
@@ -175,4 +175,12 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 - App display name requested: **TSP Work**. Repository name and Supabase project name are intentionally unchanged.
 - Updated on branch `chore/tsp-work-name-and-summary`: browser title, mobile Home Screen app title, login eyebrow, workspace header, README heading/description, and GitHub Pages workflow display name now use **TSP Work**.
 - Added this summary to the public frontend repository. The local Markdown copy and repository copy are intended to stay synchronized.
-- Changes remain on the review branch and have **not** been merged to `main` or deployed to the live site. The GitHub repository name and Supabase project name remain unchanged.
+- The PR was merged to `main`; GitHub Pages deployment run 13 completed successfully. The GitHub repository name and Supabase project name remain unchanged.
+
+### 19 Oct 2026 — repository consolidation
+
+- Consolidated the formerly private `aaronmark2222/tsp-band-app` into the public `aaronmark2222/tsp-band-app-live` repository: copied the plan, Supabase setup guide, app guide, and all 12 numbered migrations. The frontend, logo, and styles were already identical between the repositories.
+- Updated the public README to document the consolidated source files and project summary.
+- Left the existing Supabase project and its production data unchanged; the live application already uses that same project. At inspection, it had 50 songs, 18 task types, one 21-song setlist, and seven tracked migration entries.
+- The public repo now contains the band seed data and SQL migrations by request. The migration history for `0001`–`0005` does not appear in Supabase's current migration list; do not reapply those scripts to production without reconciling them first.
+- The previous TSP Work branding and summary PR was merged to `main`, and its GitHub Pages deployment completed successfully.
