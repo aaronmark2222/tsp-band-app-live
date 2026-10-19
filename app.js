@@ -577,6 +577,8 @@ async function renderDashboard() {
   const assignedCategories = new Set(state.taskTypes
     .filter((type) => type.owner_member_id === viewedMember.id && type.category !== 'part')
     .map((type) => type.category === 'ableset' || type.key === 'prompts' ? 'playback' : type.category === 'backing' ? 'backing' : 'other'));
+  // Recorded tasks are reassigned to the admin; include their current categories in the dashboard headings.
+  for (const item of memberOpenItems) assignedCategories.add(dashboardWorkCategory(item));
   const widgets = [];
   if (assignedCategories.has('playback')) widgets.push(renderDashboardWorkWidget('Playback Work', 'playback', memberOpenItems.filter((item) => dashboardWorkCategory(item) === 'playback')));
   if (assignedCategories.has('backing')) widgets.push(renderDashboardWorkWidget('Backing Work', 'backing', memberOpenItems.filter((item) => dashboardWorkCategory(item) === 'backing')));
