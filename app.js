@@ -250,8 +250,13 @@ function renderSongDetails(songId) {
     if (!types.length) return '';
     return `<section class="task-group"><h3>${label}</h3><div class="task-grid">${types.map((type) => {
       const row = songTasks.get(type.key);
+      const status = row?.status || 'Incomplete';
+      const adminMember = state.members.find((member) => member.is_admin);
+      const ownerMemberId = status === 'Recorded' && adminMember ? adminMember.id : type.owner_member_id;
+      const unfinished = status !== 'No' && (status === 'Corrections' || !type.done_statuses.includes(status));
+      const personalTask = ownerMemberId === state.member.id && unfinished;
       const trackColor = ABLETON_TASK_COLORS[type.key] || { index: '', color: '#a9a9a9' };
-      return `<label class="task-detail" style="--task-color:${trackColor.color}" data-ableton-color-index="${trackColor.index}"><span class="task-label"><i aria-hidden="true"></i>${escapeHtml(type.label)}</span>${statusControl(songId, type, row?.status || 'Incomplete')}</label>`;
+      return `<label class="task-detail ${personalTask ? 'task-detail-personal' : ''}" style="--task-color:${trackColor.color}" data-ableton-color-index="${trackColor.index}"><span class="task-label"><i aria-hidden="true"></i>${escapeHtml(type.label)}</span>${statusControl(songId, type, status)}</label>`;
     }).join('')}</div></section>`;
   }).join('')}</div>`;
 }
