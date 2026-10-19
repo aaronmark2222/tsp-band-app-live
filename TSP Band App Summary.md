@@ -202,3 +202,8 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 
 - Added a circled triangle before every expandable song entry in the Songs and Setlists views. It points right while collapsed and down while expanded, matching the supplied Ableton track reference.
 - The icon follows the existing expanded/collapsed state and screen-reader state; no song data or task behavior changed.
+
+### 19 Oct 2026 — song list icon sizing and alignment
+
+- Reduced the Ableton-style circled disclosure icon so it sits smaller than the song title, and positioned it directly before the title after the song ID in both Songs and Setlists.
+- Centered the Songs table’s Work Remaining header above the centered progress ring.
