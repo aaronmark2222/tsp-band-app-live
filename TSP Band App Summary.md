@@ -245,3 +245,8 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 ## 2026-10-19 UI correction
 - Strengthened the solid orange fill for personal unfinished task cards across focus and hover states, preserving the status controls' existing appearance.
 - Changed song expansion scrolling to align the overview row below the sticky header so the title and metadata remain visible.
+
+
+
+## 2026-10-19 UI adjustment
+- Optional Band Parts tasks are excluded from the personal orange unfinished-task highlight.
