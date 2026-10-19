@@ -309,6 +309,6 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .song-summary-toggle.song-expanded .song-title-full { display: block; white-space: normal; overflow: visible; }
 
 /* Mark the current viewer's unfinished tasks with the app's muted orange accent. */
-.task-detail-personal { background: #332a20; border: 1px solid #79552e; }
-.task-detail-personal .task-label { color: #f0b36b; }
-.task-detail-personal .status-select { border-color: #79552e; }
+.task-detail-personal { background: #f39a26; border: 1px solid #f39a26; }
+.task-detail-personal .task-label { color: #111111; }
+.task-detail-personal .task-label i { box-shadow: 0 0 0 1px #0006; }
