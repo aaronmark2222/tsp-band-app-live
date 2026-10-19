@@ -574,12 +574,17 @@ async function renderDashboard() {
   songs = [...songs.filter((song) => song.backing_track_manual !== 'Sent to Mix'), ...waitingOnMix];
   const openItems = songs.flatMap((song) => songWorkItems(song.id).filter((item) => !isWorkItemDone(item)).map((item) => ({ ...item, song_id: song.id, song })));
   const memberOpenItems = openItems.filter((item) => item.owner_member_id === viewedMember.id);
-  const assignedCategories = new Set(state.taskTypes.filter((type) => type.owner_member_id === viewedMember.id).map((type) => type.category === 'ableset' || type.key === 'prompts' ? 'playback' : type.category === 'backing' ? 'backing' : 'other'));
+  const assignedCategories = new Set(state.taskTypes
+    .filter((type) => type.owner_member_id === viewedMember.id && type.category !== 'part')
+    .map((type) => type.category === 'ableset' || type.key === 'prompts' ? 'playback' : type.category === 'backing' ? 'backing' : 'other'));
   const widgets = [];
   if (assignedCategories.has('playback')) widgets.push(renderDashboardWorkWidget('Playback Work', 'playback', memberOpenItems.filter((item) => dashboardWorkCategory(item) === 'playback')));
   if (assignedCategories.has('backing')) widgets.push(renderDashboardWorkWidget('Backing Work', 'backing', memberOpenItems.filter((item) => dashboardWorkCategory(item) === 'backing')));
   const otherItems = memberOpenItems.filter((item) => dashboardWorkCategory(item) === 'other');
-  if (otherItems.length) widgets.push(renderDashboardWorkWidget('Other Work', 'other', otherItems));
+  if (assignedCategories.has('other')) {
+    const otherTitle = assignedCategories.size === 1 ? 'Work Remaining' : 'Other Work';
+    widgets.push(renderDashboardWorkWidget(otherTitle, 'other', otherItems));
+  }
   $('#dashboard-work-widgets').innerHTML = widgets.join('');
   const readyCount = songs.filter((song) => (state.readiness || []).find((row) => row.song_id === song.id)?.ready).length;
   const personalLabel = viewedMember.id === state.member.id ? 'Personal tasks left' : `${escapeHtml(viewedMember.name)}'s personal tasks left`;
