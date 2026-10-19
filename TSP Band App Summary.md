@@ -255,3 +255,9 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 
 ## 2026-10-19 UI adjustment
 - Setlists song IDs now use the same accent color as Songs. Both lists use matching disclosure, fixed-width ID, and title columns for consistent ID and title alignment.
+
+
+
+## 2026-10-19 UI adjustment
+- Centered song IDs in both Songs and Setlists.
+- Moved each Setlists song order number to the top-right of its row and reduced left padding around its disclosure icon, ID, and title.
