@@ -134,7 +134,7 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 
 - **Public repo** `aaronmark2222/tsp-band-app-live`: static site on GitHub Pages (`index.html`, `app.js`, `styles.css`, `assets/the-string-project-logo.png`, `apple-touch-icon.png`). `app.js` loads supabase-js from `esm.sh` at runtime. No build step.
 - **Deploy:** `.github/workflows/deploy.yml` runs on every push to `main` and publishes **only the files it explicitly copies**. Any new file must be added to that copy step.
-- **Consolidated source repository:** the former private `aaronmark2222/tsp-band-app` has been copied into this public repository, including `PLAN.md`, `SETUP_SUPABASE.md`, `docs/APP_GUIDE.md`, and all 12 numbered SQL migrations. The live app and database were already connected; the Supabase project was not duplicated or changed.
+- **Consolidated source repository:** the private `aaronmark2222/tsp-band-app` has been consolidated into this public repository, including `PLAN.md`, `SETUP_SUPABASE.md`, `docs/APP_GUIDE.md`, and all 12 numbered SQL migrations. The live app and database were already connected; the Supabase project was not duplicated or changed.
 - Repository edits can be made through the connected GitHub tools. Prefer a dedicated branch for review; avoid committing directly to `main` when a change can trigger a production GitHub Pages deployment.
 - Hosting model borrowed from Marks Music (static page on GitHub Pages + Supabase), but the band app needs **per-member Supabase Auth logins and row-level security** instead of Marks Music's shared password.
 - Used mainly on iPhone as a Home Screen web app.
@@ -184,3 +184,8 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 - Left the existing Supabase project and its production data unchanged; the live application already uses that same project. At inspection, it had 50 songs, 18 task types, one 21-song setlist, and seven tracked migration entries.
 - The public repo now contains the band seed data and SQL migrations by request. The migration history for `0001`–`0005` does not appear in Supabase's current migration list; do not reapply those scripts to production without reconciling them first.
 - The previous TSP Work branding and summary PR was merged to `main`, and its GitHub Pages deployment completed successfully.
+
+
+### 19 Oct 2026 — GitHub deletion verification
+
+- GitHub requires account-owner email verification before it will permit permanent deletion of `aaronmark2222/tsp-band-app`. The repository remains intact and has not been deleted; the transfer to `tsp-band-app-live` is complete.
