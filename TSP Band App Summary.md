@@ -207,3 +207,9 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 
 - Reduced the Ableton-style circled disclosure icon so it sits smaller than the song title, and positioned it directly before the title after the song ID in both Songs and Setlists.
 - Centered the Songs table’s Work Remaining header above the centered progress ring.
+
+### 19 Oct 2026 — readiness colors in the Status column
+
+- Replaced the separate Ready column in the Songs table with a single **Status** column showing the ring indicator.
+- Songs that meet the existing readiness rule now use green and dark-green rings. When all required non-optional work is complete and the only remaining readiness blocker is the backing track's **Sent to Mix** state, the rings use blue and dark blue.
+- All other songs keep the existing personal/band progress colors. Readiness calculations and database values are unchanged.
