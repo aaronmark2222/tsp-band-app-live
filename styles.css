@@ -249,3 +249,5 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 @media(max-width:700px) { .gig-form-grid { grid-template-columns: 1fr; } .gig-notes-field { grid-column: auto; } .gig-auto-setlist-note { margin: 0; } }
 
 @media(max-width:600px){.song-table{min-width:0;table-layout:fixed}.song-table th:nth-child(1){width:58%}.song-table th:nth-child(2){width:24%}.song-table th:nth-child(3){width:18%}.song-table td{padding-right:5px;padding-left:5px}.song-table td:nth-child(2){width:auto}.song-table .song-summary-toggle{gap:6px}.song-table .song-name{min-width:0;max-width:100%;overflow-wrap:anywhere}.song-table .song-id{font-size:10px}.song-table th{padding-right:5px;padding-left:5px}}
+
+.setlist-song-toggle{grid-template-columns:auto minmax(0,1fr) 36px}.setlist-song-toggle .progress-rings{grid-column:3;grid-row:1}
