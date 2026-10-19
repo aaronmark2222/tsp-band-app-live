@@ -364,3 +364,18 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .setlist-row:has(.setlist-song-toggle) > .setlist-item-summary { padding-right: 32px; }
 .setlist-row:has(.setlist-song-toggle):has(.item-controls) > .position { right: 78px; }
 .setlist-row:has(.setlist-song-toggle):has(.item-controls) > .setlist-item-summary { padding-right: 8px; }
+
+/* Give rings and Ready/Sent to Mix labels one shared alignment column. */
+.setlist-song-toggle {
+  grid-template-columns: 14px 54px minmax(0, 1fr) 84px;
+}
+.setlist-song-toggle > .song-progress {
+  grid-column: 4;
+  grid-row: 1;
+  justify-self: center;
+  align-self: center;
+  display: flex;
+  width: 84px;
+  margin: 0;
+  justify-content: center;
+}
