@@ -271,3 +271,8 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 
 ## 2026-10-19 Dashboard fix
 - Connected the Playback, Backing, and Other Work widget status controls to the shared save flow. Completing an item now saves it, refreshes readiness, and removes it from remaining work; Completed keeps its green status styling.
+
+
+## 2026-10-20 Dashboard adjustment
+- Dashboard work groups now exclude optional Parts tasks when determining a member's required-work categories.
+- Members assigned only backing work see only Backing Work; members whose only required category is a non-playback, non-backing task such as Guitar MIDI see a single Work Remaining group. Members with multiple categories retain Playback Work, Backing Work, and Other Work as applicable.
