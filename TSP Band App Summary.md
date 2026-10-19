@@ -276,3 +276,7 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 ## 2026-10-20 Dashboard adjustment
 - Dashboard work groups now exclude optional Parts tasks when determining a member's required-work categories.
 - Members assigned only backing work see only Backing Work; members whose only required category is a non-playback, non-backing task such as Guitar MIDI see a single Work Remaining group. Members with multiple categories retain Playback Work, Backing Work, and Other Work as applicable.
+
+
+## 2026-10-20 Dashboard correction
+- Dashboard headings now also reflect the categories of currently open tasks assigned to the viewed member, including tasks reassigned to the admin when marked Recorded. This keeps Recorded items visible in the appropriate group, including Other Work.
