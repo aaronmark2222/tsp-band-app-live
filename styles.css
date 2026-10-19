@@ -276,12 +276,17 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .setlist-song-toggle .item-title{grid-column:3;grid-row:1}
 .setlist-song-toggle .progress-rings{grid-column:4;grid-row:1}
 
-/* Status is encoded by the ring pair: green for ready, blue for sent-to-mix-only. */
-.progress-rings.status-ready .progress-ring-personal{stroke:#71d17a}
-.progress-rings.status-ready .progress-ring-band{stroke:#205b2c}
-.progress-rings.status-sent-to-mix .progress-ring-personal{stroke:#62baff}
-.progress-rings.status-sent-to-mix .progress-ring-band{stroke:#1d4f80}
 .song-table{min-width:640px}
 .song-table th:first-child{width:74%}
 .song-table th:nth-child(2){width:26%;text-align:center}
 @media(max-width:600px){.song-table{min-width:0;table-layout:fixed}.song-table th:first-child{width:74%}.song-table th:nth-child(2){width:26%;text-align:center}.song-table td:nth-child(2){width:auto;text-align:center}}
+
+/* Text status badges reuse the backing-track select's Ableton-style status colors. */
+.song-status-indicator{display:inline-flex;max-width:100%;min-height:25px;align-items:center;justify-content:center;padding:4px 7px;border:1px solid #466185;border-radius:3px;background:#242424;color:#7FA8D8;font:11px var(--mono);white-space:nowrap}
+.song-status-indicator[data-status="Ready"]{border-color:#5A7240;color:#A5D17D}
+@media(max-width:600px){.song-status-indicator{padding:4px 5px;font-size:9px}}
+.setlist-song-toggle{grid-template-columns:14px auto minmax(0,1fr) minmax(36px,max-content)}
+.setlist-song-toggle .song-disclosure{grid-column:1;grid-row:1}
+.setlist-song-toggle .song-id{grid-column:2;grid-row:1}
+.setlist-song-toggle .item-title{grid-column:3;grid-row:1}
+.setlist-song-toggle .progress-rings,.setlist-song-toggle .song-status-indicator{grid-column:4;grid-row:1}
