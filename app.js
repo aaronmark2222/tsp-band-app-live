@@ -337,7 +337,7 @@ function songSummaryLeadMarkup(songId) {
 function renderSongs() {
   const head = $('#songs-head');
   const body = $('#songs-body');
-  head.innerHTML = '<tr><th>SONG</th><th>STATUS</th></tr>';
+  head.innerHTML = '<tr><th>SONG</th></tr>';
   const term = $('#song-search').value.trim().toLowerCase();
   const language = $('#language-filter').value;
   const performance = $('#performance-filter').value;
@@ -373,9 +373,9 @@ function renderSongs() {
   body.innerHTML = sorted.map((song) => {
     const expanded = state.expandedSongIds.has(song.id);
     const detailId = `song-detail-${song.id}`;
-    return `<tr class="song-overview"><td><button type="button" class="song-summary-toggle ${expanded ? 'song-expanded' : ''}" data-song-id="${escapeHtml(song.id)}" data-view="songs" aria-expanded="${expanded}" aria-controls="${detailId}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${escapeHtml(song.id)} ${escapeHtml(song.name)}">${songSummaryLeadMarkup(song.id)}${songTitleMarkup(song.name, 'song-name')}</button></td><td><span class="song-progress">${songProgress(song.id, song.name)}</span></td></tr><tr id="${detailId}" class="song-detail-row ${expanded ? '' : 'hidden'}"><td colspan="2">${renderSongDetails(song.id)}</td></tr>`;
+    return `<tr class="song-overview"><td><div class="song-entry"><button type="button" class="song-summary-toggle ${expanded ? 'song-expanded' : ''}" data-song-id="${escapeHtml(song.id)}" data-view="songs" aria-expanded="${expanded}" aria-controls="${detailId}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${escapeHtml(song.id)} ${escapeHtml(song.name)}">${songTitleMarkup(song.name, 'song-name')}</button><div class="song-entry-footer"><span class="song-entry-id">${escapeHtml(song.id)}</span><span class="song-progress">${songProgress(song.id, song.name)}</span></div></div></td></tr><tr id="${detailId}" class="song-detail-row ${expanded ? '' : 'hidden'}"><td colspan="1">${renderSongDetails(song.id)}</td></tr>`;
   }).join('');
-  if (!sorted.length) body.innerHTML = '<tr><td colspan="2" class="empty-state">No songs match these filters.</td></tr>';
+  if (!sorted.length) body.innerHTML = '<tr><td colspan="1" class="empty-state">No songs match these filters.</td></tr>';
   requestAnimationFrame(() => { updateSongTitleAbbreviations(); observeSongTitleAbbreviations(); });
 }
 
