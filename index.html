@@ -11,8 +11,8 @@
     <meta name="theme-color" content="#292929">
     <title>TSP Work · The String Project</title>
     <link rel="icon" href="assets/the-string-project-logo.png?v=20261019" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=20261020-status-indicators-original-size">
-    <script type="module" src="app.js?v=20261020-status-indicators-original-size"></script>
+    <link rel="stylesheet" href="styles.css?v=20261020-songs-toolbar-cleanup">
+    <script type="module" src="app.js?v=20261020-songs-toolbar-cleanup"></script>
   </head>
   <body>
     <main id="app" class="shell">
@@ -130,7 +130,7 @@
             <div><p class="eyebrow">THE REPERTOIRE</p><h1>Songs <span id="song-total" class="heading-count"></span></h1><p class="muted">A shared view of every song and every part.</p></div>
         
           </div>
-          <div class="toolbar song-toolbar"><label class="search"><span>⌕</span><input id="song-search" type="search" placeholder="Find a song or ID…" aria-label="Search songs"></label><button id="song-filters-toggle" class="button quiet filter-toggle" type="button" aria-expanded="false" aria-controls="song-filter-panel">Filters</button><button id="new-song-open" class="button primary hidden" type="button">＋ Add song</button><button id="refresh" class="button quiet">Refresh</button></div>
+          <div class="toolbar song-toolbar"><label class="search"><span>⌕</span><input id="song-search" type="search" placeholder="Find a song or ID…" aria-label="Search songs"></label><button id="song-filters-toggle" class="button quiet filter-toggle" type="button" aria-expanded="false" aria-controls="song-filter-panel">Filters</button><button id="new-song-open" class="button primary hidden" type="button">＋ Add song</button></div>
           <div id="song-filter-panel" class="filter-panel hidden"><select id="language-filter" aria-label="Filter by language"><option value="">All languages</option></select><select id="performance-filter" aria-label="Filter by performance"><option value="">Singles and medleys</option><option value="single">Singles</option><option value="medley">Medleys</option></select><select id="key-filter" aria-label="Filter by key or scale"><option value="">Any key / scale</option></select><select id="song-sort" aria-label="Sort songs"><option value="original">Master list order</option><option value="name-asc">Name A–Z</option><option value="name-desc">Name Z–A</option><option value="performance">Singles, then medleys</option><option value="key">Key / scale</option><option value="duration-asc">Shortest first</option><option value="duration-desc">Longest first</option><option value="remaining-desc">Most band work left</option><option value="remaining-asc">Least band work left</option><option value="ready">Ready first</option></select><button id="clear-song-filters" class="button quiet hidden">Clear filters</button></div>
           <div class="table-wrap"><table class="song-table"><thead id="songs-head"></thead><tbody id="songs-body"></tbody></table></div>
           <p class="table-hint">Click a song name to expand its details. Combine filters or sort the list to find songs; status changes save as you make them.</p>
