@@ -56,6 +56,8 @@ Task status controls keep their dark Ableton-style surfaces. The supplied status
 
 Language chips and language filter choices use accents derived from the `LANGUAGE` track's clip colors in `TSP LIVE MASTER PROJECT.als`. English, Hindi, Konkani, and Kannada have explicit named clips. Tamil and Malayalam are not distinguished on that track; the app uses close gray variants for those two languages, based on the track's `Other` clip color. The palette index/color mapping is kept in `app.js` (`LANGUAGE_COLORS`).
 
+Admins can use **Add song** on the Songs page to open the repertoire editor. The setlist count card is intentionally omitted from this page.
+
 The expanded song details label the control **Backing Track**. Admins can choose `Auto`, `Sent to Mix`, or `Mixed`; the Auto menu option is gray, while the closed control displays only its derived `Finished` or `Not Finished` status. Selecting Auto clears the manual override and lets the `song_readiness` view derive its status from backing tasks. Not Finished is red, Finished is peach, Sent to Mix is blue, and Mixed is green. Non-admin members can view but not change this value.
 
 ## Dashboard
@@ -92,7 +94,7 @@ Song readiness is shown from the database's `song_readiness` view. All applicabl
 
 Members can choose a setlist and view its gig information, ordered songs, total song count, and running time. Search stays visible and the **Filters** button expands or collapses the language, single/medley, and key/scale filters. These filters narrow the visible items without changing the saved order. Clear filters before dragging to reorder the full setlist. Click a song name in the setlist to expand the same type, languages, duration, task details, and progress shown on the Songs screen. Task and Backing Track statuses changed here update the same database rows as on the Songs screen.
 
-Setlist structure starts in read-only mode. Only an admin sees **Edit setlist**. In edit mode the admin can create a setlist, add an available song, remove an item, and drag a song using its drag handle to reorder the running order. Changes save to `setlists` and `setlist_items`; `setlist_summary` provides the counts and total duration. The app currently does not expose controls for adding breaks or notes, even though the schema retains the legacy item types for compatibility.
+Setlist structure starts in read-only mode. Only an admin sees **Edit setlist**. In edit mode the admin can add or remove songs and drag songs to reorder the running order. These edits are staged in the page: the edit control says **Done editing** when nothing changed and changes to **Save** after an edit. Clicking **Save** writes additions, removals, and the final order to `setlist_items`, then exits edit mode. **Discard changes** abandons staged edits. The Songs page no longer shows the setlist count card. The app currently does not expose controls for adding breaks or notes, even though the schema retains the legacy item types for compatibility.
 
 ## Gigs screen
 

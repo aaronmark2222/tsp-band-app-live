@@ -84,6 +84,7 @@ function showWorkspace() {
   $('#workspace').classList.remove('hidden');
   $('#member-access-open').classList.toggle('hidden', !state.member.is_admin);
   $('#new-song-open').classList.toggle('hidden', !state.member.is_admin);
+  $('#new-song-open').onclick = openNewSongDialog;
   $('#member-name').textContent = state.member.name;
   $('#member-badge').textContent = state.member.name.slice(0, 1).toUpperCase();
 }
@@ -427,7 +428,7 @@ function renderSetlistItems(items, canEditSetlist) {
         ? `<div class="setlist-song-edit-summary"><span class="song-id">${escapeHtml(item.song_id)}</span>${songTitleMarkup(title, 'item-title song-title')}</div>`
         : `<button type="button" class="song-summary-toggle setlist-song-toggle ${expanded ? 'song-expanded' : ''}" data-song-id="${escapeHtml(item.song_id)}" data-view="setlists" aria-expanded="${expanded}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${escapeHtml(item.song_id)} ${escapeHtml(title)}"><span class="song-disclosure" aria-hidden="true"></span><span class="song-id">${escapeHtml(item.song_id)}</span>${songTitleMarkup(title, 'item-title song-title')}${songProgress(item.song_id, title)}</button>`
       : `<div><div class="item-title">${escapeHtml(title)}</div><div class="item-detail">${escapeHtml(detail)}</div></div>`;
-    const controls = canEditSetlist ? `<div class="item-controls">${canDrag ? `<button class="drag-handle" type="button" data-id="${item.id}" aria-label="Drag ${escapeHtml(title)} to reorder" title="Drag to reorder">⠿</button>` : ''}<button class="icon-button remove-item" data-id="${item.id}" title="Remove item" aria-label="Remove ${escapeHtml(title)}" ${state.setlistOrderDirty ? "disabled" : ""}>×</button></div>` : '';
+    const controls = canEditSetlist ? `<div class="item-controls">${canDrag ? `<button class="drag-handle" type="button" data-id="${item.id}" aria-label="Drag ${escapeHtml(title)} to reorder" title="Drag to reorder">⠿</button>` : ''}<button class="icon-button remove-item" data-id="${item.id}" title="Remove item" aria-label="Remove ${escapeHtml(title)}" >×</button></div>` : '';
     const details = isSong && expanded ? `<div class="setlist-song-details">${renderSongDetails(item.song_id)}</div>` : '';
     const rowClass = `${setlistItemMatches(item, filters) ? 'setlist-row' : 'setlist-row hidden'}${canEditSetlist ? ' editing' : ''}`;
     return `<li class="${rowClass}" data-id="${item.id}" ${canDrag ? 'draggable="true"' : ''}><div class="setlist-item-summary">${summary}</div><span class="position">${String(index + 1).padStart(2, '0')}</span><div class="item-actions">${!isSong ? `<span class="duration">${secondsLabel(duration)}</span>` : ''}${controls}</div>${details}</li>`;
@@ -486,16 +487,14 @@ function openGigForm(gig = null) {
 async function renderActiveSetlist() {
   const setlist = state.setlists.find((item) => item.id === state.activeSetlist);
   $('#active-setlist-name').textContent = setlist?.name || 'Choose a setlist';
-  $('#setlist-name-caption').textContent = setlist?.name || 'No setlist';
   const canEditSetlist = state.member.is_admin && state.setlistEditMode;
   $('#setlist-edit-toggle').classList.toggle('hidden', !state.member.is_admin);
-  $('#setlist-edit-toggle').textContent = state.setlistEditMode ? 'Done editing' : 'Edit setlist';
-  $('#save-setlist-order').classList.toggle('hidden', !canEditSetlist);
-  $('#save-setlist-order').disabled = !state.setlistOrderDirty || savingSetlistOrder;
+  $('#setlist-edit-toggle').textContent = state.setlistEditMode ? (state.setlistOrderDirty ? 'Save' : 'Done editing') : 'Edit setlist';
+  $('#setlist-edit-toggle').disabled = savingSetlistOrder;
   $('#discard-setlist-order').classList.toggle('hidden', !canEditSetlist || !state.setlistOrderDirty);
   $('#setlist-edit-toggle').setAttribute('aria-pressed', String(state.setlistEditMode));
   $('#add-song-toggle').classList.toggle('hidden', !canEditSetlist);
-  $('#add-song-toggle').disabled = !canEditSetlist || state.setlistOrderDirty;
+  $('#add-song-toggle').disabled = !canEditSetlist;
   $('#new-setlist').classList.toggle('hidden', !state.member.is_admin);
   $('#new-setlist').disabled = !state.member.is_admin;
   if (!canEditSetlist) $('#add-song-panel').classList.add('hidden');
@@ -507,7 +506,6 @@ async function renderActiveSetlist() {
     $('#setlist-filter-empty').classList.add('hidden');
     $('#setlist-empty').classList.remove('hidden');
     $('#setlist-summary').textContent = 'Create your first setlist.';
-    $('#set-song-count').textContent = '0';
     return;
   }
   try {
@@ -517,11 +515,9 @@ async function renderActiveSetlist() {
     ]);
     if (summary.error) throw summary.error;
     const total = summary.data?.total_seconds ?? 0;
-    $('#set-song-count').textContent = summary.data?.song_count ?? 0;
     $('#setlist-summary').textContent = `${summary.data?.song_count || 0} songs · ${secondsLabel(total)} running time`;
     state.activeSetlistItems = items;
     if (canEditSetlist && !state.setlistOrderDirty) state.originalSetlistItems = [...items];
-    $('#add-song').disabled = state.setlistOrderDirty;
     renderSetlistItems(items, canEditSetlist);
     $('#add-song-select').innerHTML = state.songs.map((song) => `<option value="${escapeHtml(song.id)}">${escapeHtml(song.id)} · ${escapeHtml(song.name)}</option>`).join('');
   } catch (error) { fail('Could not load this setlist.', error); }
@@ -682,44 +678,96 @@ async function saveBackingTrackStatus(select) {
 
 async function addSongToSetlist() {
   if (!state.member.is_admin || !state.setlistEditMode || !state.activeSetlist) return;
-  if (state.setlistOrderDirty) return showNotice('Save or discard the staged order before changing setlist contents.', true);
-  const items = await loadSetlistItems(state.activeSetlist);
   const songId = $('#add-song-select').value;
-  if (items.some((item) => item.item_type === 'song' && item.song_id === songId)) return showNotice('That song is already in this setlist.', true);
-  const nextPosition = Math.max(0, ...items.map((item) => item.position)) + 1;
-  const { error } = await db.from('setlist_items').insert({ setlist_id: state.activeSetlist, position: nextPosition, item_type: 'song', song_id: songId });
-  if (error) return fail('Could not add this song.', error);
+  if (state.activeSetlistItems.some((item) => item.item_type === 'song' && item.song_id === songId)) return showNotice('That song is already in this setlist.', true);
+  const song = state.songs.find((item) => item.id === songId);
+  if (!song) return showNotice('Choose a song to add.', true);
+  state.activeSetlistItems.push({
+    id: `pending:${crypto.randomUUID()}`,
+    setlist_id: state.activeSetlist,
+    position: state.activeSetlistItems.length + 1,
+    item_type: 'song',
+    song_id: songId,
+    songs: song
+  });
   $('#add-song-panel').classList.add('hidden');
-  showNotice('Song added to the running order.');
-  await renderActiveSetlist();
+  refreshSetlistDirtyState();
+  renderSetlistItems(state.activeSetlistItems, true);
+  updateSetlistEditControls();
 }
 
 async function saveSetlistOrder(items) {
   if (!state.member.is_admin || !state.setlistEditMode || savingSetlistOrder || !state.setlistOrderDirty) return;
   savingSetlistOrder = true;
   $('#setlist-items').classList.add('saving-order');
-  const base = Math.max(0, ...items.map((item) => item.position)) + items.length + 1;
+  const originalIds = new Set(state.originalSetlistItems.map((item) => item.id));
+  const retainedIds = new Set(items.filter((item) => originalIds.has(item.id)).map((item) => item.id));
+  const removedIds = [...originalIds].filter((id) => !retainedIds.has(id));
+  const base = Math.max(0, ...state.originalSetlistItems.map((item) => item.position || 0)) + items.length + 1;
   try {
-    const stage = await Promise.all(items.map((item, index) => db.from('setlist_items').update({position:base+index}).eq('id',item.id)));
-    const stageError = stage.find((result) => result.error)?.error;
+    const stagedExisting = await Promise.all(items.map((item, index) => originalIds.has(item.id)
+      ? db.from('setlist_items').update({ position: base + index }).eq('id', item.id)
+      : Promise.resolve({ error: null })));
+    const stageError = stagedExisting.find((result) => result.error)?.error;
     if (stageError) throw stageError;
-    const updates = await Promise.all(items.map((item, index) => db.from('setlist_items').update({position:index+1}).eq('id',item.id)));
-    const updateError = updates.find((result) => result.error)?.error;
-    if (updateError) throw updateError;
+
+    if (removedIds.length) {
+      const { error } = await db.from('setlist_items').delete().in('id', removedIds);
+      if (error) throw error;
+    }
+
+    const persistedIds = new Map(items.filter((item) => originalIds.has(item.id)).map((item) => [item.id, item.id]));
+    for (const [index, item] of items.entries()) {
+      if (originalIds.has(item.id)) continue;
+      if (item.persistedId) {
+        persistedIds.set(item.id, item.persistedId);
+        continue;
+      }
+      const { data, error } = await db.from('setlist_items').insert({
+        setlist_id: state.activeSetlist,
+        position: base + items.length + index,
+        item_type: item.item_type,
+        song_id: item.song_id,
+        label: item.label ?? null,
+        note: item.note ?? null,
+        break_seconds: item.break_seconds ?? null
+      }).select('id').single();
+      if (error) throw error;
+      item.persistedId = data.id;
+      persistedIds.set(item.id, data.id);
+    }
+
+    const finalPositions = await Promise.all(items.map((item, index) =>
+      db.from('setlist_items').update({ position: index + 1 }).eq('id', persistedIds.get(item.id))));
+    const finalPositionError = finalPositions.find((result) => result.error)?.error;
+    if (finalPositionError) throw finalPositionError;
+
     state.setlistOrderDirty = false;
-    showNotice('Setlist order saved.');
+    state.setlistEditMode = false;
+    state.originalSetlistItems = [];
+    $('#add-song-panel').classList.add('hidden');
+    showNotice('Setlist changes saved.');
     await renderActiveSetlist();
   } catch (error) {
-    fail('Could not save the new setlist order. Your staged order is still here; try saving again.', error);
+    fail('Could not save the setlist changes. Your staged edits are still here; try saving again.', error);
   } finally {
     savingSetlistOrder = false;
     $('#setlist-items').classList.remove('saving-order');
     updateSetlistEditControls();
   }
 }
+function refreshSetlistDirtyState() {
+  const original = state.originalSetlistItems.map((item) => item.id);
+  const current = state.activeSetlistItems.map((item) => item.id);
+  state.setlistOrderDirty = original.length !== current.length || original.some((id, index) => id !== current[index]);
+}
 function updateSetlistEditControls() {
-  const save = $('#save-setlist-order'), discard = $('#discard-setlist-order');
-  if (save) save.disabled = !state.setlistOrderDirty || savingSetlistOrder;
+  const toggle = $('#setlist-edit-toggle');
+  const discard = $('#discard-setlist-order');
+  if (toggle) {
+    toggle.textContent = !state.setlistEditMode ? 'Edit setlist' : state.setlistOrderDirty ? 'Save' : 'Done editing';
+    toggle.disabled = savingSetlistOrder;
+  }
   if (discard) discard.classList.toggle('hidden', !state.setlistEditMode || !state.setlistOrderDirty || savingSetlistOrder);
 }
 
@@ -737,17 +785,16 @@ function dropSetlistItem(event) {
   order.splice(Math.max(0, Math.min(to, order.length)), 0, movingId);
   const byId = new Map(state.activeSetlistItems.map((item) => [item.id,item]));
   state.activeSetlistItems = order.map((id) => byId.get(id)).filter(Boolean);
-  state.setlistOrderDirty = state.activeSetlistItems.some((item,index) => item.id !== state.originalSetlistItems[index]?.id);
+  refreshSetlistDirtyState();
   renderSetlistItems(state.activeSetlistItems, true);
   updateSetlistEditControls();
 }
-async function removeSetlistItem(id) {
+function removeSetlistItem(id) {
   if (!state.member.is_admin || !state.setlistEditMode) return;
-  if (state.setlistOrderDirty) return showNotice('Save or discard the staged order before changing setlist contents.', true);
-  const { error } = await db.from('setlist_items').delete().eq('id', id);
-  if (error) return fail('Could not remove this item.', error);
-  showNotice('Item removed from the setlist.');
-  await renderActiveSetlist();
+  state.activeSetlistItems = state.activeSetlistItems.filter((item) => item.id !== id);
+  refreshSetlistDirtyState();
+  renderSetlistItems(state.activeSetlistItems, true);
+  updateSetlistEditControls();
 }
 
 
@@ -883,19 +930,26 @@ function readTempoPoints() {
 
 function openNewSongDialog() {
   if (!state.member?.is_admin) return;
-  $('#new-song-form').reset();
-  newSongIdQuery = '';
-  $('#new-song-id-prefix').value = '';
-  updateGeneratedSongId();
-  $('#new-song-error').textContent = '';
-  $('#new-song-type').value = 'Vox';
-  $('#new-song-format').value = 'single';
-  $('#new-song-tempo-change').value = 'none';
-  $('#new-song-backing').value = '';
-  renderNewSongFields();
-  $('#song-editor-dialog').showModal();
-  $('#new-song-id-prefix').focus();
+  const dialog = $('#song-editor-dialog');
+  if (!dialog.open) dialog.showModal();
+  try {
+    $('#new-song-form').reset();
+    newSongIdQuery = '';
+    $('#new-song-id-prefix').value = '';
+    updateGeneratedSongId();
+    $('#new-song-error').textContent = '';
+    $('#new-song-type').value = 'Vox';
+    $('#new-song-format').value = 'single';
+    $('#new-song-tempo-change').value = 'none';
+    $('#new-song-backing').value = '';
+    renderNewSongFields();
+    $('#new-song-id-prefix').focus();
+  } catch (error) {
+    console.error('Could not prepare the new-song form.', error);
+    $('#new-song-error').textContent = error.message || 'Some song form options could not be loaded. Refresh and try again.';
+  }
 }
+window.openNewSongDialog = openNewSongDialog;
 async function saveNewSong(event) {
   event.preventDefault();
   if (!state.member?.is_admin) return;
@@ -1044,9 +1098,14 @@ async function saveGig(event) {
 }
 
 function setView(view) {
+  if (view !== 'setlists' && state.setlistEditMode && state.setlistOrderDirty) {
+    showNotice('Save or discard your staged setlist changes before leaving edit mode.', true);
+    return;
+  }
   state.view = view;
   if (view !== 'setlists') {
     state.setlistEditMode = false;
+    state.originalSetlistItems = [];
     $('#add-song-panel').classList.add('hidden');
   }
   document.querySelectorAll('.tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.view === view));
@@ -1278,29 +1337,43 @@ $('#clear-setlist-filters').addEventListener('click', () => {
 });
 $('#refresh').addEventListener('click', async () => { try { await Promise.all([loadData(), loadReadiness()]); if (state.view === 'dashboard') await renderDashboard(); showNotice('Workspace refreshed.'); } catch (error) { fail('Could not refresh the workspace.', error); } });
 $('#setlist-select').addEventListener('change', (event) => {
-  if (state.setlistOrderDirty) { event.target.value = state.activeSetlist; showNotice('Save or discard your staged order before switching setlists.', true); return; }
+  if (state.setlistOrderDirty) { event.target.value = state.activeSetlist; showNotice('Save or discard your staged changes before switching setlists.', true); return; }
   state.activeSetlist = event.target.value;
   renderActiveSetlist();
 });
 $('#add-song-toggle').addEventListener('click', () => $('#add-song-panel').classList.toggle('hidden'));
-$('#setlist-edit-toggle').addEventListener('click', () => {
-  if (!state.member.is_admin) return;
-  if (state.setlistEditMode && state.setlistOrderDirty) { showNotice('Save or discard your staged order before leaving edit mode.', true); return; }
-  state.setlistEditMode = !state.setlistEditMode;
-  if (state.setlistEditMode) { state.expandedSongIds.clear(); state.originalSetlistItems = [...state.activeSetlistItems]; state.setlistOrderDirty = false; }
-  else $('#add-song-panel').classList.add('hidden');
-  renderActiveSetlist();
+$('#setlist-edit-toggle').addEventListener('click', async () => {
+  if (!state.member.is_admin || savingSetlistOrder) return;
+  if (!state.setlistEditMode) {
+    state.setlistEditMode = true;
+    state.expandedSongIds.clear();
+    state.originalSetlistItems = [...state.activeSetlistItems];
+    state.setlistOrderDirty = false;
+    $('#add-song-panel').classList.add('hidden');
+    await renderActiveSetlist();
+    updateSetlistEditControls();
+    return;
+  }
+  if (state.setlistOrderDirty) {
+    await saveSetlistOrder([...state.activeSetlistItems]);
+    return;
+  }
+  state.setlistEditMode = false;
+  state.originalSetlistItems = [];
+  $('#add-song-panel').classList.add('hidden');
+  await renderActiveSetlist();
 });
-$('#save-setlist-order').addEventListener('click', () => saveSetlistOrder(state.activeSetlistItems.map((item,index) => ({id:item.id,position:index+1}))));
 $('#discard-setlist-order').addEventListener('click', () => {
   state.activeSetlistItems = [...state.originalSetlistItems];
   state.setlistOrderDirty = false;
-  renderSetlistItems(state.activeSetlistItems, true);
-  updateSetlistEditControls();
+  state.setlistEditMode = false;
+  state.originalSetlistItems = [];
+  $('#add-song-panel').classList.add('hidden');
+  renderActiveSetlist();
 });
 $('#add-song').addEventListener('click', addSongToSetlist);
 $('#new-setlist').addEventListener('click', openNewSetlistDialog);
-$('#new-song-open').addEventListener('click', openNewSongDialog);
+
 $('#cancel-new-song').addEventListener('click', () => $('#song-editor-dialog').close());
 $('#new-song-form').addEventListener('submit', saveNewSong);
 $('#new-song-id-prefix').addEventListener('input', (event) => {
