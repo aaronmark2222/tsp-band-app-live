@@ -11,8 +11,8 @@
     <meta name="theme-color" content="#292929">
     <title>TSP Work · The String Project</title>
     <link rel="icon" href="assets/the-string-project-logo.png?v=20261019" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=20261020-song-id-suggestions">
-    <script type="module" src="app.js?v=20261020-song-id-suggestions"></script>
+    <link rel="stylesheet" href="styles.css?v=20261020-song-id-spotlight">
+    <script type="module" src="app.js?v=20261020-song-id-spotlight"></script>
   </head>
   <body>
     <main id="app" class="shell">
@@ -108,7 +108,7 @@
             <h2>Add a song</h2>
             <p class="muted">The song will be added with every task prefilled as Incomplete. You can change any status before saving.</p>
             <div class="editor-grid">
-              <div class="new-song-id-field"><label for="new-song-id">Song ID</label><input id="new-song-id" required maxlength="20" pattern="[A-Z][A-Za-z]*[0-9]+" autocomplete="off" placeholder="Type a prefix, e.g. E" aria-autocomplete="list" aria-controls="new-song-id-suggestions" aria-expanded="false"><div id="new-song-id-suggestions" class="song-id-suggestions" role="listbox" aria-label="Suggested Song IDs"></div><small id="new-song-id-help">Start typing to see the next available ID for each matching family. Choose a suggestion or enter any unique valid ID.</small></div>
+              <div class="new-song-id-field"><label for="new-song-id">Song ID</label><input id="new-song-id" role="combobox" required maxlength="20" pattern="[A-Z][A-Za-z]*[0-9]+" autocomplete="off" placeholder="Type a prefix, e.g. E" aria-autocomplete="both" aria-controls="new-song-id-suggestions" aria-expanded="false"><div id="new-song-id-suggestions" class="song-id-suggestions" role="listbox" aria-label="Suggested Song IDs"></div><small id="new-song-id-help">Start typing to preview the best next ID; press Enter to accept it. Keep typing to refine the match, or choose another suggestion.</small></div>
               <label>Song name<input id="new-song-name" required maxlength="120" autocomplete="off" placeholder="Song title"></label>
               <label>Song type<select id="new-song-type"><option value="Vox">Vocal (Vox)</option><option value="Inst">Instrumental (Inst)</option></select></label>
               <label>Format<select id="new-song-format"><option value="single">Standalone song</option><option value="medley">Medley</option></select></label>
