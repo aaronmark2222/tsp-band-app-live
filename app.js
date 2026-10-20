@@ -740,6 +740,48 @@ async function removeSetlistItem(id) {
 
 
 const KEY_CHOICES = ['A','Am','A#','A#m','B','Bm','C','Cm','C#','C#m','D','Dm','D#','D#m','E','Em','F','Fm','F#','F#m','G','Gm','G#','G#m'];
+function nextAvailableSongIds() {
+  const families = new Map();
+  state.songs.forEach((song) => {
+    const match = String(song.id || '').match(/^([A-Z][A-Za-z]*?)(\d+)$/i);
+    if (!match) return;
+    const normalized = match[1].toUpperCase();
+    const number = Number(match[2]);
+    const family = families.get(normalized);
+    if (!family || number > family.max) families.set(normalized, { prefix: family?.prefix || match[1], max: number });
+  });
+  const selectedCodes = [...document.querySelectorAll('input[name="new-song-language"]:checked')].map((input) => input.value);
+  const selectedPrefix = $('#new-song-type')?.value === 'Inst'
+    ? 'I'
+    : selectedCodes.length
+      ? `${selectedCodes.join('')}${$('#new-song-format')?.value === 'medley' ? 'M' : ''}`
+      : '';
+  if (selectedPrefix) {
+    const normalized = selectedPrefix.toUpperCase();
+    if (!families.has(normalized)) families.set(normalized, { prefix: selectedPrefix, max: 0 });
+  }
+  const query = ($('#new-song-id')?.value || '').trim().toLocaleLowerCase();
+  return [...families.values()]
+    .map(({ prefix, max }) => `${prefix}${max + 1}`)
+    .filter((id) => !query || id.toLocaleLowerCase().startsWith(query))
+    .sort((a, b) => a.replace(/\d+$/, '').length - b.replace(/\d+$/, '').length || a.localeCompare(b))
+    .slice(0, 12);
+}
+function renderNewSongIdSuggestions() {
+  const list = $('#new-song-id-suggestions');
+  const input = $('#new-song-id');
+  if (!list || !input) return;
+  const options = nextAvailableSongIds();
+  const query = input.value.trim();
+  if (options.length) {
+    list.innerHTML = `<span class="song-id-suggestion-label">${query ? 'Next available matches' : 'Next available Song IDs'}</span>${options.map((id) => `<button type="button" role="option" aria-selected="false" data-song-id-suggestion="${escapeHtml(id)}">${escapeHtml(id)}</button>`).join('')}`;
+  } else if (query) {
+    list.innerHTML = '<span class="song-id-suggestion-empty">No next-ID match. You can still enter another unique valid ID.</span>';
+  } else {
+    list.innerHTML = '<span class="song-id-suggestion-empty">Choose a language or start typing to see suggested IDs.</span>';
+  }
+  input.setAttribute('aria-expanded', options.length ? 'true' : 'false');
+}
 function renderNewSongFields() {
   $('#new-song-language-options').innerHTML = state.languageOptions.map((language) =>
     `<label class="editor-option"><input type="checkbox" name="new-song-language" value="${escapeHtml(language.code)}"><span>${escapeHtml(language.name)} <small>${escapeHtml(language.code)}</small></span></label>`).join('');
@@ -749,6 +791,7 @@ function renderNewSongFields() {
     return `<label class="new-song-task-row"><span>${escapeHtml(type.label)}</span><select class="new-song-task-status" data-task-key="${escapeHtml(type.key)}">${options}</select></label>`;
   }).join('');
   updateNewSongIdPreview();
+  renderNewSongIdSuggestions();
 }
 function updateNewSongIdPreview() {
   const type = $('#new-song-type')?.value || 'Vox';
@@ -757,6 +800,7 @@ function updateNewSongIdPreview() {
   const prefix = type === 'Inst' ? 'I' : codes.join('') || '[language codes]';
   const example = `${prefix}${isMedley && type !== 'Inst' ? 'M' : ''}1`;
   $('#new-song-id-preview').textContent = `Typical prefix for this selection: ${example}. Supported language codes: E (English), H (Hindi), K (Konkani), T (Tamil), Kn (Kannada), and Ml (Malayalam). Examples include I1 (instrumental), E7/H1/K1/T1/Kn1/Ml1 (single-language), EM1/HM1/KM1 (medleys), and multi-language IDs such as EHM1/EHKM1. M marks a medley; combine the language codes, then the medley marker if applicable, then a number. The ID must be unique.`;
+  renderNewSongIdSuggestions();
 }
 function openNewSongDialog() {
   if (!state.member?.is_admin) return;
@@ -1161,6 +1205,20 @@ $('#new-setlist').addEventListener('click', openNewSetlistDialog);
 $('#new-song-open').addEventListener('click', openNewSongDialog);
 $('#cancel-new-song').addEventListener('click', () => $('#song-editor-dialog').close());
 $('#new-song-form').addEventListener('submit', saveNewSong);
+$('#new-song-id').addEventListener('input', renderNewSongIdSuggestions);
+$('#new-song-id').addEventListener('keydown', (event) => {
+  if (event.key === 'ArrowDown') {
+    const firstOption = $('#new-song-id-suggestions [data-song-id-suggestion]');
+    if (firstOption) { event.preventDefault(); firstOption.focus(); }
+  }
+});
+$('#new-song-id-suggestions').addEventListener('click', (event) => {
+  const option = event.target.closest('[data-song-id-suggestion]');
+  if (!option) return;
+  $('#new-song-id').value = option.dataset.songIdSuggestion;
+  renderNewSongIdSuggestions();
+  $('#new-song-id').focus();
+});
 $('#new-song-type').addEventListener('change', updateNewSongIdPreview);
 $('#new-song-format').addEventListener('change', updateNewSongIdPreview);
 $('#new-song-language-options').addEventListener('change', updateNewSongIdPreview);
