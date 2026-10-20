@@ -766,7 +766,7 @@ function updateSetlistEditControls() {
   const toggle = $('#setlist-edit-toggle');
   const discard = $('#discard-setlist-order');
   if (toggle) {
-    toggle.textContent = state.setlistOrderDirty ? 'Save' : 'Done editing';
+    toggle.textContent = !state.setlistEditMode ? 'Edit setlist' : state.setlistOrderDirty ? 'Save' : 'Done editing';
     toggle.disabled = savingSetlistOrder;
   }
   if (discard) discard.classList.toggle('hidden', !state.setlistEditMode || !state.setlistOrderDirty || savingSetlistOrder);
