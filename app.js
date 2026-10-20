@@ -694,7 +694,7 @@ async function addSongToSetlist() {
   await renderActiveSetlist();
 }
 
-async async function saveSetlistOrder(items) {
+async function saveSetlistOrder(items) {
   if (!state.member.is_admin || !state.setlistEditMode || savingSetlistOrder || !state.setlistOrderDirty) return;
   savingSetlistOrder = true;
   $('#setlist-items').classList.add('saving-order');
