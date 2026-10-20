@@ -644,3 +644,29 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
   }
   .song-table .song-name { overflow-wrap: normal; }
 }
+
+/* Keep the phone status column only as wide as its contents need. */
+@media(max-width:600px) {
+  .song-table { width:100%; min-width:0; table-layout:fixed; }
+  .song-table th:first-child { width:calc(100% - 70px) !important; }
+  .song-table th:nth-child(2),
+  .song-table td:nth-child(2) { width:70px !important; }
+  .song-table .song-progress { width:60px; min-width:60px; margin:0 auto; }
+  .song-progress-lines,
+  .song-progress-line { width:60px; }
+  .song-status-indicator {
+    width:60px;
+    min-width:60px;
+    max-width:none;
+    min-height:18px;
+    padding:2px 1px;
+    box-sizing:border-box;
+    font-size:8px;
+    line-height:1;
+  }
+  .setlist-song-toggle { grid-template-columns:max-content minmax(0,1fr) 60px; column-gap:4px; }
+  .setlist-song-toggle > .song-progress,
+  .setlist-song-toggle .song-status-indicator { width:60px; }
+  .setlist-song-toggle .song-progress-lines,
+  .setlist-song-toggle .song-progress-line { width:60px; }
+}
