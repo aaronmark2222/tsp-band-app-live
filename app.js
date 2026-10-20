@@ -43,6 +43,7 @@ const BACKING_TRACK_COLORS = { 'Not Finished': '#F27A73', Finished: '#F6CAAE', '
 const state = { member: null, members: [], songs: [], tasks: [], taskTypes: [], languages: [], languageOptions: [], setlists: [], gigs: [], activeSetlist: null, activeSetlistItems: [], originalSetlistItems: [], setlistOrderDirty: false, view: 'songs', expandedSongIds: new Set(), setlistEditMode: false, dashboardScope: 'gig', dashboardMemberId: null, accessMembers: [], newSetlistSongIds: [] };
 let draggedItemId = null;
 let savingSetlistOrder = false;
+let deletingSetlist = false;
 let dashboardRenderRequest = 0;
 
 function showNotice(message, isError = false) {
@@ -492,6 +493,8 @@ async function renderActiveSetlist() {
   $('#setlist-edit-toggle').textContent = state.setlistEditMode ? (state.setlistOrderDirty ? 'Save' : 'Done editing') : 'Edit setlist';
   $('#setlist-edit-toggle').disabled = savingSetlistOrder;
   $('#discard-setlist-order').classList.toggle('hidden', !canEditSetlist || !state.setlistOrderDirty);
+  $('#setlist-delete-controls').classList.toggle('hidden', !canEditSetlist || !setlist || deletingSetlist);
+  $('#delete-setlist').disabled = deletingSetlist;
   $('#setlist-edit-toggle').setAttribute('aria-pressed', String(state.setlistEditMode));
   $('#add-song-toggle').classList.toggle('hidden', !canEditSetlist);
   $('#add-song-toggle').disabled = !canEditSetlist;
@@ -528,6 +531,22 @@ function nextDashboardGig() {
   const localDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const upcoming = state.gigs.filter((gig) => gig.event_date >= localDate && gig.setlist_id).sort((a, b) => a.event_date.localeCompare(b.event_date));
   return upcoming[0] || [...state.gigs].sort((a, b) => b.event_date.localeCompare(a.event_date))[0] || null;
+}
+
+function renderDashboardTabs() {
+  const upcomingGig = nextDashboardGig();
+  if (state.dashboardScope === 'gig') state.dashboardScope = upcomingGig ? `gig:${upcomingGig.id}` : 'total';
+  const availableScopes = new Set(state.gigs.map((gig) => `gig:${gig.id}`).concat('total'));
+  if (!availableScopes.has(state.dashboardScope)) state.dashboardScope = upcomingGig ? `gig:${upcomingGig.id}` : 'total';
+  const gigs = [...state.gigs].sort((a, b) => a.event_date.localeCompare(b.event_date) || a.name.localeCompare(b.name));
+  const tabs = gigs.map((gig) => {
+    const date = new Date(`${gig.event_date}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    const label = upcomingGig?.id === gig.id ? `Upcoming · ${date}` : date;
+    const scope = `gig:${gig.id}`;
+    return `<button class="dashboard-tab" type="button" role="tab" aria-selected="${scope === state.dashboardScope}" data-dashboard-scope="${escapeHtml(scope)}"><span>${escapeHtml(gig.name)}</span><small>${escapeHtml(label)}</small></button>`;
+  }).join('');
+  const totalActive = state.dashboardScope === 'total';
+  $('#dashboard-tabs').innerHTML = `${tabs}<button class="dashboard-tab" type="button" role="tab" aria-selected="${totalActive}" data-dashboard-scope="total"><span>Total Setlist</span><small>Entire repertoire</small></button>`;
 }
 
 function renderDashboardTaskGroups(items, song, viewedMemberId) {
@@ -584,33 +603,26 @@ async function renderDashboard() {
   if (!state.dashboardMemberId || !state.members.some((member) => member.id === state.dashboardMemberId)) state.dashboardMemberId = state.member.id;
   memberSelect.value = state.dashboardMemberId;
   const viewedMember = state.members.find((member) => member.id === state.dashboardMemberId) || state.member;
-  const gig = nextDashboardGig();
-  $('#dashboard-gig-name').textContent = gig?.name || 'Upcoming Gig';
-  document.querySelectorAll('.dashboard-tab').forEach((tab) => {
-    const active = tab.dataset.dashboardScope === state.dashboardScope;
-    tab.classList.toggle('active', active);
-    tab.setAttribute('aria-selected', String(active));
-  });
+  renderDashboardTabs();
+  const selectedGig = state.gigs.find((gig) => state.dashboardScope === `gig:${gig.id}`) || null;
   let songs = state.songs;
-  if (state.dashboardScope === 'gig') {
-    if (!gig?.setlist_id) {
-      $('#dashboard-caption').textContent = 'No upcoming gig is linked to a setlist yet.';
-      $('#dashboard-work-widgets').innerHTML = '';
-      $('#dashboard-summary').innerHTML = '';
-      $('#dashboard-song-list').innerHTML = '<div class="empty-state">Link a setlist to the next gig to see its remaining work here.</div>';
-      return;
+  if (selectedGig) {
+    if (!selectedGig.setlist_id) {
+      songs = [];
+      $('#dashboard-caption').textContent = `${selectedGig.name} · No setlist is attached to this gig.`;
+    } else {
+      try {
+        const items = await loadSetlistItems(selectedGig.setlist_id);
+        if (requestId !== dashboardRenderRequest) return;
+        const songIds = [...new Set(items.filter((item) => item.item_type === 'song' && item.song_id).map((item) => item.song_id))];
+        songs = songIds.map((id) => state.songs.find((song) => song.id === id)).filter(Boolean);
+      } catch (error) {
+        fail(`Could not load the ${selectedGig.name} setlist.`, error);
+        return;
+      }
+      const setlistName = state.setlists.find((list) => list.id === selectedGig.setlist_id)?.name || 'linked setlist';
+      $('#dashboard-caption').textContent = `${selectedGig.name} · ${new Date(`${selectedGig.event_date}T12:00:00`).toLocaleDateString(undefined, { dateStyle: 'long' }) · ${setlistName}`;
     }
-    try {
-      const items = await loadSetlistItems(gig.setlist_id);
-      if (requestId !== dashboardRenderRequest) return;
-      const songIds = [...new Set(items.filter((item) => item.item_type === 'song' && item.song_id).map((item) => item.song_id))];
-      songs = songIds.map((id) => state.songs.find((song) => song.id === id)).filter(Boolean);
-    } catch (error) {
-      fail('Could not load the upcoming gig setlist.', error);
-      return;
-    }
-    const setlistName = state.setlists.find((list) => list.id === gig.setlist_id)?.name || 'linked setlist';
-    $('#dashboard-caption').textContent = `${gig.name} · ${new Date(`${gig.event_date}T12:00:00`).toLocaleDateString(undefined, { dateStyle: 'long' })} · ${setlistName}`;
   } else {
     $('#dashboard-caption').textContent = 'All songs in the repertoire, with optional Parts kept separate from required readiness work.';
   }
@@ -1036,6 +1048,37 @@ function openNewSetlistDialog() {
   $('#setlist-create-dialog').showModal();
   $('#new-setlist-name').focus();
 }
+async function deleteActiveSetlist() {
+  if (!state.member?.is_admin || !state.setlistEditMode || deletingSetlist || !state.activeSetlist) return;
+  const setlist = state.setlists.find((item) => item.id === state.activeSetlist);
+  if (!setlist) return;
+  const linkedGigs = state.gigs.filter((gig) => gig.setlist_id === setlist.id);
+  const linkedGigNote = linkedGigs.length
+    ? ` Linked gigs will remain but will no longer have an attached setlist: ${linkedGigs.map((gig) => gig.name).join(', ')}.`
+    : '';
+  const message = `Delete “${setlist.name}”? Its running order and setlist deadlines will be deleted.${linkedGigNote} This cannot be undone.`;
+  if (!window.confirm(message)) return;
+  deletingSetlist = true;
+  $('#delete-setlist').disabled = true;
+  try {
+    const { error } = await db.from('setlists').delete().eq('id', setlist.id);
+    if (error) throw error;
+    state.setlistEditMode = false;
+    state.setlistOrderDirty = false;
+    state.originalSetlistItems = [];
+    state.activeSetlistItems = [];
+    $('#add-song-panel').classList.add('hidden');
+    await loadData();
+    if (state.view === 'dashboard') await renderDashboard();
+    showNotice(`Deleted “${setlist.name}”.${linkedGigs.length ? ' Linked gigs remain without a setlist.' : ''}`);
+  } catch (error) {
+    fail(`Could not delete “${setlist.name}”.`, error);
+  } finally {
+    deletingSetlist = false;
+    await renderActiveSetlist();
+  }
+}
+
 async function saveNewSetlist(event) {
   event.preventDefault();
   if (!state.member?.is_admin) return;
@@ -1292,10 +1335,12 @@ $('#password-setup-sign-out').addEventListener('click', async () => {
 $('#sign-out').addEventListener('click', async () => { await db.auth.signOut(); state.member = null; showLogin(); });
 document.querySelectorAll('.tab').forEach((button) => button.addEventListener('click', () => setView(button.dataset.view)));
 $('#song-search').addEventListener('input', renderSongs);
-document.querySelectorAll('.dashboard-tab').forEach((button) => button.addEventListener('click', () => {
+$('#dashboard-tabs').addEventListener('click', (event) => {
+  const button = event.target.closest('.dashboard-tab');
+  if (!button) return;
   state.dashboardScope = button.dataset.dashboardScope;
   renderDashboard();
-}));
+});
 $('#dashboard-member-select').addEventListener('change', (event) => {
   state.dashboardMemberId = event.target.value;
   renderDashboard();
@@ -1370,6 +1415,7 @@ $('#setlist-edit-toggle').addEventListener('click', async () => {
   $('#add-song-panel').classList.add('hidden');
   await renderActiveSetlist();
 });
+$('#delete-setlist').addEventListener('click', deleteActiveSetlist);
 $('#discard-setlist-order').addEventListener('click', () => {
   state.activeSetlistItems = [...state.originalSetlistItems];
   state.setlistOrderDirty = false;
