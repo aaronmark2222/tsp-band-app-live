@@ -17,7 +17,7 @@ This note summarizes information already documented in the public repository. It
 - First-login password setup is supported for newly linked accounts.
 - The main views are Songs, Setlists, Gigs, and Dashboard. Song-task ownership in `task_types.owner_member_id` controls member editing; the administrator can manage broader work and setlists. Supabase row-level security is the authorization boundary.
 - The Dashboard groups remaining work by member/category and can show the next gig or full repertoire.
-- Setlist editing is available to the administrator; members can view setlists.
+- Setlist editing is available to the administrator; additions, removals, and ordering are staged until Save, shown on the same edit control. Members can view setlists.
 
 ## Data model and references
 
