@@ -198,8 +198,8 @@ function songProgress(songId, songName) {
   const allRequiredWorkDone = applicable.every(isWorkItemDone);
   const ready = !!readiness?.ready;
   const sentToMixOnly = !ready && readiness?.backing_track === 'Sent to Mix' && hasAbleSetWork && allRequiredWorkDone;
-  if (ready) return '<span class="song-status-ribbon" data-status="Ready"><span class="song-status-ribbon-label">Ready</span></span>';
-  if (sentToMixOnly) return '<span class="song-status-ribbon" data-status="Sent to Mix"><span class="song-status-ribbon-label">Sent to Mix</span></span>';
+  if (ready) return '<span class="song-status-indicator" data-status="Ready">Ready</span>';
+  if (sentToMixOnly) return '<span class="song-status-indicator" data-status="Sent to Mix">Sent to Mix</span>';
   const label = `Status: In progress. Work remaining for ${songName}: You have ${mine.length ? `${myRemaining} of ${mine.length} tasks left` : 'no assigned tasks'}; the band has ${applicable.length ? `${bandRemaining} of ${applicable.length} tasks left` : 'no tasks'}.`;
   return `<span class="song-progress-lines" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><span class="song-progress-line song-progress-line-band" style="--progress:${bandPercent}%"></span><span class="song-progress-line song-progress-line-personal" style="--progress:${personalPercent}%"></span></span>`;
 }
@@ -331,13 +331,13 @@ async function toggleSongDetails(songId, view) {
 }
 
 function songSummaryLeadMarkup(songId) {
-  return '<span class="song-disclosure" aria-hidden="true"></span><span class="song-id">' + escapeHtml(songId) + '</span>';
+  return '<span class="song-id-cue" aria-hidden="true"><span class="song-disclosure"></span><span class="song-id">' + escapeHtml(songId) + '</span></span>';
 }
 
 function renderSongs() {
   const head = $('#songs-head');
   const body = $('#songs-body');
-  head.innerHTML = '<tr><th>SONG</th></tr>';
+  head.innerHTML = '<tr><th>SONG</th><th>STATUS</th></tr>';
   const term = $('#song-search').value.trim().toLowerCase();
   const language = $('#language-filter').value;
   const performance = $('#performance-filter').value;
@@ -373,9 +373,9 @@ function renderSongs() {
   body.innerHTML = sorted.map((song) => {
     const expanded = state.expandedSongIds.has(song.id);
     const detailId = `song-detail-${song.id}`;
-    return `<tr class="song-overview"><td><button type="button" class="song-summary-toggle ${expanded ? 'song-expanded' : ''}" data-song-id="${escapeHtml(song.id)}" data-view="songs" aria-expanded="${expanded}" aria-controls="${detailId}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${escapeHtml(song.id)} ${escapeHtml(song.name)}">${songSummaryLeadMarkup(song.id)}${songTitleMarkup(song.name, 'song-name')}</button><span class="song-progress">${songProgress(song.id, song.name)}</span></td></tr><tr id="${detailId}" class="song-detail-row ${expanded ? '' : 'hidden'}"><td colspan="1">${renderSongDetails(song.id)}</td></tr>`;
+    return `<tr class="song-overview"><td><button type="button" class="song-summary-toggle ${expanded ? 'song-expanded' : ''}" data-song-id="${escapeHtml(song.id)}" data-view="songs" aria-expanded="${expanded}" aria-controls="${detailId}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${escapeHtml(song.id)} ${escapeHtml(song.name)}">${songSummaryLeadMarkup(song.id)}${songTitleMarkup(song.name, 'song-name')}</button></td><td><span class="song-progress">${songProgress(song.id, song.name)}</span></td></tr><tr id="${detailId}" class="song-detail-row ${expanded ? '' : 'hidden'}"><td colspan="2">${renderSongDetails(song.id)}</td></tr>`;
   }).join('');
-  if (!sorted.length) body.innerHTML = '<tr><td colspan="1" class="empty-state">No songs match these filters.</td></tr>';
+  if (!sorted.length) body.innerHTML = '<tr><td colspan="2" class="empty-state">No songs match these filters.</td></tr>';
   requestAnimationFrame(() => { updateSongTitleAbbreviations(); observeSongTitleAbbreviations(); });
 }
 
@@ -439,7 +439,7 @@ function renderSetlistItems(items, canEditSetlist) {
     const summary = isSong
       ? canEditSetlist
         ? `<div class="setlist-song-edit-summary"><span class="song-id">${escapeHtml(item.song_id)}</span>${songTitleMarkup(title, 'item-title song-title')}</div>`
-        : `<div class="setlist-song-content"><button type="button" class="song-summary-toggle setlist-song-toggle ${expanded ? 'song-expanded' : ''}" data-song-id="${escapeHtml(item.song_id)}" data-view="setlists" aria-expanded="${expanded}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${escapeHtml(item.song_id)} ${escapeHtml(title)}">${songSummaryLeadMarkup(item.song_id)}${songTitleMarkup(title, 'item-title song-title')}</button><span class="song-progress">${songProgress(item.song_id, title)}</span></div>`
+        : `<button type="button" class="song-summary-toggle setlist-song-toggle ${expanded ? 'song-expanded' : ''}" data-song-id="${escapeHtml(item.song_id)}" data-view="setlists" aria-expanded="${expanded}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${escapeHtml(item.song_id)} ${escapeHtml(title)}">${songSummaryLeadMarkup(item.song_id)}${songTitleMarkup(title, 'item-title song-title')}${songProgress(item.song_id, title)}</button>`
       : `<div><div class="item-title">${escapeHtml(title)}</div><div class="item-detail">${escapeHtml(detail)}</div></div>`;
     const controls = canEditSetlist ? `<div class="item-controls">${canDrag ? `<button class="drag-handle" type="button" data-id="${item.id}" aria-label="Drag ${escapeHtml(title)} to reorder" title="Drag to reorder">⠿</button>` : ''}<button class="icon-button remove-item" data-id="${item.id}" title="Remove item" aria-label="Remove ${escapeHtml(title)}" >×</button></div>` : '';
     const details = isSong && expanded ? `<div class="setlist-song-details">${renderSongDetails(item.song_id)}</div>` : '';
