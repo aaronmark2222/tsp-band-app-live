@@ -694,7 +694,7 @@ async function addSongToSetlist() {
   await renderActiveSetlist();
 }
 
-async async function saveSetlistOrder(items) {
+async function saveSetlistOrder(items) {
   if (!state.member.is_admin || !state.setlistEditMode || savingSetlistOrder || !state.setlistOrderDirty) return;
   savingSetlistOrder = true;
   $('#setlist-items').classList.add('saving-order');
@@ -1277,7 +1277,11 @@ $('#clear-setlist-filters').addEventListener('click', () => {
   renderSetlistItems(state.activeSetlistItems, state.member.is_admin && state.setlistEditMode);
 });
 $('#refresh').addEventListener('click', async () => { try { await Promise.all([loadData(), loadReadiness()]); if (state.view === 'dashboard') await renderDashboard(); showNotice('Workspace refreshed.'); } catch (error) { fail('Could not refresh the workspace.', error); } });
-$('#setlist-select').addEventListener('change', (event) => { state.activeSetlist = event.target.value; renderActiveSetlist(); });
+$('#setlist-select').addEventListener('change', (event) => {
+  if (state.setlistOrderDirty) { event.target.value = state.activeSetlist; showNotice('Save or discard your staged order before switching setlists.', true); return; }
+  state.activeSetlist = event.target.value;
+  renderActiveSetlist();
+});
 $('#add-song-toggle').addEventListener('click', () => $('#add-song-panel').classList.toggle('hidden'));
 $('#setlist-edit-toggle').addEventListener('click', () => {
   if (!state.member.is_admin) return;
