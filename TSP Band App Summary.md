@@ -1,6 +1,6 @@
 # TSP Work — Project Summary
 
-*Official project summary for **TSP Work**, the band workspace for The String Project. Updated 19 Oct 2026 using the user’s clarifications, the live frontend repository (`aaronmark2222/tsp-band-app-live`), and the connected Supabase project (`hzvfrvjuqvmkeqbrgmqu`). Treat the live repository and database as the current implementation; user-confirmed decisions define intended behaviour. Keep this file synchronized with the repository copy after every meaningful work step.*
+*Official project summary for **TSP Work**, the band workspace for The String Project. Updated 20 Oct 2026 using the user’s clarifications, the live frontend repository (`aaronmark2222/tsp-band-app-live`), and the connected Supabase project (`hzvfrvjuqvmkeqbrgmqu`). Treat the live repository and database as the current implementation; user-confirmed decisions define intended behaviour. Keep this file synchronized with the repository copy after every meaningful work step.*
 
 ---
 
@@ -294,3 +294,11 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 - Added an admin-only **Member access** panel. Aaron can send a reset email or generate a temporary password for a linked member. Temporary passwords are shown once in the admin panel and require a password change at the member's next sign-in.
 - Added the server-side Supabase Edge Function `member-access-admin`. It verifies the caller's active session and linked admin member record before listing accounts, sending reset emails, or changing passwords. The service-role key stays on Supabase and is never exposed to the browser.
 - Recovery emails redirect to the GitHub Pages app URL. Supabase Auth must allow `https://aaronmark2222.github.io/tsp-band-app-live/` as a redirect URL; otherwise Supabase will return a redirect configuration error.
+
+
+### 20 Oct 2026 — Oct 30 setlist reorder
+
+- Reordered the Oct 30th setlist to the requested sequence wherever the title already exists in the song catalogue, and added Punjabi Medley (HM4) as the final item.
+- The catalogue-backed sequence currently occupies positions 2–23. Position 1 is reserved for “KESARIYA Prelude,” which does not yet exist in the songs table; no new song/task record was created without its details.
+- The live setlist therefore now has 22 catalogue-backed songs. Confirm the missing Prelude title and details before adding it.
+- Nishanth (Drums) and Albert (Keyboard) already have member records, but neither supplied email exists in Auth or is saved in member_emails. Account creation has not been performed pending action-time confirmation for granting two new production sign-ins.
