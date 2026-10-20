@@ -248,7 +248,15 @@ function updateSongTitleAbbreviations() {
   });
 }
 
+let songTitleResizeObserver = null;
+function observeSongTitleAbbreviations() {
+  if (!window.ResizeObserver) return;
+  if (!songTitleResizeObserver) songTitleResizeObserver = new ResizeObserver(() => requestAnimationFrame(updateSongTitleAbbreviations));
+  songTitleResizeObserver.disconnect();
+  document.querySelectorAll('.song-summary-toggle').forEach((button) => songTitleResizeObserver.observe(button));
+}
 window.addEventListener('resize', () => requestAnimationFrame(updateSongTitleAbbreviations));
+if (document.fonts?.ready) document.fonts.ready.then(() => requestAnimationFrame(updateSongTitleAbbreviations));
 function remainingWork(songId, memberOnly = false) {
   const open = songWorkItems(songId).filter((item) => !isWorkItemDone(item));
   return memberOnly ? open.filter((item) => item.owner_member_id === state.member.id).length : open.length;
@@ -368,7 +376,7 @@ function renderSongs() {
     return `<tr class="song-overview"><td><button type="button" class="song-summary-toggle ${expanded ? 'song-expanded' : ''}" data-song-id="${escapeHtml(song.id)}" data-view="songs" aria-expanded="${expanded}" aria-controls="${detailId}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${escapeHtml(song.id)} ${escapeHtml(song.name)}">${songSummaryLeadMarkup(song.id)}${songTitleMarkup(song.name, 'song-name')}</button></td><td><span class="song-progress">${songProgress(song.id, song.name)}</span></td></tr><tr id="${detailId}" class="song-detail-row ${expanded ? '' : 'hidden'}"><td colspan="2">${renderSongDetails(song.id)}</td></tr>`;
   }).join('');
   if (!sorted.length) body.innerHTML = '<tr><td colspan="2" class="empty-state">No songs match these filters.</td></tr>';
-  requestAnimationFrame(updateSongTitleAbbreviations);
+  requestAnimationFrame(() => { updateSongTitleAbbreviations(); observeSongTitleAbbreviations(); });
 }
 
 function renderLanguageFilter() {
