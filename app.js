@@ -446,7 +446,7 @@ function renderSetlistItems(items, canEditSetlist) {
     const rowClass = `${setlistItemMatches(item, filters) ? 'setlist-row' : 'setlist-row hidden'}${canEditSetlist ? ' editing' : ''}`;
     return `<li class="${rowClass}" data-id="${item.id}" ${canDrag ? 'draggable="true"' : ''}><div class="setlist-item-summary">${summary}</div><span class="position">${String(index + 1).padStart(2, '0')}</span><div class="item-actions">${!isSong ? `<span class="duration">${secondsLabel(duration)}</span>` : ''}${controls}</div>${details}</li>`;
   }).join('');
-  requestAnimationFrame(updateSongTitleAbbreviations);
+  requestAnimationFrame(() => { updateSongTitleAbbreviations(); observeSongTitleAbbreviations(); });
   $('#setlist-items').classList.toggle('hidden', !items.length);
   $('#setlist-empty').classList.toggle('hidden', !!items.length);
   $('#setlist-filter-empty').classList.toggle('hidden', !items.length || !!matches.length);
