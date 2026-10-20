@@ -1411,7 +1411,7 @@ $('#clear-setlist-filters').addEventListener('click', () => {
   $('#setlist-key-filter').value = '';
   renderSetlistItems(state.activeSetlistItems, state.member.is_admin && state.setlistEditMode);
 });
-$('#refresh').addEventListener('click', async () => { try { await Promise.all([loadData(), loadReadiness()]); if (state.view === 'dashboard') await renderDashboard(); showNotice('Workspace refreshed.'); } catch (error) { fail('Could not refresh the workspace.', error); } });
+
 $('#setlist-select').addEventListener('change', (event) => {
   if (hasSetlistChanges()) { event.target.value = state.activeSetlist; showNotice('Save or discard your staged changes before switching setlists.', true); return; }
   state.setlistEditMode = false;
