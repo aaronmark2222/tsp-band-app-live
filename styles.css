@@ -776,3 +776,29 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
   top:8px;
   right:9px;
 }
+
+/* Restore the full-size progress and status controls on Songs and Setlists. */
+.song-entry-footer .song-progress {
+  flex-basis:92px;
+  width:92px;
+  min-width:92px;
+  min-height:25px;
+}
+.song-entry-footer .song-progress-lines,
+.song-entry-footer .song-progress-line { width:92px; }
+.song-entry-footer .song-status-indicator {
+  width:92px;
+  min-width:92px;
+  max-width:none;
+  min-height:25px;
+  padding:4px 7px;
+  box-sizing:border-box;
+  font-size:11px;
+  line-height:1;
+}
+@media(max-width:600px) {
+  .song-entry-footer .song-status-indicator {
+    padding:4px 5px;
+    font-size:9px;
+  }
+}
