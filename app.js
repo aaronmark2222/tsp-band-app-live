@@ -621,7 +621,7 @@ async function renderDashboard() {
         return;
       }
       const setlistName = state.setlists.find((list) => list.id === selectedGig.setlist_id)?.name || 'linked setlist';
-      $('#dashboard-caption').textContent = `${selectedGig.name} · ${new Date(`${selectedGig.event_date}T12:00:00`).toLocaleDateString(undefined, { dateStyle: 'long' }) · ${setlistName}`;
+      $('#dashboard-caption').textContent = `${selectedGig.name} · ${new Date(`${selectedGig.event_date}T12:00:00`).toLocaleDateString(undefined, { dateStyle: 'long' })} · ${setlistName}`;
     }
   } else {
     $('#dashboard-caption').textContent = 'All songs in the repertoire, with optional Parts kept separate from required readiness work.';
