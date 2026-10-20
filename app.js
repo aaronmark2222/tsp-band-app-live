@@ -756,7 +756,7 @@ function updateNewSongIdPreview() {
   const codes = [...document.querySelectorAll('input[name="new-song-language"]:checked')].map((input) => input.value);
   const prefix = type === 'Inst' ? 'I' : codes.join('') || '[language codes]';
   const example = `${prefix}${isMedley && type !== 'Inst' ? 'M' : ''}1`;
-  $('#new-song-id-preview').textContent = `Typical prefix for this selection: ${example}. Existing styles include I1 (instrumental), E7 (English), H1 (Hindi), K1 (Konkani), EM1/HM1/KM1 (medleys), and multi-language IDs such as EHM1 or EHKM1. Use the matching codes, add M before the number for a medley, then a number. The ID must be unique.`;
+  $('#new-song-id-preview').textContent = `Typical prefix for this selection: ${example}. Supported language codes: E (English), H (Hindi), K (Konkani), T (Tamil), Kn (Kannada), and Ml (Malayalam). Examples include I1 (instrumental), E7/H1/K1/T1/Kn1/Ml1 (single-language), EM1/HM1/KM1 (medleys), and multi-language IDs such as EHM1/EHKM1. M marks a medley; combine the language codes, then the medley marker if applicable, then a number. The ID must be unique.`;
 }
 function openNewSongDialog() {
   if (!state.member?.is_admin) return;
@@ -778,6 +778,7 @@ async function saveNewSong(event) {
   const idPattern = /^[A-Z][A-Za-z]*[0-9]+$/;
   if (!idPattern.test(id)) { $('#new-song-error').textContent = 'Use a valid ID prefix followed by a number, for example E12, EM3, EHM2, EHKM1, or I4.'; return; }
   if (state.songs.some((song) => song.id.toLowerCase() === id.toLowerCase())) { $('#new-song-error').textContent = 'That Song ID is already in use.'; return; }
+  if ($('#new-song-type').value === 'Vox' && !document.querySelector('input[name="new-song-language"]:checked')) { $('#new-song-error').textContent = 'Choose at least one language for a vocal song.'; return; }
   const keys = $('#new-song-keys').value.split(',').map((key) => key.trim()).filter(Boolean);
   const invalidKeys = keys.filter((key) => !KEY_CHOICES.includes(key));
   if (invalidKeys.length) { $('#new-song-error').textContent = `Unknown key: ${invalidKeys.join(', ')}.`; return; }
