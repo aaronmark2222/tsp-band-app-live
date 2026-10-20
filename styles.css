@@ -417,3 +417,19 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
   min-height: 28px;
   margin: 0;
 }
+
+/* Password recovery and administrator member-access controls. */
+.recovery-link { justify-self: start; padding: 0; color: var(--lime); }
+.notice-message { min-height: 18px; margin: 0; color: var(--muted); font-size: 13px; }
+.access-dialog { width: min(460px, calc(100% - 28px)); max-height: min(85vh, 720px); padding: 0; color: var(--ink); background: transparent; border: 0; overflow: auto; }
+.access-dialog::backdrop { background: #000a; backdrop-filter: blur(3px); }
+.access-dialog-card { display: grid; gap: 12px; padding: 28px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 24px 80px #0008; }
+.access-dialog-card .eyebrow { margin: 0; }
+.access-dialog-card h2 { margin: 0; }
+.access-dialog-card > label { color: #c6d0c4; font-size: 13px; }
+.access-actions { display: grid; gap: 8px; }
+.temporary-password-result { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; padding: 12px; background: #111a15; border: 1px solid var(--line); border-radius: 9px; }
+.temporary-password-result strong { grid-column: 1 / -1; font-size: 13px; }
+.temporary-password-result code { overflow-wrap: anywhere; color: var(--lime); font-size: 13px; user-select: all; }
+#member-access-open { color: var(--lime); white-space: nowrap; }
+@media(max-width:800px) { .access-dialog-card { padding: 22px; } }
