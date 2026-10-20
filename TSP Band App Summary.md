@@ -84,7 +84,7 @@ Each song has one `song_tasks` row per task type. `task_types` defines each type
 - **Gig:** name, date, start time, location, notes, and one setlist (each gig has its own). First gig: **30 Oct 2026**, setlist "Oct 30", no location yet. For now a gig keeps only name, date and setlist.
 - **Setlist:** simple ordered list (songs, breaks, notes, per-song notes). Duplicate to reuse (`duplicate_setlist()`). Items are positioned; a song can appear once per setlist. Admin reorders by drag and drop.
 - **Deadlines:** the gig date is the major deadline. Any other deadlines attach to a setlist, optionally narrowed to a song, task type or member. The frontend currently uses only the gig date.
-- **Current live data (19 Oct 2026):** 50 songs. The Oct 30th setlist was intentionally updated to reflect real-life changes and currently contains 21 songs, with a calculated running time of 1:53:56 and no breaks recorded. Do not restore the old 26-song version.
+- **Current live data (20 Oct 2026):** 50 songs. The Oct 30th setlist has 22 catalogue-backed songs in positions 2–23; position 1 is open because the user asked to skip the missing “KESARIYA Prelude.” Punjabi Medley is included last. There are no breaks recorded.
 
 ## 7. Database (Supabase)
 
@@ -145,7 +145,7 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 - **Resolved: login page.** The user confirms the login page works, including the first-login password setup flow.
 - **Confirmed: task types.** The 18-task expansion is intentional.
 - **Confirmed: readiness.** The readiness calculation works as intended; Parts do not block Ready.
-- **Confirmed: Oct 30th setlist.** The 21-song live setlist is intentional and reflects real-life changes.
+- **Updated: Oct 30th setlist.** The list now has 22 catalogue-backed songs, including Punjabi Medley at the end; “KESARIYA Prelude” was skipped at the user's request.
 - Not implemented in the frontend yet: medley constituent management, deadline workflows, and percussion instrument assignment UI. Gamification remains later work.
 - Do not treat the resolved icon/login issues or the old setlist count as open issues.
 
@@ -302,3 +302,13 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 - The catalogue-backed sequence currently occupies positions 2–23. Position 1 is reserved for “KESARIYA Prelude,” which does not yet exist in the songs table; no new song/task record was created without its details.
 - The live setlist therefore now has 22 catalogue-backed songs. Confirm the missing Prelude title and details before adding it.
 - Nishanth (Drums) and Albert (Keyboard) already have member records. Nishanth’s account was invited at `shettynishanth157@gmail.com`, linked to the existing member row, and marked to require first-login password setup. Albert’s address is `albertwilsonsynth@gmail.com`; Supabase’s built-in email service rate-limited the second invitation. The account has not yet been created or linked.
+
+
+### 20 Oct 2026 — repertoire and setlist creation
+
+- Added an admin-only **Add song** workflow on the Songs page. It collects a unique song ID, title, song type (Vox or Inst), standalone/medley format, languages, keys, tempos, tempo change, duration, and backing-track state.
+- Added ID guidance for the supported language codes E, H, K, T, Kn, and Ml, instrumental I IDs, medley marker M, multi-language prefixes, and the required trailing number.
+- The form displays every configured task type and its allowed status choices. Tasks default to Incomplete and can be changed before saving. The existing database trigger creates task rows; selected languages and any non-default statuses are then saved.
+- Added an admin-only **Create a setlist** workflow on the Setlists page. Admins can search and select songs, adjust their running order, and create the setlist with its selected songs in one step.
+- No database schema changes were needed. Existing admin-only row-level security policies protect song, language, task, setlist, and setlist-item writes.
+- Code is prepared on branch `feature/repertoire-and-setlist-creation`; deployment follows review and merge.

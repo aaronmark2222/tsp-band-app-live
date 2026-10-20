@@ -11,8 +11,8 @@
     <meta name="theme-color" content="#292929">
     <title>TSP Work · The String Project</title>
     <link rel="icon" href="assets/the-string-project-logo.png?v=20261019" type="image/png">
-    <link rel="stylesheet" href="styles.css">
-    <script type="module" src="app.js"></script>
+    <link rel="stylesheet" href="styles.css?v=20261020-create-workflows">
+    <script type="module" src="app.js?v=20261020-create-workflows"></script>
   </head>
   <body>
     <main id="app" class="shell">
@@ -101,12 +101,38 @@
           </div>
         </dialog>
 
+
+        <dialog id="song-editor-dialog" class="editor-dialog">
+          <form id="new-song-form" class="editor-card">
+            <p class="eyebrow">REPERTOIRE</p>
+            <h2>Add a song</h2>
+            <p class="muted">The song will be added with every task prefilled as Incomplete. You can change any status before saving.</p>
+            <div class="editor-grid">
+              <label>Song ID<input id="new-song-id" required maxlength="20" pattern="[A-Z][A-Za-z]*[0-9]+" autocomplete="off" placeholder="e.g. E42 or EHM10"><small id="new-song-id-help">Use a language prefix, add M before the number for a medley, or use I for an instrumental. IDs end in a number and must be unique.</small></label>
+              <label>Song name<input id="new-song-name" required maxlength="120" autocomplete="off" placeholder="Song title"></label>
+              <label>Song type<select id="new-song-type"><option value="Vox">Vocal (Vox)</option><option value="Inst">Instrumental (Inst)</option></select></label>
+              <label>Format<select id="new-song-format"><option value="single">Standalone song</option><option value="medley">Medley</option></select></label>
+              <fieldset class="editor-fieldset language-field"><legend>Languages</legend><div id="new-song-language-options" class="editor-options"></div></fieldset>
+              <label>Key(s)<input id="new-song-keys" autocomplete="off" placeholder="e.g. Am, C"><small>Separate multiple keys with commas.</small></label>
+              <label>Tempo start (BPM)<input id="new-song-tempo-start" type="number" min="1" step="1" inputmode="numeric"></label>
+              <label>Tempo end (BPM)<input id="new-song-tempo-end" type="number" min="1" step="1" inputmode="numeric"></label>
+              <label>Tempo change<select id="new-song-tempo-change"><option value="none">No change</option><option value="ramp">Gradual change</option><option value="jump">Instant change</option></select></label>
+              <label>Duration (seconds)<input id="new-song-duration" type="number" min="0" step="1" inputmode="numeric"></label>
+              <label>Backing track<select id="new-song-backing"><option value="">Automatic (not finished)</option><option value="Sent to Mix">Sent to Mix</option><option value="Mixed">Mixed</option></select></label>
+            </div>
+            <p id="new-song-id-preview" class="form-help"></p>
+            <div class="editor-section"><h3>Task statuses</h3><p class="muted">All task types are included. Incomplete is the default; each task can use any status allowed for that task.</p><div id="new-song-task-statuses" class="new-song-task-list"></div></div>
+            <p id="new-song-error" class="error" role="alert"></p>
+            <div class="editor-actions"><button id="cancel-new-song" class="button quiet" type="button">Cancel</button><button class="button primary" type="submit">Add to repertoire</button></div>
+          </form>
+        </dialog>
+
         <section id="songs-view" class="view">
           <div class="hero-row">
             <div><p class="eyebrow">THE REPERTOIRE</p><h1>Songs <span id="song-total" class="heading-count"></span></h1><p class="muted">A shared view of every song and every part.</p></div>
             <div class="stat-card"><span class="stat-label">IN THE SET</span><strong id="set-song-count">—</strong><span id="setlist-name-caption" class="muted">Oct 30</span></div>
           </div>
-          <div class="toolbar song-toolbar"><label class="search"><span>⌕</span><input id="song-search" type="search" placeholder="Find a song or ID…" aria-label="Search songs"></label><button id="song-filters-toggle" class="button quiet filter-toggle" type="button" aria-expanded="false" aria-controls="song-filter-panel">Filters</button><button id="refresh" class="button quiet">Refresh</button></div>
+          <div class="toolbar song-toolbar"><label class="search"><span>⌕</span><input id="song-search" type="search" placeholder="Find a song or ID…" aria-label="Search songs"></label><button id="song-filters-toggle" class="button quiet filter-toggle" type="button" aria-expanded="false" aria-controls="song-filter-panel">Filters</button><button id="new-song-open" class="button primary hidden" type="button">＋ Add song</button><button id="refresh" class="button quiet">Refresh</button></div>
           <div id="song-filter-panel" class="filter-panel hidden"><select id="language-filter" aria-label="Filter by language"><option value="">All languages</option></select><select id="performance-filter" aria-label="Filter by performance"><option value="">Singles and medleys</option><option value="single">Singles</option><option value="medley">Medleys</option></select><select id="key-filter" aria-label="Filter by key or scale"><option value="">Any key / scale</option></select><select id="song-sort" aria-label="Sort songs"><option value="original">Master list order</option><option value="name-asc">Name A–Z</option><option value="name-desc">Name Z–A</option><option value="performance">Singles, then medleys</option><option value="key">Key / scale</option><option value="duration-asc">Shortest first</option><option value="duration-desc">Longest first</option><option value="remaining-desc">Most band work left</option><option value="remaining-asc">Least band work left</option><option value="ready">Ready first</option></select><button id="clear-song-filters" class="button quiet hidden">Clear filters</button></div>
           <div class="table-wrap"><table class="song-table"><thead id="songs-head"></thead><tbody id="songs-body"></tbody></table></div>
           <p class="table-hint">Click a song name to expand its details. Combine filters or sort the list to find songs; status changes save as you make them.</p>
@@ -119,6 +145,29 @@
             <div class="setlist-main"><div class="setlist-heading"><div><h2 id="active-setlist-name">Setlist</h2><p id="setlist-summary" class="muted">Loading…</p></div><div class="setlist-tools"><button id="setlist-edit-toggle" class="button quiet hidden">Edit setlist</button><button id="add-song-toggle" class="button primary hidden">＋ Add song</button></div></div><div id="add-song-panel" class="add-panel hidden"><select id="add-song-select"></select><button id="add-song" class="button primary">Add to running order</button></div><div id="setlist-filter-toolbar" class="toolbar setlist-filter-toolbar hidden"><label class="search"><span>⌕</span><input id="setlist-search" type="search" placeholder="Find a song in this setlist…" aria-label="Search songs in this setlist"></label><button id="setlist-filters-toggle" class="button quiet filter-toggle" type="button" aria-expanded="false" aria-controls="setlist-filter-panel">Filters</button><div id="setlist-filter-panel" class="filter-panel hidden"><select id="setlist-language-filter" aria-label="Filter setlist by language"><option value="">All languages</option></select><select id="setlist-performance-filter" aria-label="Filter setlist by performance"><option value="">Singles and medleys</option><option value="single">Singles</option><option value="medley">Medleys</option></select><select id="setlist-key-filter" aria-label="Filter setlist by key or scale"><option value="">Any key / scale</option></select><button id="clear-setlist-filters" class="button quiet hidden">Clear filters</button><span id="setlist-filter-hint" class="filter-hint hidden">Clear filters to drag-reorder the full setlist.</span></div></div><ol id="setlist-items" class="setlist-items"></ol><div id="setlist-empty" class="empty-state hidden">No songs in this setlist yet. Add a song to get started.</div><div id="setlist-filter-empty" class="empty-state hidden">No songs match these filters.</div></div>
           </div>
         </section>
+
+
+        <dialog id="setlist-create-dialog" class="editor-dialog">
+          <form id="new-setlist-form" class="editor-card setlist-editor-card">
+            <p class="eyebrow">SETLISTS</p>
+            <h2>Create a setlist</h2>
+            <label>Setlist name<input id="new-setlist-name" required maxlength="100" autocomplete="off" placeholder="Name this setlist"></label>
+            <div class="setlist-builder">
+              <section class="setlist-builder-pick">
+                <h3>Choose songs</h3>
+                <label class="search"><span>⌕</span><input id="new-setlist-search" type="search" placeholder="Find a song…" aria-label="Search repertoire"></label>
+                <div id="new-setlist-song-options" class="setlist-song-options"></div>
+              </section>
+              <section class="setlist-builder-order">
+                <h3>Running order <span id="new-setlist-count" class="muted">0 selected</span></h3>
+                <ol id="new-setlist-selected" class="setlist-selected-list"></ol>
+              </section>
+            </div>
+            <p class="form-help">Songs are added in the order shown. Use the arrows to change the running order.</p>
+            <p id="new-setlist-error" class="error" role="alert"></p>
+            <div class="editor-actions"><button id="cancel-new-setlist" class="button quiet" type="button">Cancel</button><button class="button primary" type="submit">Create setlist</button></div>
+          </form>
+        </dialog>
 
         <section id="gigs-view" class="view hidden">
           <div class="hero-row"><div><p class="eyebrow">PERFORMANCES & DEADLINES</p><h1>Gigs</h1><p class="muted">Manage gig details and the setlist attached to each performance.</p></div><button id="new-gig" class="button primary hidden" type="button">＋ New gig</button></div>
