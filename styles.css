@@ -475,3 +475,10 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .selected-song-controls button{width:26px;height:26px;border:1px solid var(--line);border-radius:5px;background:transparent;color:var(--ink)}
 .selected-song-controls button:disabled{opacity:.35;cursor:default}
 @media(max-width:700px){.editor-dialog{max-height:94vh}.editor-card{padding:18px}.editor-grid,.new-song-task-list,.setlist-builder{grid-template-columns:1fr}.language-field{grid-column:auto}.setlist-builder{min-height:0}.setlist-builder-pick,.setlist-builder-order{min-height:180px}.editor-actions{position:sticky;bottom:-18px;background:var(--panel);padding:12px 0 0}.new-song-task-list{max-height:260px}}
+
+.new-song-id-field{display:grid;align-content:start;gap:7px;color:#c6d0c4;font-size:12px}
+.new-song-id-field>label{font-size:12px}
+.song-id-suggestions{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-height:28px}
+.song-id-suggestion-label,.song-id-suggestion-empty{flex-basis:100%;color:var(--muted);font-size:10px;line-height:1.4}
+.song-id-suggestions button{min-height:30px;padding:4px 9px;border:1px solid #586957;border-radius:7px;background:#202c23;color:var(--lime);font:11px var(--mono);cursor:pointer}
+.song-id-suggestions button:hover,.song-id-suggestions button:focus-visible{border-color:var(--lime);background:#2c3a2f;outline:none}
