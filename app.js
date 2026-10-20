@@ -306,6 +306,7 @@ function renderSongDetails(songId) {
 }
 
 async function toggleSongDetails(songId, view) {
+  if (view === 'setlists' && state.setlistEditMode) return;
   const alreadyExpanded = state.expandedSongIds.has(songId);
   state.expandedSongIds.clear();
   if (!alreadyExpanded) state.expandedSongIds.add(songId);
@@ -419,22 +420,23 @@ function renderSetlistItems(items, canEditSetlist) {
     const title = isSong ? item.songs?.name || item.song_id : item.label || (item.item_type === 'break' ? 'Break' : 'Note');
     const detail = isSong ? item.song_id : item.item_type === 'break' ? `${item.note || 'Set break'}${item.break_seconds ? ` · ${secondsLabel(item.break_seconds)}` : ''}` : item.note || 'Setlist note';
     const duration = isSong ? item.songs?.duration_seconds : item.item_type === 'break' ? item.break_seconds : null;
-    const expanded = state.expandedSongIds.has(item.song_id);
+    const expanded = !canEditSetlist && state.expandedSongIds.has(item.song_id);
     const canDrag = canEditSetlist && !filters.active;
     const summary = isSong
-      ? `<button type="button" class="song-summary-toggle setlist-song-toggle ${expanded ? 'song-expanded' : ''}" data-song-id="${escapeHtml(item.song_id)}" data-view="setlists" aria-expanded="${expanded}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${escapeHtml(item.song_id)} ${escapeHtml(title)}"><span class="song-disclosure" aria-hidden="true"></span><span class="song-id">${escapeHtml(item.song_id)}</span>${songTitleMarkup(title, 'item-title song-title')}${songProgress(item.song_id, title)}</button>`
+      ? canEditSetlist
+        ? `<div class="setlist-song-edit-summary"><span class="song-id">${escapeHtml(item.song_id)}</span>${songTitleMarkup(title, 'item-title song-title')}</div>`
+        : `<button type="button" class="song-summary-toggle setlist-song-toggle ${expanded ? 'song-expanded' : ''}" data-song-id="${escapeHtml(item.song_id)}" data-view="setlists" aria-expanded="${expanded}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${escapeHtml(item.song_id)} ${escapeHtml(title)}"><span class="song-disclosure" aria-hidden="true"></span><span class="song-id">${escapeHtml(item.song_id)}</span>${songTitleMarkup(title, 'item-title song-title')}${songProgress(item.song_id, title)}</button>`
       : `<div><div class="item-title">${escapeHtml(title)}</div><div class="item-detail">${escapeHtml(detail)}</div></div>`;
-    const controls = canEditSetlist ? `<div class="item-controls">${canDrag ? `<button class="drag-handle" type="button" draggable="true" data-id="${item.id}" aria-label="Drag ${escapeHtml(title)} to reorder" title="Drag to reorder">⠿</button>` : ''}<button class="icon-button remove-item" data-id="${item.id}" title="Remove item" aria-label="Remove ${escapeHtml(title)}">×</button></div>` : '';
+    const controls = canEditSetlist ? `<div class="item-controls">${canDrag ? `<button class="drag-handle" type="button" data-id="${item.id}" aria-label="Drag ${escapeHtml(title)} to reorder" title="Drag to reorder">⠿</button>` : ''}<button class="icon-button remove-item" data-id="${item.id}" title="Remove item" aria-label="Remove ${escapeHtml(title)}">×</button></div>` : '';
     const details = isSong && expanded ? `<div class="setlist-song-details">${renderSongDetails(item.song_id)}</div>` : '';
-    const rowClass = setlistItemMatches(item, filters) ? 'setlist-row' : 'setlist-row hidden';
-    return `<li class="${rowClass}" data-id="${item.id}" ${canDrag ? 'draggable="true"' : ''}><span class="position">${String(index + 1).padStart(2, '0')}</span><div class="setlist-item-summary">${summary}</div><div class="item-actions">${!isSong ? `<span class="duration">${secondsLabel(duration)}</span>` : ''}${controls}</div>${details}</li>`;
+    const rowClass = `${setlistItemMatches(item, filters) ? 'setlist-row' : 'setlist-row hidden'}${canEditSetlist ? ' editing' : ''}`;
+    return `<li class="${rowClass}" data-id="${item.id}" ${canDrag ? 'draggable="true"' : ''}><div class="setlist-item-summary">${summary}</div><span class="position">${String(index + 1).padStart(2, '0')}</span><div class="item-actions">${!isSong ? `<span class="duration">${secondsLabel(duration)}</span>` : ''}${controls}</div>${details}</li>`;
   }).join('');
   requestAnimationFrame(updateSongTitleAbbreviations);
   $('#setlist-items').classList.toggle('hidden', !items.length);
   $('#setlist-empty').classList.toggle('hidden', !!items.length);
   $('#setlist-filter-empty').classList.toggle('hidden', !items.length || !!matches.length);
 }
-
 function renderSetlistOptions() {
   const select = $('#setlist-select');
   const current = state.activeSetlist || select.value;
@@ -485,8 +487,6 @@ async function renderActiveSetlist() {
   const setlist = state.setlists.find((item) => item.id === state.activeSetlist);
   $('#active-setlist-name').textContent = setlist?.name || 'Choose a setlist';
   $('#setlist-name-caption').textContent = setlist?.name || 'No setlist';
-  const gig = state.gigs.find((item) => item.setlist_id === state.activeSetlist);
-  $('#gig-card').innerHTML = gig ? `<strong>${escapeHtml(gig.name)}</strong><p>${new Date(`${gig.event_date}T12:00:00`).toLocaleDateString(undefined, { dateStyle: 'long' })}${gig.location ? ` · ${escapeHtml(gig.location)}` : ''}</p>` : '<p class="muted">No gig linked to this setlist.</p>';
   const canEditSetlist = state.member.is_admin && state.setlistEditMode;
   $('#setlist-edit-toggle').classList.toggle('hidden', !state.member.is_admin);
   $('#setlist-edit-toggle').textContent = state.setlistEditMode ? 'Done editing' : 'Edit setlist';
@@ -769,7 +769,7 @@ function nextAvailableSongIds(query = newSongIdQuery) {
     .sort((a, b) => a.replace(/\d+$/, '').length - b.replace(/\d+$/, '').length || a.localeCompare(b))
     .slice(0, 12);
 }
-function renderNewSongIdSuggestions() {
+function renderNewSongIdSuggestions({ autocomplete = true } = {}) {
   const list = $('#new-song-id-suggestions');
   const input = $('#new-song-id');
   if (!list || !input) return;
@@ -782,7 +782,7 @@ function renderNewSongIdSuggestions() {
   const options = nextAvailableSongIds();
   const query = newSongIdQuery.trim();
   const bestMatch = options[0];
-  if (query && bestMatch && input.value.trim().toLocaleLowerCase() === query.toLocaleLowerCase() && bestMatch.toLocaleLowerCase().startsWith(query.toLocaleLowerCase())) {
+  if (autocomplete && query && bestMatch && input.value.trim().toLocaleLowerCase() === query.toLocaleLowerCase() && bestMatch.toLocaleLowerCase().startsWith(query.toLocaleLowerCase())) {
     input.value = bestMatch;
     input.setSelectionRange(query.length, bestMatch.length);
   }
@@ -809,11 +809,11 @@ function acceptSongIdSuggestion(id) {
 }
 function renderNewSongFields() {
   $('#new-song-language-options').innerHTML = state.languageOptions.map((language) =>
-    `<label class="editor-option"><input type="checkbox" name="new-song-language" value="${escapeHtml(language.code)}"><span>${escapeHtml(language.name)} <small>${escapeHtml(language.code)}</small></span></label>`).join('');
+    `<label class="editor-option" style="--language-color:${languageColor(language.code)}"><input type="checkbox" name="new-song-language" value="${escapeHtml(language.code)}"><span>${escapeHtml(language.name)} <small>${escapeHtml(language.code)}</small></span></label>`).join('');
   $('#new-song-task-statuses').innerHTML = state.taskTypes.map((type) => {
     const defaultStatus = type.allowed_statuses.includes('Incomplete') ? 'Incomplete' : type.allowed_statuses[0];
-    const options = type.allowed_statuses.map((status) => `<option value="${escapeHtml(status)}" ${status === defaultStatus ? 'selected' : ''}>${escapeHtml(status === 'Completed' ? 'Complete' : status)}</option>`).join('');
-    return `<label class="new-song-task-row"><span>${escapeHtml(type.label)}</span><select class="new-song-task-status" data-task-key="${escapeHtml(type.key)}">${options}</select></label>`;
+    const options = type.allowed_statuses.map((status) => `<option value="${escapeHtml(status)}" style="color:${STATUS_COLORS[status] || '#D0D0D0'};background-color:#19231c" ${status === defaultStatus ? 'selected' : ''}>${escapeHtml(status === 'Completed' ? 'Complete' : status)}</option>`).join('');
+    return `<label class="new-song-task-row"><span>${escapeHtml(type.label)}</span><select class="new-song-task-status" data-task-key="${escapeHtml(type.key)}" data-status="${escapeHtml(defaultStatus)}">${options}</select></label>`;
   }).join('');
   updateNewSongIdPreview();
   renderNewSongIdSuggestions();
@@ -1224,6 +1224,7 @@ $('#add-song-toggle').addEventListener('click', () => $('#add-song-panel').class
 $('#setlist-edit-toggle').addEventListener('click', () => {
   if (!state.member.is_admin) return;
   state.setlistEditMode = !state.setlistEditMode;
+  if (state.setlistEditMode) state.expandedSongIds.clear();
   if (!state.setlistEditMode) $('#add-song-panel').classList.add('hidden');
   renderActiveSetlist();
 });
@@ -1235,7 +1236,7 @@ $('#new-song-form').addEventListener('submit', saveNewSong);
 $('#new-song-id').addEventListener('input', (event) => {
   newSongIdQuery = event.target.value.trim();
   newSongIdSuggestionAccepted = false;
-  renderNewSongIdSuggestions();
+  renderNewSongIdSuggestions({ autocomplete: !event.inputType?.startsWith('delete') });
 });
 $('#new-song-id').addEventListener('keydown', (event) => {
   if (event.key === 'ArrowDown') {
@@ -1263,6 +1264,7 @@ $('#new-song-id-suggestions').addEventListener('click', (event) => {
 $('#new-song-type').addEventListener('change', updateNewSongIdPreview);
 $('#new-song-format').addEventListener('change', updateNewSongIdPreview);
 $('#new-song-language-options').addEventListener('change', updateNewSongIdPreview);
+$('#new-song-task-statuses').addEventListener('change', (event) => { if (event.target.matches('.new-song-task-status')) event.target.dataset.status = event.target.value; });
 $('#cancel-new-setlist').addEventListener('click', () => $('#setlist-create-dialog').close());
 $('#new-setlist-form').addEventListener('submit', saveNewSetlist);
 $('#new-setlist-search').addEventListener('input', renderNewSetlistSongChoices);
@@ -1332,23 +1334,29 @@ $('#setlist-items').addEventListener('change', (event) => {
 $('#setlist-items').addEventListener('focusin', (event) => { if (event.target.matches('.backing-track-select')) labelAutoBackingOption(event.target, true); });
 $('#setlist-items').addEventListener('focusout', (event) => { if (event.target.matches('.backing-track-select')) labelAutoBackingOption(event.target, false); });
 $('#setlist-items').addEventListener('dragstart', (event) => {
-  const handle = event.target.closest('.drag-handle');
   const row = event.target.closest('.setlist-row');
-  if (!state.member.is_admin || !state.setlistEditMode || !handle || !row || savingSetlistOrder) { event.preventDefault(); return; }
+  if (!state.member.is_admin || !state.setlistEditMode || !row || savingSetlistOrder || !event.target.closest('.drag-handle, .setlist-row')) { event.preventDefault(); return; }
   draggedItemId = row.dataset.id;
   event.dataTransfer.effectAllowed = 'move';
   event.dataTransfer.setData('text/plain', draggedItemId);
+  event.dataTransfer.setDragImage(row, Math.min(event.clientX - row.getBoundingClientRect().left, row.offsetWidth - 1), Math.min(event.clientY - row.getBoundingClientRect().top, row.offsetHeight - 1));
   row.classList.add('dragging');
 });
 $('#setlist-items').addEventListener('dragover', (event) => {
   if (!draggedItemId || savingSetlistOrder) return;
   event.preventDefault();
   event.dataTransfer.dropEffect = 'move';
+  const target = event.target.closest('.setlist-row');
+  document.querySelectorAll('.setlist-row.drop-before, .setlist-row.drop-after').forEach((row) => row.classList.remove('drop-before', 'drop-after'));
+  if (target && target.dataset.id !== draggedItemId) {
+    const after = event.clientY > target.getBoundingClientRect().top + target.offsetHeight / 2;
+    target.classList.add(after ? 'drop-after' : 'drop-before');
+  }
 });
 $('#setlist-items').addEventListener('drop', dropSetlistItem);
 $('#setlist-items').addEventListener('dragend', () => {
   draggedItemId = null;
-  document.querySelectorAll('.setlist-row.dragging').forEach((row) => row.classList.remove('dragging'));
+  document.querySelectorAll('.setlist-row.dragging, .setlist-row.drop-before, .setlist-row.drop-after').forEach((row) => row.classList.remove('dragging', 'drop-before', 'drop-after'));
 });
 
 db.auth.getSession().then(async ({ data, error }) => {
