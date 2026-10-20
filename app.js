@@ -865,8 +865,10 @@ function updateGeneratedSongId() {
   const typed = input.value.replace(/[^a-z]/gi, '').toUpperCase();
   const prefix = typed ? canonicalSongPrefix(typed) : '';
   const number = prefix ? nextSongNumber(prefix) : '';
-  $('#new-song-id-number').textContent = number ? String(number) : '—';
-  $('#new-song-id').value = prefix && number ? `${prefix}${number}` : '';
+  const generatedId = prefix && number ? `${prefix}${number}` : '';
+  $('#new-song-id').value = generatedId;
+  input.value = generatedId;
+  if (document.activeElement === input) input.setSelectionRange(prefix.length, prefix.length);
 }
 function acceptSongIdSuggestion(id) {
   const input = $('#new-song-id-prefix');
@@ -884,9 +886,13 @@ function renderNewSongFields() {
   $('#new-song-key-options').innerHTML = KEY_CHOICES.map((key) => `<label class="editor-option key-choice"><input type="checkbox" name="new-song-key" value="${escapeHtml(key)}"><span>${escapeHtml(key)}</span></label>`).join('');
   updateNewSongKeySummary();
   renderTempoPoints([{ bpm: '', transition_to_next: 'gradual' }]);
-  $('#new-song-task-statuses').innerHTML = state.taskTypes.map((type) => {
-    const defaultStatus = type.allowed_statuses.includes('Incomplete') ? 'Incomplete' : type.allowed_statuses[0];
-    const options = type.allowed_statuses.map((status) => `<option value="${escapeHtml(status)}" style="color:${STATUS_COLORS[status] || '#D0D0D0'};background-color:#19231c" ${status === defaultStatus ? 'selected' : ''}>${escapeHtml(status === 'Completed' ? 'Complete' : status)}</option>`).join('');
+  const taskTypes = Array.isArray(state.taskTypes) ? state.taskTypes : [];
+  $('#new-song-task-statuses').innerHTML = taskTypes.map((type) => {
+    const allowedStatuses = Array.isArray(type.allowed_statuses) && type.allowed_statuses.length
+      ? type.allowed_statuses
+      : ['Incomplete'];
+    const defaultStatus = allowedStatuses.includes('Incomplete') ? 'Incomplete' : allowedStatuses[0];
+    const options = allowedStatuses.map((status) => `<option value="${escapeHtml(status)}" style="color:${STATUS_COLORS[status] || '#D0D0D0'};background-color:#19231c" ${status === defaultStatus ? 'selected' : ''}>${escapeHtml(status === 'Completed' ? 'Complete' : status)}</option>`).join('');
     return `<label class="new-song-task-row"><span>${escapeHtml(type.label)}</span><select class="new-song-task-status" data-task-key="${escapeHtml(type.key)}" data-status="${escapeHtml(defaultStatus)}">${options}</select></label>`;
   }).join('');
   updateNewSongIdPreview();
@@ -940,7 +946,6 @@ function openNewSongDialog() {
     $('#new-song-error').textContent = '';
     $('#new-song-type').value = 'Vox';
     $('#new-song-format').value = 'single';
-    $('#new-song-tempo-change').value = 'none';
     $('#new-song-backing').value = '';
     renderNewSongFields();
     $('#new-song-id-prefix').focus();
@@ -969,7 +974,9 @@ async function saveNewSong(event) {
   const tempoStart = tempoSegments[0]?.bpm ?? null;
   const tempoEnd = tempoSegments.length > 1 ? tempoSegments.at(-1).bpm : null;
   const tempoChange = tempoSegments.length > 1 ? (tempoSegments[0].transition_to_next === 'gradual' ? 'ramp' : 'jump') : 'none';
-  const duration = $('#new-song-duration').value ? Number($('#new-song-duration').value) : null;
+  const durationMinutes = $('#new-song-duration').value.trim();
+  const duration = durationMinutes ? Math.round(Number(durationMinutes) * 60) : null;
+  if (durationMinutes && (!Number.isFinite(Number(durationMinutes)) || Number(durationMinutes) < 0)) { $('#new-song-error').textContent = 'Enter a valid duration in minutes.'; return; }
   const languageCodes = [...document.querySelectorAll('input[name="new-song-language"]:checked')].map((input) => input.value);
   const payload = {
     id, name, type: $('#new-song-type').value, is_medley: $('#new-song-format').value === 'medley',
@@ -1378,10 +1385,7 @@ $('#cancel-new-song').addEventListener('click', () => $('#song-editor-dialog').c
 $('#new-song-form').addEventListener('submit', saveNewSong);
 $('#new-song-id-prefix').addEventListener('input', (event) => {
   const input = event.target;
-  const start = input.selectionStart;
-  input.value = input.value.replace(/[^a-z]/gi, '').toUpperCase();
-  if (start !== null) input.setSelectionRange(Math.min(start, input.value.length), Math.min(start, input.value.length));
-  newSongIdQuery = input.value.trim();
+  newSongIdQuery = input.value.replace(/[^a-z]/gi, '').toUpperCase();
   updateGeneratedSongId();
   renderNewSongIdSuggestions();
 });
@@ -1402,7 +1406,7 @@ $('#new-song-id-suggestions').addEventListener('keydown', (event) => {
   const index = options.indexOf(event.target.closest('[data-song-id-suggestion]'));
   if (event.key === 'ArrowDown' && index >= 0 && options[index + 1]) { event.preventDefault(); options[index + 1].focus(); }
   else if (event.key === 'ArrowUp' && index > 0) { event.preventDefault(); options[index - 1].focus(); }
-  else if (event.key === 'ArrowUp' && index === 0) { event.preventDefault(); $('#new-song-id').focus(); }
+  else if (event.key === 'ArrowUp' && index === 0) { event.preventDefault(); $('#new-song-id-prefix').focus(); }
 });
 $('#new-song-id-suggestions').addEventListener('click', (event) => {
   const option = event.target.closest('[data-song-id-suggestion]');

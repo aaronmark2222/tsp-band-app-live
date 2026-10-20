@@ -510,9 +510,9 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .editor-grid > label { align-content:start; align-self:start; }
 .song-name-field { grid-column:2; }
 .new-song-id-field { min-width:0; }
-.song-id-composer { display:flex; align-items:stretch; gap:0; }
-.song-id-composer input { flex:1; min-width:0; border-radius:8px 0 0 8px !important; }
-.song-id-number { display:flex; align-items:center; justify-content:center; min-width:48px; padding:0 12px; border:1px solid var(--lime); border-left:0; border-radius:0 8px 8px 0; background:#1c281f; color:var(--lime); font:600 14px var(--mono); user-select:none; pointer-events:none; }
+.song-id-composer { display:flex; align-items:stretch; }
+.song-id-composer input { flex:1; min-width:0; font:600 15px var(--mono); letter-spacing:.02em; }
+#new-song-error:empty { display:none; }
 .key-dropdown-field { display:grid; align-content:start; gap:7px; color:#c6d0c4; font-size:12px; }
 .key-dropdown { position:relative; }
 .key-dropdown > summary { display:flex; align-items:center; justify-content:space-between; min-height:42px; padding:0 12px; list-style:none; color:var(--ink); background:#111a15; border:1px solid var(--line); border-radius:8px; cursor:pointer; }
