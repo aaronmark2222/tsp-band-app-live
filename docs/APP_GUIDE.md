@@ -56,6 +56,8 @@ Task status controls keep their dark Ableton-style surfaces. The supplied status
 
 Language chips and language filter choices use accents derived from the `LANGUAGE` track's clip colors in `TSP LIVE MASTER PROJECT.als`. English, Hindi, Konkani, and Kannada have explicit named clips. Tamil and Malayalam are not distinguished on that track; the app uses close gray variants for those two languages, based on the track's `Other` clip color. The palette index/color mapping is kept in `app.js` (`LANGUAGE_COLORS`).
 
+Admins can use **Add song** on the Songs page to open the repertoire editor. The setlist count card is intentionally omitted from this page.
+
 The expanded song details label the control **Backing Track**. Admins can choose `Auto`, `Sent to Mix`, or `Mixed`; the Auto menu option is gray, while the closed control displays only its derived `Finished` or `Not Finished` status. Selecting Auto clears the manual override and lets the `song_readiness` view derive its status from backing tasks. Not Finished is red, Finished is peach, Sent to Mix is blue, and Mixed is green. Non-admin members can view but not change this value.
 
 ## Dashboard
