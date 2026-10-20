@@ -285,3 +285,12 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 ## 2026-10-20 UI update
 - Replaced the personal and band progress rings with two compact horizontal progress lines, aligned in a fixed-width status column shared with Ready and Sent to Mix indicators in Songs and Setlists.
 - Song title initials now expand a distinguishing word prefix when multiple songs share the same initials. This distinguishes similar medley names such as Bollywood Dance, Bollywood Disco, and Bollywood DJ Medley.
+
+
+### 20 Oct 2026 — member sign-in repair and password recovery
+
+- Diagnosed Rowen and Anston's sign-in issue: their Supabase Auth accounts existed and were confirmed, but were not linked to their matching rows in `members`. Linked the accounts and verified both associations. No passwords or song data were changed.
+- Added self-service password recovery from the sign-in page. Supabase sends a recovery email; the member returns to TSP Work, chooses a new password, and continues into the workspace.
+- Added an admin-only **Member access** panel. Aaron can send a reset email or generate a temporary password for a linked member. Temporary passwords are shown once in the admin panel and require a password change at the member's next sign-in.
+- Added the server-side Supabase Edge Function `member-access-admin`. It verifies the caller's active session and linked admin member record before listing accounts, sending reset emails, or changing passwords. The service-role key stays on Supabase and is never exposed to the browser.
+- Recovery emails redirect to the GitHub Pages app URL. Supabase Auth must allow `https://aaronmark2222.github.io/tsp-band-app-live/` as a redirect URL; otherwise Supabase will return a redirect configuration error.
