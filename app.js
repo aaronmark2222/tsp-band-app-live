@@ -80,6 +80,7 @@ function showWorkspace() {
   $('#loading').classList.add('hidden');
   $('#login-screen').classList.add('hidden');
   $('#first-login-screen').classList.add('hidden');
+  $('#password-recovery-screen').classList.add('hidden');
   $('#workspace').classList.remove('hidden');
   $('#member-access-open').classList.toggle('hidden', !state.member.is_admin);
   $('#member-name').textContent = state.member.name;
