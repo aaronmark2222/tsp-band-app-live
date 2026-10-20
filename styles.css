@@ -555,3 +555,92 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 #setlist-delete-controls .button{color:#ff9b8f;border-color:#61403c}
 #setlist-delete-controls .button:hover{background:#3c2926;border-color:#a35b51}
 .dashboard-tabs{grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr))}
+
+/* Let song names lead: combine the disclosure arrow and compact Song ID pill. */
+.song-summary-toggle:not(.setlist-song-toggle) {
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 6px;
+}
+.song-summary-toggle:not(.setlist-song-toggle) .song-id-cue { grid-column: 1; }
+.song-summary-toggle:not(.setlist-song-toggle) .song-title-container { grid-column: 2; }
+.song-id-cue {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 3px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #111a15;
+  white-space: nowrap;
+}
+.song-id-cue .song-disclosure {
+  flex: 0 0 7px;
+  width: 7px;
+  height: 12px;
+  border: 0;
+  border-radius: 0;
+}
+.song-id-cue .song-disclosure::before {
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid #d4d4d4;
+  margin-left: 1px;
+}
+.song-summary-toggle[aria-expanded="true"] .song-id-cue .song-disclosure::before {
+  transform: rotate(90deg);
+  margin-left: 0;
+}
+.song-id-cue .song-id {
+  color: var(--lime);
+  font: 10px var(--mono);
+  line-height: 1;
+  text-align: left;
+}
+.song-id-cue:hover { border-color: #f39a26; }
+.song-id-cue:hover .song-disclosure::before { border-left-color: #f39a26; }
+
+/* Keep progress bars and text statuses the same visible length. */
+.song-progress-lines,
+.song-progress-line { width: 92px; }
+.song-status-indicator {
+  width: 92px;
+  max-width: 100%;
+  padding-right: 4px;
+  padding-left: 4px;
+}
+.setlist-song-toggle {
+  grid-template-columns: max-content minmax(0, 1fr) 92px;
+  column-gap: 6px;
+}
+.setlist-song-toggle .song-id-cue { grid-column: 1; }
+.setlist-song-toggle .item-title { grid-column: 2; }
+.setlist-song-toggle > .song-progress,
+.setlist-song-toggle .song-status-indicator { grid-column: 3; width: 92px; }
+.song-title-container { min-width: 0; width: 100%; }
+.setlist-name-input {
+  display: block;
+  width: min(420px, 100%);
+  height: 36px;
+  margin: 0 0 5px;
+  padding: 2px 8px;
+  border: 1px solid var(--lime);
+  border-radius: 7px;
+  outline: none;
+  background: #111a15;
+  color: var(--ink);
+  font: 600 22px var(--sans);
+  letter-spacing: -.04em;
+}
+.setlist-name-input:focus { box-shadow: 0 0 0 2px #c6ee7833; }
+@media(max-width:600px) {
+  .song-summary-toggle:not(.setlist-song-toggle) {
+    grid-template-columns: max-content minmax(0, 1fr);
+    column-gap: 5px;
+  }
+  .song-table .song-name { overflow-wrap: normal; }
+}
