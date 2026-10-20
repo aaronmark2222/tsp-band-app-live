@@ -740,7 +740,9 @@ async function removeSetlistItem(id) {
 
 
 const KEY_CHOICES = ['A','Am','A#','A#m','B','Bm','C','Cm','C#','C#m','D','Dm','D#','D#m','E','Em','F','Fm','F#','F#m','G','Gm','G#','G#m'];
-function nextAvailableSongIds() {
+let newSongIdQuery = '';
+let newSongIdSuggestionAccepted = false;
+function nextAvailableSongIds(query = newSongIdQuery) {
   const families = new Map();
   state.songs.forEach((song) => {
     const match = String(song.id || '').match(/^([A-Z][A-Za-z]*?)(\d+)$/i);
@@ -760,10 +762,10 @@ function nextAvailableSongIds() {
     const normalized = selectedPrefix.toUpperCase();
     if (!families.has(normalized)) families.set(normalized, { prefix: selectedPrefix, max: 0 });
   }
-  const query = ($('#new-song-id')?.value || '').trim().toLocaleLowerCase();
+  const normalizedQuery = String(query || '').trim().toLocaleLowerCase();
   return [...families.values()]
     .map(({ prefix, max }) => `${prefix}${max + 1}`)
-    .filter((id) => !query || id.toLocaleLowerCase().startsWith(query))
+    .filter((id) => !normalizedQuery || id.toLocaleLowerCase().startsWith(normalizedQuery))
     .sort((a, b) => a.replace(/\d+$/, '').length - b.replace(/\d+$/, '').length || a.localeCompare(b))
     .slice(0, 12);
 }
@@ -771,16 +773,39 @@ function renderNewSongIdSuggestions() {
   const list = $('#new-song-id-suggestions');
   const input = $('#new-song-id');
   if (!list || !input) return;
+  if (newSongIdSuggestionAccepted) {
+    list.innerHTML = '';
+    input.setAttribute('aria-expanded', 'false');
+    input.removeAttribute('aria-activedescendant');
+    return;
+  }
   const options = nextAvailableSongIds();
-  const query = input.value.trim();
+  const query = newSongIdQuery.trim();
+  const bestMatch = options[0];
+  if (query && bestMatch && input.value.trim().toLocaleLowerCase() === query.toLocaleLowerCase() && bestMatch.toLocaleLowerCase().startsWith(query.toLocaleLowerCase())) {
+    input.value = bestMatch;
+    input.setSelectionRange(query.length, bestMatch.length);
+  }
   if (options.length) {
-    list.innerHTML = `<span class="song-id-suggestion-label">${query ? 'Next available matches' : 'Next available Song IDs'}</span>${options.map((id) => `<button type="button" role="option" aria-selected="false" data-song-id-suggestion="${escapeHtml(id)}">${escapeHtml(id)}</button>`).join('')}`;
+    list.innerHTML = `<span class="song-id-suggestion-label">${query ? 'Next available matches · Enter accepts the first' : 'Next available Song IDs'}</span>${options.map((id, index) => `<button id="new-song-id-option-${index}" type="button" role="option" aria-selected="${index === 0}" data-song-id-suggestion="${escapeHtml(id)}">${escapeHtml(id)}</button>`).join('')}`;
+    input.setAttribute('aria-activedescendant', 'new-song-id-option-0');
   } else if (query) {
     list.innerHTML = '<span class="song-id-suggestion-empty">No next-ID match. You can still enter another unique valid ID.</span>';
+    input.removeAttribute('aria-activedescendant');
   } else {
     list.innerHTML = '<span class="song-id-suggestion-empty">Choose a language or start typing to see suggested IDs.</span>';
+    input.removeAttribute('aria-activedescendant');
   }
   input.setAttribute('aria-expanded', options.length ? 'true' : 'false');
+}
+function acceptSongIdSuggestion(id) {
+  const input = $('#new-song-id');
+  input.value = id;
+  newSongIdQuery = id;
+  newSongIdSuggestionAccepted = true;
+  input.setSelectionRange(id.length, id.length);
+  renderNewSongIdSuggestions();
+  input.focus();
 }
 function renderNewSongFields() {
   $('#new-song-language-options').innerHTML = state.languageOptions.map((language) =>
@@ -805,6 +830,8 @@ function updateNewSongIdPreview() {
 function openNewSongDialog() {
   if (!state.member?.is_admin) return;
   $('#new-song-form').reset();
+  newSongIdQuery = '';
+  newSongIdSuggestionAccepted = false;
   $('#new-song-error').textContent = '';
   $('#new-song-type').value = 'Vox';
   $('#new-song-format').value = 'single';
@@ -1205,19 +1232,33 @@ $('#new-setlist').addEventListener('click', openNewSetlistDialog);
 $('#new-song-open').addEventListener('click', openNewSongDialog);
 $('#cancel-new-song').addEventListener('click', () => $('#song-editor-dialog').close());
 $('#new-song-form').addEventListener('submit', saveNewSong);
-$('#new-song-id').addEventListener('input', renderNewSongIdSuggestions);
+$('#new-song-id').addEventListener('input', (event) => {
+  newSongIdQuery = event.target.value.trim();
+  newSongIdSuggestionAccepted = false;
+  renderNewSongIdSuggestions();
+});
 $('#new-song-id').addEventListener('keydown', (event) => {
   if (event.key === 'ArrowDown') {
     const firstOption = $('#new-song-id-suggestions [data-song-id-suggestion]');
     if (firstOption) { event.preventDefault(); firstOption.focus(); }
+  } else if (event.key === 'Enter' && newSongIdQuery) {
+    const bestMatch = nextAvailableSongIds()[0];
+    if (bestMatch) { event.preventDefault(); acceptSongIdSuggestion(bestMatch); }
+  } else if (event.key === 'Escape') {
+    newSongIdSuggestionAccepted = true;
+    renderNewSongIdSuggestions();
   }
+});
+$('#new-song-id-suggestions').addEventListener('keydown', (event) => {
+  const options = [...$('#new-song-id-suggestions').querySelectorAll('[data-song-id-suggestion]')];
+  const index = options.indexOf(event.target.closest('[data-song-id-suggestion]'));
+  if (event.key === 'ArrowDown' && index >= 0 && options[index + 1]) { event.preventDefault(); options[index + 1].focus(); }
+  else if (event.key === 'ArrowUp' && index > 0) { event.preventDefault(); options[index - 1].focus(); }
+  else if (event.key === 'ArrowUp' && index === 0) { event.preventDefault(); $('#new-song-id').focus(); }
 });
 $('#new-song-id-suggestions').addEventListener('click', (event) => {
   const option = event.target.closest('[data-song-id-suggestion]');
-  if (!option) return;
-  $('#new-song-id').value = option.dataset.songIdSuggestion;
-  renderNewSongIdSuggestions();
-  $('#new-song-id').focus();
+  if (option) acceptSongIdSuggestion(option.dataset.songIdSuggestion);
 });
 $('#new-song-type').addEventListener('change', updateNewSongIdPreview);
 $('#new-song-format').addEventListener('change', updateNewSongIdPreview);
