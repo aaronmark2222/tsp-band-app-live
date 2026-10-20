@@ -26,7 +26,14 @@
             <label>Email<input id="email" type="email" autocomplete="username" required></label>
             <label>Password<input id="password" type="password" autocomplete="current-password" required></label>
             <button class="button primary" type="submit">Sign in <span>→</span></button>
+            <button id="forgot-password-open" type="button" class="text-button recovery-link">Forgot password?</button>
             <p id="login-error" class="error" role="alert"></p>
+          </form>
+          <form id="reset-request-form" class="stack hidden">
+            <label>Email<input id="reset-email" type="email" autocomplete="email" required></label>
+            <button id="send-reset-link" class="button primary" type="submit">Send reset email <span>→</span></button>
+            <p id="reset-request-message" class="notice-message" role="status"></p>
+            <button id="cancel-password-reset" type="button" class="text-button">Back to sign in</button>
           </form>
           <p class="tiny muted">Access is limited to linked band accounts.</p>
         </div>
@@ -47,6 +54,21 @@
 <button id="password-setup-sign-out" class="text-button" type="button">Sign out</button>
 </div>
 </section>
+<section id="password-recovery-screen" class="login-screen hidden">
+  <div class="login-card">
+    <img class="band-logo login-logo" src="assets/the-string-project-logo.png?v=20261019" alt="The String Project">
+    <p class="eyebrow">PASSWORD RESET</p>
+    <h1>Choose a new<br>password.</h1>
+    <p class="muted">Enter a new password for your TSP Work account.</p>
+    <form id="recovery-form" class="stack">
+      <label>New password<input id="recovery-new-password" type="password" autocomplete="new-password" minlength="8" required></label>
+      <label>Confirm new password<input id="recovery-confirm-password" type="password" autocomplete="new-password" minlength="8" required></label>
+      <button id="save-recovery-password" class="button primary" type="submit">Save password <span>→</span></button>
+      <p id="recovery-error" class="error" role="alert"></p>
+    </form>
+    <button id="recovery-sign-out" class="text-button" type="button">Back to sign in</button>
+  </div>
+</section>
 <section id="workspace" class="workspace hidden">
         <header class="topbar">
           <a class="brand" href="#songs"><img class="band-logo header-logo" src="assets/the-string-project-logo.png?v=20261019" alt="The String Project"><span>TSP Work</span></a>
@@ -56,9 +78,28 @@
             <button class="tab" data-view="gigs">Gigs</button>
             <button class="tab" data-view="dashboard">Dashboard</button>
           </nav>
-          <div class="account"><span id="member-badge" class="avatar">A</span><span id="member-name">Member</span><button id="sign-out" class="text-button">Sign out</button></div>
+          <div class="account"><span id="member-badge" class="avatar">A</span><span id="member-name">Member</span><button id="member-access-open" class="text-button hidden" type="button">Member access</button><button id="sign-out" class="text-button">Sign out</button></div>
         </header>
         <div id="notice" class="notice hidden" role="status"></div>
+        <dialog id="member-access-dialog" class="access-dialog">
+          <div class="access-dialog-card">
+            <p class="eyebrow">ACCOUNT ADMIN</p>
+            <h2>Member sign-in</h2>
+            <p class="muted">Issue a temporary password or send a password reset email.</p>
+            <label for="access-member-select">Band member</label>
+            <select id="access-member-select" class="wide-select"><option value="">Loading…</option></select>
+            <div class="access-actions">
+              <button id="issue-temporary-password" class="button primary" type="button">Create temporary password</button>
+              <button id="send-member-reset" class="button quiet" type="button">Send reset email</button>
+            </div>
+            <div id="temporary-password-result" class="temporary-password-result hidden" role="status">
+              <strong>Temporary password</strong><code id="temporary-password-value"></code>
+              <button id="copy-temporary-password" class="button quiet" type="button">Copy</button>
+            </div>
+            <p id="access-message" class="notice-message" role="status"></p>
+            <button class="text-button" type="button" onclick="document.getElementById('member-access-dialog').close()">Done</button>
+          </div>
+        </dialog>
 
         <section id="songs-view" class="view">
           <div class="hero-row">
