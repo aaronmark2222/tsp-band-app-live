@@ -4,7 +4,7 @@ A band workspace for tracking song work and performance setlists. **The GitHub r
 
 ## Start here
 
-- [Current implementation context](docs/CURRENT_STATE.md) — verified app architecture, deployment, live Supabase snapshot, and follow-up observations.
+- [Current implementation context](docs/CURRENT_STATE.md) — app architecture, deployment, data-model references, and a checklist for future changes.
 - [Project summary](TSP%20Band%20App%20Summary.md) — product behavior, confirmed decisions, and change log.
 - [App guide](docs/APP_GUIDE.md) — screens, data flow, permissions, and maintenance notes.
 - [Product plan](PLAN.md) — goals, roadmap, data-model decisions, and original requirements.
