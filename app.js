@@ -40,7 +40,7 @@ const STATUS_COLORS = {
   Recorded: '#F6CAAE', Draft: '#FBE6A8', Review: '#FBE6A8', No: '#D0D0D0'
 };
 const BACKING_TRACK_COLORS = { 'Not Finished': '#F27A73', Finished: '#F6CAAE', 'Sent to Mix': '#7FA8D8', Mixed: '#A5D17D' };
-const state = { member: null, members: [], songs: [], tasks: [], taskTypes: [], languages: [], languageOptions: [], setlists: [], gigs: [], activeSetlist: null, activeSetlistItems: [], originalSetlistItems: [], setlistOrderDirty: false, view: 'songs', expandedSongIds: new Set(), setlistEditMode: false, dashboardScope: 'gig', dashboardMemberId: null, accessMembers: [], newSetlistSongIds: [] };
+const state = { member: null, members: [], songs: [], tasks: [], taskTypes: [], languages: [], languageOptions: [], setlists: [], gigs: [], activeSetlist: null, activeSetlistItems: [], originalSetlistItems: [], setlistOrderDirty: false, originalSetlistName: '', setlistNameDraft: '', view: 'songs', expandedSongIds: new Set(), setlistEditMode: false, dashboardScope: 'gig', dashboardMemberId: null, accessMembers: [], newSetlistSongIds: [] };
 let draggedItemId = null;
 let savingSetlistOrder = false;
 let deletingSetlist = false;
@@ -248,7 +248,15 @@ function updateSongTitleAbbreviations() {
   });
 }
 
+let songTitleResizeObserver = null;
+function observeSongTitleAbbreviations() {
+  if (!window.ResizeObserver) return;
+  if (!songTitleResizeObserver) songTitleResizeObserver = new ResizeObserver(() => requestAnimationFrame(updateSongTitleAbbreviations));
+  songTitleResizeObserver.disconnect();
+  document.querySelectorAll('.song-summary-toggle').forEach((button) => songTitleResizeObserver.observe(button));
+}
 window.addEventListener('resize', () => requestAnimationFrame(updateSongTitleAbbreviations));
+if (document.fonts?.ready) document.fonts.ready.then(() => requestAnimationFrame(updateSongTitleAbbreviations));
 function remainingWork(songId, memberOnly = false) {
   const open = songWorkItems(songId).filter((item) => !isWorkItemDone(item));
   return memberOnly ? open.filter((item) => item.owner_member_id === state.member.id).length : open.length;
@@ -322,6 +330,10 @@ async function toggleSongDetails(songId, view) {
   });
 }
 
+function songSummaryLeadMarkup(songId) {
+  return '<span class="song-id-cue" aria-hidden="true"><span class="song-disclosure"></span><span class="song-id">' + escapeHtml(songId) + '</span></span>';
+}
+
 function renderSongs() {
   const head = $('#songs-head');
   const body = $('#songs-body');
@@ -361,10 +373,10 @@ function renderSongs() {
   body.innerHTML = sorted.map((song) => {
     const expanded = state.expandedSongIds.has(song.id);
     const detailId = `song-detail-${song.id}`;
-    return `<tr class="song-overview"><td><button type="button" class="song-summary-toggle ${expanded ? 'song-expanded' : ''}" data-song-id="${escapeHtml(song.id)}" data-view="songs" aria-expanded="${expanded}" aria-controls="${detailId}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${escapeHtml(song.id)} ${escapeHtml(song.name)}"><span class="song-disclosure" aria-hidden="true"></span><span class="song-id">${escapeHtml(song.id)}</span>${songTitleMarkup(song.name, 'song-name')}</button></td><td><span class="song-progress">${songProgress(song.id, song.name)}</span></td></tr><tr id="${detailId}" class="song-detail-row ${expanded ? '' : 'hidden'}"><td colspan="2">${renderSongDetails(song.id)}</td></tr>`;
+    return `<tr class="song-overview"><td><button type="button" class="song-summary-toggle ${expanded ? 'song-expanded' : ''}" data-song-id="${escapeHtml(song.id)}" data-view="songs" aria-expanded="${expanded}" aria-controls="${detailId}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${escapeHtml(song.id)} ${escapeHtml(song.name)}">${songSummaryLeadMarkup(song.id)}${songTitleMarkup(song.name, 'song-name')}</button></td><td><span class="song-progress">${songProgress(song.id, song.name)}</span></td></tr><tr id="${detailId}" class="song-detail-row ${expanded ? '' : 'hidden'}"><td colspan="2">${renderSongDetails(song.id)}</td></tr>`;
   }).join('');
   if (!sorted.length) body.innerHTML = '<tr><td colspan="2" class="empty-state">No songs match these filters.</td></tr>';
-  requestAnimationFrame(updateSongTitleAbbreviations);
+  requestAnimationFrame(() => { updateSongTitleAbbreviations(); observeSongTitleAbbreviations(); });
 }
 
 function renderLanguageFilter() {
@@ -427,14 +439,14 @@ function renderSetlistItems(items, canEditSetlist) {
     const summary = isSong
       ? canEditSetlist
         ? `<div class="setlist-song-edit-summary"><span class="song-id">${escapeHtml(item.song_id)}</span>${songTitleMarkup(title, 'item-title song-title')}</div>`
-        : `<button type="button" class="song-summary-toggle setlist-song-toggle ${expanded ? 'song-expanded' : ''}" data-song-id="${escapeHtml(item.song_id)}" data-view="setlists" aria-expanded="${expanded}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${escapeHtml(item.song_id)} ${escapeHtml(title)}"><span class="song-disclosure" aria-hidden="true"></span><span class="song-id">${escapeHtml(item.song_id)}</span>${songTitleMarkup(title, 'item-title song-title')}${songProgress(item.song_id, title)}</button>`
+        : `<button type="button" class="song-summary-toggle setlist-song-toggle ${expanded ? 'song-expanded' : ''}" data-song-id="${escapeHtml(item.song_id)}" data-view="setlists" aria-expanded="${expanded}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${escapeHtml(item.song_id)} ${escapeHtml(title)}">${songSummaryLeadMarkup(item.song_id)}${songTitleMarkup(title, 'item-title song-title')}${songProgress(item.song_id, title)}</button>`
       : `<div><div class="item-title">${escapeHtml(title)}</div><div class="item-detail">${escapeHtml(detail)}</div></div>`;
     const controls = canEditSetlist ? `<div class="item-controls">${canDrag ? `<button class="drag-handle" type="button" data-id="${item.id}" aria-label="Drag ${escapeHtml(title)} to reorder" title="Drag to reorder">⠿</button>` : ''}<button class="icon-button remove-item" data-id="${item.id}" title="Remove item" aria-label="Remove ${escapeHtml(title)}" >×</button></div>` : '';
     const details = isSong && expanded ? `<div class="setlist-song-details">${renderSongDetails(item.song_id)}</div>` : '';
     const rowClass = `${setlistItemMatches(item, filters) ? 'setlist-row' : 'setlist-row hidden'}${canEditSetlist ? ' editing' : ''}`;
     return `<li class="${rowClass}" data-id="${item.id}" ${canDrag ? 'draggable="true"' : ''}><div class="setlist-item-summary">${summary}</div><span class="position">${String(index + 1).padStart(2, '0')}</span><div class="item-actions">${!isSong ? `<span class="duration">${secondsLabel(duration)}</span>` : ''}${controls}</div>${details}</li>`;
   }).join('');
-  requestAnimationFrame(updateSongTitleAbbreviations);
+  requestAnimationFrame(() => { updateSongTitleAbbreviations(); observeSongTitleAbbreviations(); });
   $('#setlist-items').classList.toggle('hidden', !items.length);
   $('#setlist-empty').classList.toggle('hidden', !!items.length);
   $('#setlist-filter-empty').classList.toggle('hidden', !items.length || !!matches.length);
@@ -489,10 +501,14 @@ async function renderActiveSetlist() {
   const setlist = state.setlists.find((item) => item.id === state.activeSetlist);
   $('#active-setlist-name').textContent = setlist?.name || 'Choose a setlist';
   const canEditSetlist = state.member.is_admin && state.setlistEditMode;
+  $('#active-setlist-name').classList.toggle('hidden', canEditSetlist);
+  const nameInput = $('#setlist-name-input');
+  nameInput.classList.toggle('hidden', !canEditSetlist);
+  if (document.activeElement !== nameInput) nameInput.value = state.setlistNameDraft || setlist?.name || '';
   $('#setlist-edit-toggle').classList.toggle('hidden', !state.member.is_admin);
-  $('#setlist-edit-toggle').textContent = state.setlistEditMode ? (state.setlistOrderDirty ? 'Save' : 'Done editing') : 'Edit setlist';
+  $('#setlist-edit-toggle').textContent = state.setlistEditMode ? (hasSetlistChanges() ? 'Save' : 'Done editing') : 'Edit setlist';
   $('#setlist-edit-toggle').disabled = savingSetlistOrder;
-  $('#discard-setlist-order').classList.toggle('hidden', !canEditSetlist || !state.setlistOrderDirty);
+  $('#discard-setlist-order').classList.toggle('hidden', !canEditSetlist || !hasSetlistChanges());
   $('#setlist-delete-controls').classList.toggle('hidden', !canEditSetlist || !setlist || deletingSetlist);
   $('#delete-setlist').disabled = deletingSetlist;
   $('#setlist-edit-toggle').setAttribute('aria-pressed', String(state.setlistEditMode));
@@ -708,55 +724,61 @@ async function addSongToSetlist() {
   updateSetlistEditControls();
 }
 
+function hasSetlistChanges() {
+  return state.setlistOrderDirty || state.setlistNameDraft.trim() !== state.originalSetlistName.trim();
+}
+
 async function saveSetlistOrder(items) {
-  if (!state.member.is_admin || !state.setlistEditMode || savingSetlistOrder || !state.setlistOrderDirty) return;
+  if (!state.member.is_admin || !state.setlistEditMode || savingSetlistOrder || !hasSetlistChanges()) return;
+  const nextName = state.setlistNameDraft.trim();
+  if (!nextName) { $('#setlist-name-input').focus(); showNotice('Enter a setlist name before saving.', true); return; }
   savingSetlistOrder = true;
   $('#setlist-items').classList.add('saving-order');
-  const originalIds = new Set(state.originalSetlistItems.map((item) => item.id));
-  const retainedIds = new Set(items.filter((item) => originalIds.has(item.id)).map((item) => item.id));
-  const removedIds = [...originalIds].filter((id) => !retainedIds.has(id));
-  const base = Math.max(0, ...state.originalSetlistItems.map((item) => item.position || 0)) + items.length + 1;
   try {
-    const stagedExisting = await Promise.all(items.map((item, index) => originalIds.has(item.id)
-      ? db.from('setlist_items').update({ position: base + index }).eq('id', item.id)
-      : Promise.resolve({ error: null })));
-    const stageError = stagedExisting.find((result) => result.error)?.error;
-    if (stageError) throw stageError;
-
-    if (removedIds.length) {
-      const { error } = await db.from('setlist_items').delete().in('id', removedIds);
-      if (error) throw error;
-    }
-
-    const persistedIds = new Map(items.filter((item) => originalIds.has(item.id)).map((item) => [item.id, item.id]));
-    for (const [index, item] of items.entries()) {
-      if (originalIds.has(item.id)) continue;
-      if (item.persistedId) {
-        persistedIds.set(item.id, item.persistedId);
-        continue;
+    if (state.setlistOrderDirty) {
+      const originalIds = new Set(state.originalSetlistItems.map((item) => item.id));
+      const retainedIds = new Set(items.filter((item) => originalIds.has(item.id)).map((item) => item.id));
+      const removedIds = [...originalIds].filter((id) => !retainedIds.has(id));
+      const base = Math.max(0, ...state.originalSetlistItems.map((item) => item.position || 0)) + items.length + 1;
+      const stagedExisting = await Promise.all(items.map((item, index) => originalIds.has(item.id)
+        ? db.from('setlist_items').update({ position: base + index }).eq('id', item.id)
+        : Promise.resolve({ error: null })));
+      const stageError = stagedExisting.find((result) => result.error)?.error;
+      if (stageError) throw stageError;
+      if (removedIds.length) {
+        const { error } = await db.from('setlist_items').delete().in('id', removedIds);
+        if (error) throw error;
       }
-      const { data, error } = await db.from('setlist_items').insert({
-        setlist_id: state.activeSetlist,
-        position: base + items.length + index,
-        item_type: item.item_type,
-        song_id: item.song_id,
-        label: item.label ?? null,
-        note: item.note ?? null,
-        break_seconds: item.break_seconds ?? null
-      }).select('id').single();
-      if (error) throw error;
-      item.persistedId = data.id;
-      persistedIds.set(item.id, data.id);
+      const persistedIds = new Map(items.filter((item) => originalIds.has(item.id)).map((item) => [item.id, item.id]));
+      for (const [index, item] of items.entries()) {
+        if (originalIds.has(item.id)) continue;
+        if (item.persistedId) { persistedIds.set(item.id, item.persistedId); continue; }
+        const { data, error } = await db.from('setlist_items').insert({
+          setlist_id: state.activeSetlist, position: base + items.length + index,
+          item_type: item.item_type, song_id: item.song_id, label: item.label ?? null,
+          note: item.note ?? null, break_seconds: item.break_seconds ?? null
+        }).select('id').single();
+        if (error) throw error;
+        item.persistedId = data.id;
+        persistedIds.set(item.id, data.id);
+      }
+      const finalPositions = await Promise.all(items.map((item, index) =>
+        db.from('setlist_items').update({ position: index + 1 }).eq('id', persistedIds.get(item.id))));
+      const finalPositionError = finalPositions.find((result) => result.error)?.error;
+      if (finalPositionError) throw finalPositionError;
     }
-
-    const finalPositions = await Promise.all(items.map((item, index) =>
-      db.from('setlist_items').update({ position: index + 1 }).eq('id', persistedIds.get(item.id))));
-    const finalPositionError = finalPositions.find((result) => result.error)?.error;
-    if (finalPositionError) throw finalPositionError;
-
+    if (nextName !== state.originalSetlistName.trim()) {
+      const { error } = await db.from('setlists').update({ name: nextName }).eq('id', state.activeSetlist);
+      if (error) throw error;
+      state.setlists = state.setlists.map((list) => list.id === state.activeSetlist ? { ...list, name: nextName } : list);
+      const selectedOption = $('#setlist-select').selectedOptions[0];
+      if (selectedOption) selectedOption.textContent = nextName;
+    }
     state.setlistOrderDirty = false;
     state.setlistEditMode = false;
     state.originalSetlistItems = [];
+    state.originalSetlistName = nextName;
+    state.setlistNameDraft = nextName;
     $('#add-song-panel').classList.add('hidden');
     showNotice('Setlist changes saved.');
     await renderActiveSetlist();
@@ -777,10 +799,10 @@ function updateSetlistEditControls() {
   const toggle = $('#setlist-edit-toggle');
   const discard = $('#discard-setlist-order');
   if (toggle) {
-    toggle.textContent = !state.setlistEditMode ? 'Edit setlist' : state.setlistOrderDirty ? 'Save' : 'Done editing';
+    toggle.textContent = !state.setlistEditMode ? 'Edit setlist' : hasSetlistChanges() ? 'Save' : 'Done editing';
     toggle.disabled = savingSetlistOrder;
   }
-  if (discard) discard.classList.toggle('hidden', !state.setlistEditMode || !state.setlistOrderDirty || savingSetlistOrder);
+  if (discard) discard.classList.toggle('hidden', !state.setlistEditMode || !hasSetlistChanges() || savingSetlistOrder);
 }
 
 function dropSetlistItem(event) {
@@ -1148,7 +1170,7 @@ async function saveGig(event) {
 }
 
 function setView(view) {
-  if (view !== 'setlists' && state.setlistEditMode && state.setlistOrderDirty) {
+  if (view !== 'setlists' && state.setlistEditMode && hasSetlistChanges()) {
     showNotice('Save or discard your staged setlist changes before leaving edit mode.', true);
     return;
   }
@@ -1156,6 +1178,8 @@ function setView(view) {
   if (view !== 'setlists') {
     state.setlistEditMode = false;
     state.originalSetlistItems = [];
+    state.originalSetlistName = '';
+    state.setlistNameDraft = '';
     $('#add-song-panel').classList.add('hidden');
   }
   document.querySelectorAll('.tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.view === view));
@@ -1389,7 +1413,11 @@ $('#clear-setlist-filters').addEventListener('click', () => {
 });
 $('#refresh').addEventListener('click', async () => { try { await Promise.all([loadData(), loadReadiness()]); if (state.view === 'dashboard') await renderDashboard(); showNotice('Workspace refreshed.'); } catch (error) { fail('Could not refresh the workspace.', error); } });
 $('#setlist-select').addEventListener('change', (event) => {
-  if (state.setlistOrderDirty) { event.target.value = state.activeSetlist; showNotice('Save or discard your staged changes before switching setlists.', true); return; }
+  if (hasSetlistChanges()) { event.target.value = state.activeSetlist; showNotice('Save or discard your staged changes before switching setlists.', true); return; }
+  state.setlistEditMode = false;
+  state.originalSetlistItems = [];
+  state.originalSetlistName = '';
+  state.setlistNameDraft = '';
   state.activeSetlist = event.target.value;
   renderActiveSetlist();
 });
@@ -1400,27 +1428,39 @@ $('#setlist-edit-toggle').addEventListener('click', async () => {
     state.setlistEditMode = true;
     state.expandedSongIds.clear();
     state.originalSetlistItems = [...state.activeSetlistItems];
+    const activeSetlist = state.setlists.find((item) => item.id === state.activeSetlist);
+    state.originalSetlistName = activeSetlist?.name || '';
+    state.setlistNameDraft = state.originalSetlistName;
     state.setlistOrderDirty = false;
     $('#add-song-panel').classList.add('hidden');
     await renderActiveSetlist();
     updateSetlistEditControls();
     return;
   }
-  if (state.setlistOrderDirty) {
+  if (hasSetlistChanges()) {
     await saveSetlistOrder([...state.activeSetlistItems]);
     return;
   }
   state.setlistEditMode = false;
   state.originalSetlistItems = [];
+  state.originalSetlistName = '';
+  state.setlistNameDraft = '';
   $('#add-song-panel').classList.add('hidden');
   await renderActiveSetlist();
+});
+$('#setlist-name-input').addEventListener('input', (event) => {
+  state.setlistNameDraft = event.target.value;
+  updateSetlistEditControls();
 });
 $('#delete-setlist').addEventListener('click', deleteActiveSetlist);
 $('#discard-setlist-order').addEventListener('click', () => {
   state.activeSetlistItems = [...state.originalSetlistItems];
+  state.setlistNameDraft = state.originalSetlistName;
   state.setlistOrderDirty = false;
   state.setlistEditMode = false;
   state.originalSetlistItems = [];
+  state.originalSetlistName = '';
+  state.setlistNameDraft = '';
   $('#add-song-panel').classList.add('hidden');
   renderActiveSetlist();
 });
