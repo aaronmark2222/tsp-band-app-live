@@ -742,3 +742,37 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
   .song-entry { gap:5px; padding:5px 1px 7px; }
   .song-entry-footer { gap:6px; }
 }
+
+/* Match the Songs page: title above, ID and status below, with the setlist order at top right. */
+.setlist-row:has(.setlist-song-toggle) > .setlist-item-summary {
+  min-width:0;
+  padding-right:42px;
+}
+.setlist-song-toggle {
+  display:grid;
+  grid-template-columns:minmax(0,1fr);
+  gap:5px;
+  width:100%;
+  min-width:0;
+  padding:5px 2px 7px;
+  border:0;
+  background:transparent;
+  color:inherit;
+  text-align:left;
+}
+.setlist-song-toggle .item-title {
+  display:block;
+  grid-column:1;
+  width:100%;
+  min-width:0;
+  padding:4px 0;
+}
+.setlist-song-toggle .song-title-container {
+  display:block;
+  width:100%;
+  min-width:0;
+}
+.setlist-row:has(.song-entry-footer) > .position {
+  top:8px;
+  right:9px;
+}
