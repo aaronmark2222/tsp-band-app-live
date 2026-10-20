@@ -543,10 +543,10 @@ function renderDashboardTabs() {
     const date = new Date(`${gig.event_date}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
     const label = upcomingGig?.id === gig.id ? `Upcoming · ${date}` : date;
     const scope = `gig:${gig.id}`;
-    return `<button class="dashboard-tab" type="button" role="tab" aria-selected="${scope === state.dashboardScope}" data-dashboard-scope="${escapeHtml(scope)}"><span>${escapeHtml(gig.name)}</span><small>${escapeHtml(label)}</small></button>`;
+    return `<button class="dashboard-tab ${scope === state.dashboardScope ? 'active' : ''}" type="button" role="tab" aria-selected="${scope === state.dashboardScope}" data-dashboard-scope="${escapeHtml(scope)}"><span>${escapeHtml(gig.name)}</span><small>${escapeHtml(label)}</small></button>`;
   }).join('');
   const totalActive = state.dashboardScope === 'total';
-  $('#dashboard-tabs').innerHTML = `${tabs}<button class="dashboard-tab" type="button" role="tab" aria-selected="${totalActive}" data-dashboard-scope="total"><span>Total Setlist</span><small>Entire repertoire</small></button>`;
+  $('#dashboard-tabs').innerHTML = `${tabs}<button class="dashboard-tab ${totalActive ? 'active' : ''}" type="button" role="tab" aria-selected="${totalActive}" data-dashboard-scope="total"><span>Total Setlist</span><small>Entire repertoire</small></button>`;
 }
 
 function renderDashboardTaskGroups(items, song, viewedMemberId) {
