@@ -40,7 +40,7 @@ const STATUS_COLORS = {
   Recorded: '#F6CAAE', Draft: '#FBE6A8', Review: '#FBE6A8', No: '#D0D0D0'
 };
 const BACKING_TRACK_COLORS = { 'Not Finished': '#F27A73', Finished: '#F6CAAE', 'Sent to Mix': '#7FA8D8', Mixed: '#A5D17D' };
-const state = { member: null, members: [], songs: [], tasks: [], taskTypes: [], languages: [], setlists: [], gigs: [], activeSetlist: null, activeSetlistItems: [], view: 'songs', expandedSongIds: new Set(), setlistEditMode: false, dashboardScope: 'gig', dashboardMemberId: null };
+const state = { member: null, members: [], songs: [], tasks: [], taskTypes: [], languages: [], setlists: [], gigs: [], activeSetlist: null, activeSetlistItems: [], view: 'songs', expandedSongIds: new Set(), setlistEditMode: false, dashboardScope: 'gig', dashboardMemberId: null, accessMembers: [] };
 let draggedItemId = null;
 let savingSetlistOrder = false;
 let dashboardRenderRequest = 0;
@@ -81,6 +81,7 @@ function showWorkspace() {
   $('#login-screen').classList.add('hidden');
   $('#first-login-screen').classList.add('hidden');
   $('#workspace').classList.remove('hidden');
+  $('#member-access-open').classList.toggle('hidden', !state.member.is_admin);
   $('#member-name').textContent = state.member.name;
   $('#member-badge').textContent = state.member.name.slice(0, 1).toUpperCase();
 }
@@ -89,13 +90,24 @@ function showLogin() {
   $('#loading').classList.add('hidden');
   $('#workspace').classList.add('hidden');
   $('#first-login-screen').classList.add('hidden');
+  $('#password-recovery-screen').classList.add('hidden');
   $('#login-screen').classList.remove('hidden');
+}
+
+function showPasswordRecovery() {
+  $('#loading').classList.add('hidden');
+  $('#login-screen').classList.add('hidden');
+  $('#first-login-screen').classList.add('hidden');
+  $('#workspace').classList.add('hidden');
+  $('#password-recovery-screen').classList.remove('hidden');
+  $('#recovery-error').textContent = '';
 }
 
 function showFirstLoginPasswordSetup() {
   $('#loading').classList.add('hidden');
   $('#login-screen').classList.add('hidden');
   $('#workspace').classList.add('hidden');
+  $('#password-recovery-screen').classList.add('hidden');
   $('#first-login-screen').classList.remove('hidden');
   $('#password-setup-error').textContent = '';
 }
@@ -786,6 +798,122 @@ function setView(view) {
   if (view === 'dashboard') renderDashboard();
 }
 
+
+$('#forgot-password-open').addEventListener('click', () => {
+  $('#login-form').classList.add('hidden');
+  $('#reset-request-form').classList.remove('hidden');
+  $('#reset-email').value = $('#email').value.trim();
+  $('#reset-request-message').textContent = '';
+});
+$('#cancel-password-reset').addEventListener('click', () => {
+  $('#reset-request-form').classList.add('hidden');
+  $('#login-form').classList.remove('hidden');
+  $('#login-error').textContent = '';
+});
+$('#reset-request-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const button = $('#send-reset-link'), message = $('#reset-request-message');
+  message.textContent = '';
+  button.disabled = true;
+  try {
+    const { error } = await db.auth.resetPasswordForEmail($('#reset-email').value.trim(), {
+      redirectTo: `${window.location.origin}${window.location.pathname}`
+    });
+    if (error) throw error;
+    message.textContent = 'If an account exists for that email, reset instructions will be sent.';
+  } catch (error) {
+    message.textContent = error.message || 'Could not send a reset email. Please try again.';
+  } finally { button.disabled = false; }
+});
+$('#recovery-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const password = $('#recovery-new-password').value;
+  $('#recovery-error').textContent = '';
+  if (password !== $('#recovery-confirm-password').value) {
+    $('#recovery-error').textContent = 'The passwords do not match.';
+    return;
+  }
+  const button = $('#save-recovery-password');
+  button.disabled = true;
+  try {
+    const { error } = await db.auth.updateUser({ password });
+    if (error) throw error;
+    if (state.member.must_change_password) {
+      const { error: setupError } = await db.rpc('complete_password_setup');
+      if (setupError) throw setupError;
+    }
+    state.member.must_change_password = false;
+    window.history.replaceState(null, document.title, window.location.pathname);
+    await Promise.all([loadData(), loadReadiness()]);
+    showWorkspace();
+    renderSongs();
+    showNotice('Password updated.');
+  } catch (error) {
+    $('#recovery-error').textContent = error.message || 'Could not update the password. Please request a new reset link.';
+  } finally { button.disabled = false; }
+});
+$('#recovery-sign-out').addEventListener('click', async () => {
+  await db.auth.signOut();
+  state.member = null;
+  showLogin();
+});
+$('#member-access-open').addEventListener('click', async () => {
+  if (!state.member?.is_admin) return;
+  const dialog = $('#member-access-dialog');
+  $('#access-message').textContent = 'Loading member accounts…';
+  $('#temporary-password-result').classList.add('hidden');
+  $('#temporary-password-value').textContent = '';
+  $('#access-member-select').innerHTML = '<option value="">Loading…</option>';
+  dialog.showModal();
+  try {
+    const { data, error } = await db.functions.invoke('member-access-admin', { body: { action: 'list_members' } });
+    if (error) throw error;
+    state.accessMembers = data.members || [];
+    $('#access-member-select').innerHTML = state.accessMembers.length
+      ? '<option value="">Choose a band member</option>' + state.accessMembers.map((member) =>
+          `<option value="${escapeHtml(member.id)}">${escapeHtml(member.name)}${member.must_change_password ? ' · password change required' : ''}</option>`).join('')
+      : '<option value="">No linked accounts</option>';
+    $('#access-message').textContent = '';
+  } catch (error) { $('#access-message').textContent = error.message || 'Could not load member accounts.'; }
+});
+async function runMemberAccessAction(action) {
+  const memberId = $('#access-member-select').value;
+  if (!memberId) { $('#access-message').textContent = 'Choose a band member first.'; return; }
+  const buttons = [$('#issue-temporary-password'), $('#send-member-reset')];
+  buttons.forEach((button) => { button.disabled = true; });
+  $('#access-message').textContent = action === 'temporary_password' ? 'Creating a temporary password…' : 'Sending a reset email…';
+  $('#temporary-password-result').classList.add('hidden');
+  $('#temporary-password-value').textContent = '';
+  try {
+    const { data, error } = await db.functions.invoke('member-access-admin', { body: { action, member_id: memberId } });
+    if (error) throw error;
+    if (action === 'temporary_password') {
+      $('#temporary-password-value').textContent = data.temporary_password;
+      $('#temporary-password-result').classList.remove('hidden');
+      $('#access-message').textContent = 'Share this password privately. The member must change it at their next sign-in.';
+      const member = state.accessMembers.find((item) => item.id === memberId);
+      if (member) member.must_change_password = true;
+      const option = $('#access-member-select').selectedOptions[0];
+      if (option && !option.textContent.includes('password change required')) option.textContent += ' · password change required';
+    } else { $('#access-message').textContent = 'Password reset email sent.'; }
+  } catch (error) { $('#access-message').textContent = error.message || 'Could not update member access.'; }
+  finally { buttons.forEach((button) => { button.disabled = false; }); }
+}
+$('#issue-temporary-password').addEventListener('click', () => runMemberAccessAction('temporary_password'));
+$('#send-member-reset').addEventListener('click', () => runMemberAccessAction('send_reset'));
+$('#copy-temporary-password').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('#temporary-password-value').textContent);
+    $('#copy-temporary-password').textContent = 'Copied';
+    setTimeout(() => { $('#copy-temporary-password').textContent = 'Copy'; }, 1600);
+  } catch { $('#access-message').textContent = 'Select and copy the temporary password shown above.'; }
+});
+$('#member-access-dialog').addEventListener('close', () => {
+  $('#temporary-password-value').textContent = '';
+  $('#temporary-password-result').classList.add('hidden');
+  $('#access-message').textContent = '';
+});
+
 $('#login-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   $('#login-error').textContent = '';
@@ -961,6 +1089,7 @@ db.auth.getSession().then(async ({ data, error }) => {
   if (error || !data.session) return showLogin();
   try {
     await loadMember(data.session.user);
+    if (new URLSearchParams(window.location.hash.slice(1)).get('type') === 'recovery') return showPasswordRecovery();
     if (state.member.must_change_password) return showFirstLoginPasswordSetup();
     await Promise.all([loadData(), loadReadiness()]);
     showWorkspace();
