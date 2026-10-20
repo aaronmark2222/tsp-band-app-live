@@ -506,7 +506,6 @@ async function renderActiveSetlist() {
     $('#setlist-filter-empty').classList.add('hidden');
     $('#setlist-empty').classList.remove('hidden');
     $('#setlist-summary').textContent = 'Create your first setlist.';
-    $('#set-song-count').textContent = '0';
     return;
   }
   try {
@@ -1099,12 +1098,12 @@ async function saveGig(event) {
 }
 
 function setView(view) {
+  if (view !== 'setlists' && state.setlistEditMode && state.setlistOrderDirty) {
+    showNotice('Save or discard your staged setlist changes before leaving edit mode.', true);
+    return;
+  }
   state.view = view;
   if (view !== 'setlists') {
-    if (state.setlistEditMode && state.setlistOrderDirty) {
-      showNotice('Save or discard your staged setlist changes before leaving edit mode.', true);
-      return;
-    }
     state.setlistEditMode = false;
     state.originalSetlistItems = [];
     $('#add-song-panel').classList.add('hidden');
