@@ -16,8 +16,8 @@ This note summarizes information already documented in the public repository. It
 - Members sign in with email and password. The Supabase Auth user is matched to a `members` row.
 - First-login password setup is supported for newly linked accounts.
 - The main views are Songs, Setlists, Gigs, and Dashboard. Song-task ownership in `task_types.owner_member_id` controls member editing; the administrator can manage broader work and setlists. Supabase row-level security is the authorization boundary.
-- The Dashboard groups remaining work by member/category and can show the next gig or full repertoire.
-- Setlist editing is available to the administrator; additions, removals, and ordering are staged until Save, shown on the same edit control. The control reads **Done editing** when clean and **Save** when there are changes. Members can view setlists.
+- The Dashboard has a tab for every gig plus **Total Setlist**, with the next upcoming gig selected by default. New gigs appear as their own tab and show the songs in their attached setlist.
+- Setlist editing is available to the administrator; additions, removals, and ordering are staged until Save, shown on the same edit control. The control reads **Done editing** when clean and **Save** when there are changes. The bottom of edit mode has a confirmed setlist deletion action; linked gigs remain but become unattached, and related running-order items and deadlines are removed. Members can view setlists.
 - The Songs page has an administrator-only **Add song** action and no setlist count card. The editor loads languages, keys, tempos, and all configured task statuses; it displays the generated Song ID in one field and accepts duration in minutes, converting to the database's `duration_seconds` value on save.
 
 ## Data model and references
