@@ -40,7 +40,7 @@ const STATUS_COLORS = {
   Recorded: '#F6CAAE', Draft: '#FBE6A8', Review: '#FBE6A8', No: '#D0D0D0'
 };
 const BACKING_TRACK_COLORS = { 'Not Finished': '#F27A73', Finished: '#F6CAAE', 'Sent to Mix': '#7FA8D8', Mixed: '#A5D17D' };
-const state = { member: null, members: [], songs: [], tasks: [], taskTypes: [], languages: [], languageOptions: [], setlists: [], gigs: [], activeSetlist: null, activeSetlistItems: [], view: 'songs', expandedSongIds: new Set(), setlistEditMode: false, dashboardScope: 'gig', dashboardMemberId: null, accessMembers: [], newSetlistSongIds: [] };
+const state = { member: null, members: [], songs: [], tasks: [], taskTypes: [], languages: [], languageOptions: [], setlists: [], gigs: [], activeSetlist: null, activeSetlistItems: [], originalSetlistItems: [], setlistOrderDirty: false, view: 'songs', expandedSongIds: new Set(), setlistEditMode: false, dashboardScope: 'gig', dashboardMemberId: null, accessMembers: [], newSetlistSongIds: [] };
 let draggedItemId = null;
 let savingSetlistOrder = false;
 let dashboardRenderRequest = 0;
@@ -124,7 +124,7 @@ async function loadMember(user) {
 
 async function loadData() {
   const [songs, tasks, taskTypes, languages, languageOptions, setlists, gigs, members] = await Promise.all([
-    db.from('songs').select('id,name,type,is_medley,keys,tempo_start,tempo_end,tempo_change,duration_seconds,backing_track_manual,sort_order').order('sort_order'),
+    db.from('songs').select('id,name,type,is_medley,keys,tempo_start,tempo_end,tempo_change,tempo_segments,duration_seconds,backing_track_manual,sort_order').order('sort_order'),
     db.from('song_tasks').select('song_id,task_key,status,updated_at'),
     db.from('task_types').select('key,label,category,owner_member_id,allowed_statuses,done_statuses,sort_order').order('sort_order'),
     db.from('song_languages').select('song_id,language_code,position,languages(code,short_label)').order('position'),
@@ -289,7 +289,7 @@ function renderSongDetails(songId) {
     ['backing', 'Backing tracks & vocals'],
     ['part', 'Band parts · Optional']
   ];
-  return `<div class="song-detail-metadata"><span>${songTypeLabel(song)}</span><span class="language-chips">${languages || '<span>No language set</span>'}</span><span>${secondsLabel(song?.duration_seconds)}</span></div><div class="song-details-overview"><span>Backing Track</span>${backingTrackControl(song, readiness)}</div><div class="task-groups">${groups.map(([category, label]) => {
+  return `<div class="song-detail-metadata"><span>${songTypeLabel(song)}</span><span class="language-chips">${languages || '<span>No language set</span>'}</span><span>${secondsLabel(song?.duration_seconds)}</span><span>${escapeHtml(songTempoLabel(song))}</span></div><div class="song-details-overview"><span>Backing Track</span>${backingTrackControl(song, readiness)}</div><div class="task-groups">${groups.map(([category, label]) => {
     const types = state.taskTypes.filter((type) => type.category === category);
     if (!types.length) return '';
     return `<section class="task-group"><h3>${label}</h3><div class="task-grid">${types.map((type) => {
@@ -370,7 +370,7 @@ function renderLanguageFilter() {
     .filter(([, language]) => language).map(([code, language]) => `<option value="${escapeHtml(code)}" style="color:${languageColor(code)};background-color:#111a15">${escapeHtml(language.short_label)}</option>`).join('');
   $('#language-filter').innerHTML = `<option value="">All languages</option>${options}`;
   $('#setlist-language-filter').innerHTML = `<option value="">All languages</option>${options}`;
-  const keys = [...new Set(state.songs.flatMap((song) => song.keys || []))].sort((a, b) => a.localeCompare(b));
+  const keys = KEY_CHOICES;
   $('#key-filter').innerHTML = `<option value="">Any key / scale</option>${keys.map((key) => `<option value="${escapeHtml(key)}">${escapeHtml(key)}</option>`).join('')}`;
   $('#setlist-key-filter').innerHTML = `<option value="">Any key / scale</option>${keys.map((key) => `<option value="${escapeHtml(key)}">${escapeHtml(key)}</option>`).join('')}`;
 }
@@ -427,7 +427,7 @@ function renderSetlistItems(items, canEditSetlist) {
         ? `<div class="setlist-song-edit-summary"><span class="song-id">${escapeHtml(item.song_id)}</span>${songTitleMarkup(title, 'item-title song-title')}</div>`
         : `<button type="button" class="song-summary-toggle setlist-song-toggle ${expanded ? 'song-expanded' : ''}" data-song-id="${escapeHtml(item.song_id)}" data-view="setlists" aria-expanded="${expanded}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${escapeHtml(item.song_id)} ${escapeHtml(title)}"><span class="song-disclosure" aria-hidden="true"></span><span class="song-id">${escapeHtml(item.song_id)}</span>${songTitleMarkup(title, 'item-title song-title')}${songProgress(item.song_id, title)}</button>`
       : `<div><div class="item-title">${escapeHtml(title)}</div><div class="item-detail">${escapeHtml(detail)}</div></div>`;
-    const controls = canEditSetlist ? `<div class="item-controls">${canDrag ? `<button class="drag-handle" type="button" data-id="${item.id}" aria-label="Drag ${escapeHtml(title)} to reorder" title="Drag to reorder">⠿</button>` : ''}<button class="icon-button remove-item" data-id="${item.id}" title="Remove item" aria-label="Remove ${escapeHtml(title)}">×</button></div>` : '';
+    const controls = canEditSetlist ? `<div class="item-controls">${canDrag ? `<button class="drag-handle" type="button" data-id="${item.id}" aria-label="Drag ${escapeHtml(title)} to reorder" title="Drag to reorder">⠿</button>` : ''}<button class="icon-button remove-item" data-id="${item.id}" title="Remove item" aria-label="Remove ${escapeHtml(title)}" ${state.setlistOrderDirty ? "disabled" : ""}>×</button></div>` : '';
     const details = isSong && expanded ? `<div class="setlist-song-details">${renderSongDetails(item.song_id)}</div>` : '';
     const rowClass = `${setlistItemMatches(item, filters) ? 'setlist-row' : 'setlist-row hidden'}${canEditSetlist ? ' editing' : ''}`;
     return `<li class="${rowClass}" data-id="${item.id}" ${canDrag ? 'draggable="true"' : ''}><div class="setlist-item-summary">${summary}</div><span class="position">${String(index + 1).padStart(2, '0')}</span><div class="item-actions">${!isSong ? `<span class="duration">${secondsLabel(duration)}</span>` : ''}${controls}</div>${details}</li>`;
@@ -490,9 +490,12 @@ async function renderActiveSetlist() {
   const canEditSetlist = state.member.is_admin && state.setlistEditMode;
   $('#setlist-edit-toggle').classList.toggle('hidden', !state.member.is_admin);
   $('#setlist-edit-toggle').textContent = state.setlistEditMode ? 'Done editing' : 'Edit setlist';
+  $('#save-setlist-order').classList.toggle('hidden', !canEditSetlist);
+  $('#save-setlist-order').disabled = !state.setlistOrderDirty || savingSetlistOrder;
+  $('#discard-setlist-order').classList.toggle('hidden', !canEditSetlist || !state.setlistOrderDirty);
   $('#setlist-edit-toggle').setAttribute('aria-pressed', String(state.setlistEditMode));
   $('#add-song-toggle').classList.toggle('hidden', !canEditSetlist);
-  $('#add-song-toggle').disabled = !canEditSetlist;
+  $('#add-song-toggle').disabled = !canEditSetlist || state.setlistOrderDirty;
   $('#new-setlist').classList.toggle('hidden', !state.member.is_admin);
   $('#new-setlist').disabled = !state.member.is_admin;
   if (!canEditSetlist) $('#add-song-panel').classList.add('hidden');
@@ -517,6 +520,8 @@ async function renderActiveSetlist() {
     $('#set-song-count').textContent = summary.data?.song_count ?? 0;
     $('#setlist-summary').textContent = `${summary.data?.song_count || 0} songs · ${secondsLabel(total)} running time`;
     state.activeSetlistItems = items;
+    if (canEditSetlist && !state.setlistOrderDirty) state.originalSetlistItems = [...items];
+    $('#add-song').disabled = state.setlistOrderDirty;
     renderSetlistItems(items, canEditSetlist);
     $('#add-song-select').innerHTML = state.songs.map((song) => `<option value="${escapeHtml(song.id)}">${escapeHtml(song.id)} · ${escapeHtml(song.name)}</option>`).join('');
   } catch (error) { fail('Could not load this setlist.', error); }
@@ -677,6 +682,7 @@ async function saveBackingTrackStatus(select) {
 
 async function addSongToSetlist() {
   if (!state.member.is_admin || !state.setlistEditMode || !state.activeSetlist) return;
+  if (state.setlistOrderDirty) return showNotice('Save or discard the staged order before changing setlist contents.', true);
   const items = await loadSetlistItems(state.activeSetlist);
   const songId = $('#add-song-select').value;
   if (items.some((item) => item.item_type === 'song' && item.song_id === songId)) return showNotice('That song is already in this setlist.', true);
@@ -688,50 +694,56 @@ async function addSongToSetlist() {
   await renderActiveSetlist();
 }
 
-async function saveSetlistOrder(items) {
-  if (!state.member.is_admin || !state.setlistEditMode || savingSetlistOrder) return;
+async async function saveSetlistOrder(items) {
+  if (!state.member.is_admin || !state.setlistEditMode || savingSetlistOrder || !state.setlistOrderDirty) return;
   savingSetlistOrder = true;
   $('#setlist-items').classList.add('saving-order');
   const base = Math.max(0, ...items.map((item) => item.position)) + items.length + 1;
   try {
-    for (let index = 0; index < items.length; index += 1) {
-      const { error } = await db.from('setlist_items').update({ position: base + index }).eq('id', items[index].id);
-      if (error) throw error;
-    }
-    for (let index = 0; index < items.length; index += 1) {
-      const { error } = await db.from('setlist_items').update({ position: index + 1 }).eq('id', items[index].id);
-      if (error) throw error;
-    }
+    const stage = await Promise.all(items.map((item, index) => db.from('setlist_items').update({position:base+index}).eq('id',item.id)));
+    const stageError = stage.find((result) => result.error)?.error;
+    if (stageError) throw stageError;
+    const updates = await Promise.all(items.map((item, index) => db.from('setlist_items').update({position:index+1}).eq('id',item.id)));
+    const updateError = updates.find((result) => result.error)?.error;
+    if (updateError) throw updateError;
+    state.setlistOrderDirty = false;
     showNotice('Setlist order saved.');
     await renderActiveSetlist();
   } catch (error) {
-    fail('Could not save the new setlist order. Refresh the setlist and try again.', error);
-    await renderActiveSetlist();
+    fail('Could not save the new setlist order. Your staged order is still here; try saving again.', error);
   } finally {
     savingSetlistOrder = false;
     $('#setlist-items').classList.remove('saving-order');
+    updateSetlistEditControls();
   }
+}
+function updateSetlistEditControls() {
+  const save = $('#save-setlist-order'), discard = $('#discard-setlist-order');
+  if (save) save.disabled = !state.setlistOrderDirty || savingSetlistOrder;
+  if (discard) discard.classList.toggle('hidden', !state.setlistEditMode || !state.setlistOrderDirty || savingSetlistOrder);
 }
 
 function dropSetlistItem(event) {
   event.preventDefault();
   const row = event.target.closest('.setlist-row');
   if (!state.setlistEditMode || setlistFilterValues().active || !row || !draggedItemId || row.dataset.id === draggedItemId || savingSetlistOrder) return;
-  const items = [...$('#setlist-items').querySelectorAll('.setlist-row')].map((item) => item.dataset.id);
-  const from = items.indexOf(draggedItemId);
-  let to = items.indexOf(row.dataset.id);
-  const rect = row.getBoundingClientRect();
-  if (event.clientY > rect.top + rect.height / 2) to += 1;
+  const order = [...$('#setlist-items').querySelectorAll('.setlist-row')].map((item) => item.dataset.id);
+  const from = order.indexOf(draggedItemId);
+  let to = order.indexOf(row.dataset.id);
+  if (event.clientY > row.getBoundingClientRect().top + row.offsetHeight / 2) to += 1;
   if (from < 0) return;
-  const [moving] = items.splice(from, 1);
+  const [movingId] = order.splice(from, 1);
   if (to > from) to -= 1;
-  items.splice(Math.max(0, Math.min(to, items.length)), 0, moving);
-  const rowsById = new Map([...$('#setlist-items').querySelectorAll('.setlist-row')].map((item) => [item.dataset.id, item]));
-  saveSetlistOrder(items.map((id) => ({ id, position: Number(rowsById.get(id)?.querySelector('.position')?.textContent) || 0 })));
+  order.splice(Math.max(0, Math.min(to, order.length)), 0, movingId);
+  const byId = new Map(state.activeSetlistItems.map((item) => [item.id,item]));
+  state.activeSetlistItems = order.map((id) => byId.get(id)).filter(Boolean);
+  state.setlistOrderDirty = state.activeSetlistItems.some((item,index) => item.id !== state.originalSetlistItems[index]?.id);
+  renderSetlistItems(state.activeSetlistItems, true);
+  updateSetlistEditControls();
 }
-
 async function removeSetlistItem(id) {
   if (!state.member.is_admin || !state.setlistEditMode) return;
+  if (state.setlistOrderDirty) return showNotice('Save or discard the staged order before changing setlist contents.', true);
   const { error } = await db.from('setlist_items').delete().eq('id', id);
   if (error) return fail('Could not remove this item.', error);
   showNotice('Item removed from the setlist.');
@@ -769,47 +781,62 @@ function nextAvailableSongIds(query = newSongIdQuery) {
     .sort((a, b) => a.replace(/\d+$/, '').length - b.replace(/\d+$/, '').length || a.localeCompare(b))
     .slice(0, 12);
 }
-function renderNewSongIdSuggestions({ autocomplete = true } = {}) {
+function renderNewSongIdSuggestions() {
   const list = $('#new-song-id-suggestions');
-  const input = $('#new-song-id');
+  const input = $('#new-song-id-prefix');
   if (!list || !input) return;
-  if (newSongIdSuggestionAccepted) {
-    list.innerHTML = '';
-    input.setAttribute('aria-expanded', 'false');
-    input.removeAttribute('aria-activedescendant');
-    return;
-  }
-  const options = nextAvailableSongIds();
+  const options = nextAvailableSongIds(newSongIdQuery);
   const query = newSongIdQuery.trim();
-  const bestMatch = options[0];
-  if (autocomplete && query && bestMatch && input.value.trim().toLocaleLowerCase() === query.toLocaleLowerCase() && bestMatch.toLocaleLowerCase().startsWith(query.toLocaleLowerCase())) {
-    input.value = bestMatch;
-    input.setSelectionRange(query.length, bestMatch.length);
-  }
   if (options.length) {
-    list.innerHTML = `<span class="song-id-suggestion-label">${query ? 'Next available matches · Enter accepts the first' : 'Next available Song IDs'}</span>${options.map((id, index) => `<button id="new-song-id-option-${index}" type="button" role="option" aria-selected="${index === 0}" data-song-id-suggestion="${escapeHtml(id)}">${escapeHtml(id)}</button>`).join('')}`;
+    list.innerHTML = `<span class="song-id-suggestion-label">${query ? 'Suggested next Song IDs · select a prefix' : 'Possible next Song IDs'}</span>${options.map((id, index) => `<button id="new-song-id-option-${index}" type="button" role="option" aria-selected="${index === 0}" data-song-id-suggestion="${escapeHtml(id)}">${escapeHtml(id)}</button>`).join('')}`;
     input.setAttribute('aria-activedescendant', 'new-song-id-option-0');
   } else if (query) {
-    list.innerHTML = '<span class="song-id-suggestion-empty">No next-ID match. You can still enter another unique valid ID.</span>';
+    list.innerHTML = '<span class="song-id-suggestion-empty">No next-ID match. The number is assigned from the selected prefix.</span>';
     input.removeAttribute('aria-activedescendant');
   } else {
-    list.innerHTML = '<span class="song-id-suggestion-empty">Choose a language or start typing to see suggested IDs.</span>';
+    list.innerHTML = '<span class="song-id-suggestion-empty">Type the alphabetic prefix. The next number is assigned automatically.</span>';
     input.removeAttribute('aria-activedescendant');
   }
   input.setAttribute('aria-expanded', options.length ? 'true' : 'false');
 }
+function idPrefixFromId(id) { return String(id || '').replace(/\d+$/, ''); }
+function nextSongNumber(prefix) {
+  const max = state.songs.filter((song) => idPrefixFromId(song.id).toUpperCase() === prefix.toUpperCase())
+    .reduce((value, song) => Math.max(value, Number(String(song.id).match(/\d+$/)?.[0] || 0)), 0);
+  return max + 1;
+}
+function canonicalSongPrefix(prefix) {
+  const existing = state.songs.find((song) => idPrefixFromId(song.id).toUpperCase() === prefix.toUpperCase());
+  if (existing) return idPrefixFromId(existing.id);
+  const selectedCodes = [...document.querySelectorAll('input[name="new-song-language"]:checked')].map((input) => input.value);
+  const selectedPrefix = $('#new-song-type')?.value === 'Inst' ? 'I' : selectedCodes.length ? `${selectedCodes.join('')}${$('#new-song-format')?.value === 'medley' ? 'M' : ''}` : '';
+  return selectedPrefix.toUpperCase() === prefix.toUpperCase() ? selectedPrefix : prefix.toUpperCase();
+}
+function updateGeneratedSongId() {
+  const input = $('#new-song-id-prefix');
+  if (!input) return;
+  const typed = input.value.replace(/[^a-z]/gi, '').toUpperCase();
+  const prefix = typed ? canonicalSongPrefix(typed) : '';
+  const number = prefix ? nextSongNumber(prefix) : '';
+  $('#new-song-id-number').textContent = number ? String(number) : '—';
+  $('#new-song-id').value = prefix && number ? `${prefix}${number}` : '';
+}
 function acceptSongIdSuggestion(id) {
-  const input = $('#new-song-id');
-  input.value = id;
-  newSongIdQuery = id;
-  newSongIdSuggestionAccepted = true;
-  input.setSelectionRange(id.length, id.length);
+  const input = $('#new-song-id-prefix');
+  const prefix = idPrefixFromId(id).toUpperCase();
+  input.value = prefix;
+  newSongIdQuery = prefix;
+  updateGeneratedSongId();
   renderNewSongIdSuggestions();
   input.focus();
+  input.setSelectionRange(prefix.length, prefix.length);
 }
 function renderNewSongFields() {
   $('#new-song-language-options').innerHTML = state.languageOptions.map((language) =>
     `<label class="editor-option" style="--language-color:${languageColor(language.code)}"><input type="checkbox" name="new-song-language" value="${escapeHtml(language.code)}"><span>${escapeHtml(language.name)} <small>${escapeHtml(language.code)}</small></span></label>`).join('');
+  $('#new-song-key-options').innerHTML = KEY_CHOICES.map((key) => `<label class="editor-option key-choice"><input type="checkbox" name="new-song-key" value="${escapeHtml(key)}"><span>${escapeHtml(key)}</span></label>`).join('');
+  updateNewSongKeySummary();
+  renderTempoPoints([{ bpm: '', transition_to_next: 'gradual' }]);
   $('#new-song-task-statuses').innerHTML = state.taskTypes.map((type) => {
     const defaultStatus = type.allowed_statuses.includes('Incomplete') ? 'Incomplete' : type.allowed_statuses[0];
     const options = type.allowed_statuses.map((status) => `<option value="${escapeHtml(status)}" style="color:${STATUS_COLORS[status] || '#D0D0D0'};background-color:#19231c" ${status === defaultStatus ? 'selected' : ''}>${escapeHtml(status === 'Completed' ? 'Complete' : status)}</option>`).join('');
@@ -822,16 +849,44 @@ function updateNewSongIdPreview() {
   const type = $('#new-song-type')?.value || 'Vox';
   const isMedley = $('#new-song-format')?.value === 'medley';
   const codes = [...document.querySelectorAll('input[name="new-song-language"]:checked')].map((input) => input.value);
-  const prefix = type === 'Inst' ? 'I' : codes.join('') || '[language codes]';
-  const example = `${prefix}${isMedley && type !== 'Inst' ? 'M' : ''}1`;
-  $('#new-song-id-preview').textContent = `Typical prefix for this selection: ${example}. Supported language codes: E (English), H (Hindi), K (Konkani), T (Tamil), Kn (Kannada), and Ml (Malayalam). Examples include I1 (instrumental), E7/H1/K1/T1/Kn1/Ml1 (single-language), EM1/HM1/KM1 (medleys), and multi-language IDs such as EHM1/EHKM1. M marks a medley; combine the language codes, then the medley marker if applicable, then a number. The ID must be unique.`;
+  const prefix = type === 'Inst' ? 'I' : codes.length ? `${codes.join('')}${isMedley ? 'M' : ''}` : '[language codes]';
+  $('#new-song-id-preview').textContent = `Typical prefix for this selection: ${prefix}. Type only the letters; the next number is assigned automatically. Supported language codes: E, H, K, T, Kn, Ml, plus I for instrumental and M for medley.`;
   renderNewSongIdSuggestions();
 }
+function songTempoLabel(song) {
+  let points = Array.isArray(song?.tempo_segments) ? song.tempo_segments : [];
+  if (!points.length && song?.tempo_start != null) {
+    points = [{ bpm:song.tempo_start, transition_to_next:song.tempo_change === 'ramp' ? 'gradual' : song.tempo_change === 'jump' ? 'instant' : null }];
+    if (song.tempo_end != null) points.push({ bpm:song.tempo_end, transition_to_next:null });
+  }
+  if (!points.length) return 'Tempo not set';
+  return points.map((point,index) => `${point.bpm} BPM${index < points.length - 1 ? ` ${point.transition_to_next === 'gradual' ? '→ gradual →' : '→ instant →'} ` : ''}`).join('');
+}
+function updateNewSongKeySummary() {
+  const selected = [...document.querySelectorAll('input[name="new-song-key"]:checked')].map((input) => input.value);
+  $('#new-song-key-summary').textContent = selected.length ? selected.join(', ') : 'Choose keys';
+}
+function renderTempoPoints(points) {
+  const rows = points.length ? points : [{ bpm: '', transition_to_next: 'gradual' }];
+  $('#new-song-tempo-points').innerHTML = rows.map((point, index) => `<div class="tempo-point">
+    <label>Tempo ${index + 1} (BPM)<input class="tempo-point-bpm" type="number" min="1" step="1" inputmode="numeric" value="${escapeHtml(point.bpm ?? '')}" aria-label="Tempo ${index + 1} in BPM"></label>
+    ${index < rows.length - 1 ? `<label>Change to next<select class="tempo-point-transition"><option value="gradual" ${point.transition_to_next === 'gradual' ? 'selected' : ''}>Gradual change</option><option value="instant" ${point.transition_to_next === 'instant' ? 'selected' : ''}>Instant change</option></select></label>` : '<span class="tempo-point-end">Final tempo</span>'}
+    ${rows.length > 1 ? `<button type="button" class="icon-button remove-tempo-point" aria-label="Remove tempo ${index + 1}" data-tempo-remove="${index}">×</button>` : ''}
+  </div>`).join('');
+}
+function readTempoPoints() {
+  return [...document.querySelectorAll('.tempo-point')].map((row) => ({
+    bpm: row.querySelector('.tempo-point-bpm').value.trim(),
+    transition_to_next: row.querySelector('.tempo-point-transition')?.value || null
+  }));
+}
+
 function openNewSongDialog() {
   if (!state.member?.is_admin) return;
   $('#new-song-form').reset();
   newSongIdQuery = '';
-  newSongIdSuggestionAccepted = false;
+  $('#new-song-id-prefix').value = '';
+  updateGeneratedSongId();
   $('#new-song-error').textContent = '';
   $('#new-song-type').value = 'Vox';
   $('#new-song-format').value = 'single';
@@ -839,7 +894,7 @@ function openNewSongDialog() {
   $('#new-song-backing').value = '';
   renderNewSongFields();
   $('#song-editor-dialog').showModal();
-  $('#new-song-id').focus();
+  $('#new-song-id-prefix').focus();
 }
 async function saveNewSong(event) {
   event.preventDefault();
@@ -850,18 +905,21 @@ async function saveNewSong(event) {
   if (!idPattern.test(id)) { $('#new-song-error').textContent = 'Use a valid ID prefix followed by a number, for example E12, EM3, EHM2, EHKM1, or I4.'; return; }
   if (state.songs.some((song) => song.id.toLowerCase() === id.toLowerCase())) { $('#new-song-error').textContent = 'That Song ID is already in use.'; return; }
   if ($('#new-song-type').value === 'Vox' && !document.querySelector('input[name="new-song-language"]:checked')) { $('#new-song-error').textContent = 'Choose at least one language for a vocal song.'; return; }
-  const keys = $('#new-song-keys').value.split(',').map((key) => key.trim()).filter(Boolean);
+  const keys = [...document.querySelectorAll('input[name="new-song-key"]:checked')].map((input) => input.value);
   const invalidKeys = keys.filter((key) => !KEY_CHOICES.includes(key));
   if (invalidKeys.length) { $('#new-song-error').textContent = `Unknown key: ${invalidKeys.join(', ')}.`; return; }
-  const tempoStart = $('#new-song-tempo-start').value ? Number($('#new-song-tempo-start').value) : null;
-  const tempoEnd = $('#new-song-tempo-end').value ? Number($('#new-song-tempo-end').value) : null;
-  if ((tempoStart === null) !== (tempoEnd === null) && tempoEnd !== null) { $('#new-song-error').textContent = 'Enter both a start and end tempo, or leave the end tempo blank.'; return; }
+  const tempoRows = readTempoPoints();
+  const anyTempo = tempoRows.some((point) => point.bpm !== '');
+  if (anyTempo && tempoRows.some((point) => !point.bpm || Number(point.bpm) <= 0)) { $('#new-song-error').textContent = 'Complete each tempo value or remove the empty tempo row.'; return; }
+  const tempoSegments = anyTempo ? tempoRows.map((point) => ({ bpm:Number(point.bpm), transition_to_next:point.transition_to_next })) : [];
+  const tempoStart = tempoSegments[0]?.bpm ?? null;
+  const tempoEnd = tempoSegments.length > 1 ? tempoSegments.at(-1).bpm : null;
+  const tempoChange = tempoSegments.length > 1 ? (tempoSegments[0].transition_to_next === 'gradual' ? 'ramp' : 'jump') : 'none';
   const duration = $('#new-song-duration').value ? Number($('#new-song-duration').value) : null;
   const languageCodes = [...document.querySelectorAll('input[name="new-song-language"]:checked')].map((input) => input.value);
   const payload = {
     id, name, type: $('#new-song-type').value, is_medley: $('#new-song-format').value === 'medley',
-    keys, tempo_start: tempoStart, tempo_end: tempoEnd,
-    tempo_change: tempoStart !== null && tempoEnd !== null ? $('#new-song-tempo-change').value : 'none',
+    keys, tempo_start: tempoStart, tempo_end: tempoEnd, tempo_change: tempoChange, tempo_segments: tempoSegments,
     duration_seconds: duration, backing_track_manual: $('#new-song-backing').value || null,
     sort_order: Math.max(0, ...state.songs.map((song) => song.sort_order || 0)) + 1
   };
@@ -1223,31 +1281,43 @@ $('#setlist-select').addEventListener('change', (event) => { state.activeSetlist
 $('#add-song-toggle').addEventListener('click', () => $('#add-song-panel').classList.toggle('hidden'));
 $('#setlist-edit-toggle').addEventListener('click', () => {
   if (!state.member.is_admin) return;
+  if (state.setlistEditMode && state.setlistOrderDirty) { showNotice('Save or discard your staged order before leaving edit mode.', true); return; }
   state.setlistEditMode = !state.setlistEditMode;
-  if (state.setlistEditMode) state.expandedSongIds.clear();
-  if (!state.setlistEditMode) $('#add-song-panel').classList.add('hidden');
+  if (state.setlistEditMode) { state.expandedSongIds.clear(); state.originalSetlistItems = [...state.activeSetlistItems]; state.setlistOrderDirty = false; }
+  else $('#add-song-panel').classList.add('hidden');
   renderActiveSetlist();
+});
+$('#save-setlist-order').addEventListener('click', () => saveSetlistOrder(state.activeSetlistItems.map((item,index) => ({id:item.id,position:index+1}))));
+$('#discard-setlist-order').addEventListener('click', () => {
+  state.activeSetlistItems = [...state.originalSetlistItems];
+  state.setlistOrderDirty = false;
+  renderSetlistItems(state.activeSetlistItems, true);
+  updateSetlistEditControls();
 });
 $('#add-song').addEventListener('click', addSongToSetlist);
 $('#new-setlist').addEventListener('click', openNewSetlistDialog);
 $('#new-song-open').addEventListener('click', openNewSongDialog);
 $('#cancel-new-song').addEventListener('click', () => $('#song-editor-dialog').close());
 $('#new-song-form').addEventListener('submit', saveNewSong);
-$('#new-song-id').addEventListener('input', (event) => {
-  newSongIdQuery = event.target.value.trim();
-  newSongIdSuggestionAccepted = false;
-  renderNewSongIdSuggestions({ autocomplete: !event.inputType?.startsWith('delete') });
+$('#new-song-id-prefix').addEventListener('input', (event) => {
+  const input = event.target;
+  const start = input.selectionStart;
+  input.value = input.value.replace(/[^a-z]/gi, '').toUpperCase();
+  if (start !== null) input.setSelectionRange(Math.min(start, input.value.length), Math.min(start, input.value.length));
+  newSongIdQuery = input.value.trim();
+  updateGeneratedSongId();
+  renderNewSongIdSuggestions();
 });
-$('#new-song-id').addEventListener('keydown', (event) => {
+$('#new-song-id-prefix').addEventListener('keydown', (event) => {
   if (event.key === 'ArrowDown') {
-    const firstOption = $('#new-song-id-suggestions [data-song-id-suggestion]');
-    if (firstOption) { event.preventDefault(); firstOption.focus(); }
+    const option = $('#new-song-id-suggestions [data-song-id-suggestion]');
+    if (option) { event.preventDefault(); option.focus(); }
   } else if (event.key === 'Enter' && newSongIdQuery) {
-    const bestMatch = nextAvailableSongIds()[0];
-    if (bestMatch) { event.preventDefault(); acceptSongIdSuggestion(bestMatch); }
+    const suggestion = nextAvailableSongIds()[0];
+    if (suggestion) { event.preventDefault(); acceptSongIdSuggestion(suggestion); }
   } else if (event.key === 'Escape') {
-    newSongIdSuggestionAccepted = true;
-    renderNewSongIdSuggestions();
+    $('#new-song-id-suggestions').innerHTML = '';
+    event.target.setAttribute('aria-expanded', 'false');
   }
 });
 $('#new-song-id-suggestions').addEventListener('keydown', (event) => {
@@ -1264,6 +1334,9 @@ $('#new-song-id-suggestions').addEventListener('click', (event) => {
 $('#new-song-type').addEventListener('change', updateNewSongIdPreview);
 $('#new-song-format').addEventListener('change', updateNewSongIdPreview);
 $('#new-song-language-options').addEventListener('change', updateNewSongIdPreview);
+$('#new-song-key-options').addEventListener('change', updateNewSongKeySummary);
+$('#add-tempo-point').addEventListener('click', () => { const points = readTempoPoints(); if (points.length >= 6) return; points.push({ bpm:'', transition_to_next:'gradual' }); renderTempoPoints(points); });
+$('#new-song-tempo-points').addEventListener('click', (event) => { const button = event.target.closest('[data-tempo-remove]'); if (!button) return; const points = readTempoPoints(); points.splice(Number(button.dataset.tempoRemove), 1); renderTempoPoints(points); });
 $('#new-song-task-statuses').addEventListener('change', (event) => { if (event.target.matches('.new-song-task-status')) event.target.dataset.status = event.target.value; });
 $('#cancel-new-setlist').addEventListener('click', () => $('#setlist-create-dialog').close());
 $('#new-setlist-form').addEventListener('submit', saveNewSetlist);
@@ -1359,6 +1432,20 @@ $('#setlist-items').addEventListener('dragend', () => {
   document.querySelectorAll('.setlist-row.dragging, .setlist-row.drop-before, .setlist-row.drop-after').forEach((row) => row.classList.remove('dragging', 'drop-before', 'drop-after'));
 });
 
+document.querySelectorAll('dialog').forEach((dialog) => dialog.addEventListener('click', (event) => {
+  if (event.target === dialog) dialog.close();
+}));
+document.addEventListener('click', (event) => {
+  const form = $('#gig-form');
+  if (form && !form.classList.contains('hidden') && !event.target.closest('#gig-form') && !event.target.closest('#new-gig,[data-edit-gig]')) form.classList.add('hidden');
+});
+document.querySelectorAll('dialog').forEach((dialog) => dialog.addEventListener('click', (event) => {
+  if (event.target === dialog) dialog.close();
+}));
+document.addEventListener('click', (event) => {
+  const form = $('#gig-form');
+  if (form && !form.classList.contains('hidden') && !event.target.closest('#gig-form') && !event.target.closest('#new-gig,[data-edit-gig]')) form.classList.add('hidden');
+});
 db.auth.getSession().then(async ({ data, error }) => {
   if (error || !data.session) return showLogin();
   try {
