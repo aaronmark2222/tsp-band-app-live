@@ -980,8 +980,7 @@ function tempoTransitionIcon(change) {
   const descending = change.toBpm < change.fromBpm;
   const path = gradual ? 'M2 16 H15 L31 4 H46' : 'M2 16 H15 V4 H46';
   const direction = descending ? ' tempo-transition-down' : '';
-  const description = change.transition === 'gradual' ? 'Gradual tempo change' : 'Immediate tempo change';
-  return `<svg class="tempo-transition-icon${direction}" viewBox="0 0 48 20" role="img" aria-label="${description}"><path d="${path}"/></svg>`;
+  return `<svg class="tempo-transition-icon${direction}" viewBox="0 0 48 20" aria-hidden="true" focusable="false"><path d="${path}"/></svg>`;
 }
 function songTempoMarkup(song) {
   if (song?.tempo_start == null) return '<span class="tempo-info-label">Tempo not set</span>';
