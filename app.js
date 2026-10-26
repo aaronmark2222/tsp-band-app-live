@@ -988,6 +988,7 @@ function songTempoMarkup(song) {
   const changes = songTempoChanges(song);
   const firstBpm = Number(song.tempo_start);
   const sequence = [`<span class="tempo-bpm">${escapeHtml(firstBpm)} BPM</span>`];
+  const detailMarkup = [];
   changes.forEach((change, index) => {
     const direction = change.toBpm > change.fromBpm ? 'increase' : change.toBpm < change.fromBpm ? 'decrease' : 'change';
     const style = change.transition === 'gradual' ? 'Gradual' : 'Immediate';
@@ -1003,9 +1004,9 @@ function songTempoMarkup(song) {
       `<button type="button" class="tempo-change-trigger" data-tempo-change-toggle="${index}" aria-label="${escapeHtml(label)}" aria-expanded="false">${tempoTransitionIcon(change)}</button>`,
       `<span class="tempo-bpm">${escapeHtml(change.toBpm)} BPM</span>`
     );
-    change._detailMarkup = `<li data-tempo-change-detail="${index}" hidden>${detail}</li>`;
+    detailMarkup.push(`<li data-tempo-change-detail="${index}" hidden>${detail}</li>`);
   });
-  const details = changes.map((change) => change._detailMarkup).join('');
+  const details = detailMarkup.join('');
   const panel = changes.length ? `<ul class="tempo-info-details" hidden>${details}</ul>` : '';
   return `<div class="tempo-info"><div class="tempo-chain">${sequence.join('')}</div>${panel}</div>`;
 }
