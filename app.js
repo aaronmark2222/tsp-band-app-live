@@ -980,33 +980,54 @@ function tempoTransitionIcon(change) {
   const descending = change.toBpm < change.fromBpm;
   const path = gradual ? 'M2 16 H15 L31 4 H46' : 'M2 16 H15 V4 H46';
   const direction = descending ? ' tempo-transition-down' : '';
-  const description = change.transition === 'gradual' ? 'Gradual tempo change' : 'Immediate tempo change';
-  return `<svg class="tempo-transition-icon${direction}" viewBox="0 0 48 20" role="img" aria-label="${description}"><path d="${path}"/></svg>`;
+  return `<svg class="tempo-transition-icon${direction}" viewBox="0 0 48 20" aria-hidden="true" focusable="false"><path d="${path}"/></svg>`;
 }
 function songTempoMarkup(song) {
   if (song?.tempo_start == null) return '<span class="tempo-info-label">Tempo not set</span>';
   const changes = songTempoChanges(song);
   const firstBpm = Number(song.tempo_start);
   const sequence = [`<span class="tempo-bpm">${escapeHtml(firstBpm)} BPM</span>`];
-  for (const change of changes) {
-    sequence.push(tempoTransitionIcon(change), `<span class="tempo-bpm">${escapeHtml(change.toBpm)} BPM</span>`);
-  }
-  const summary = `<span class="tempo-chain">${sequence.join('')}</span>`;
-  const details = changes.length
-    ? changes.map((change) => {
-      const direction = change.toBpm > change.fromBpm ? 'increase' : change.toBpm < change.fromBpm ? 'decrease' : 'change';
-      const style = change.transition === 'gradual' ? 'Gradual' : 'Immediate';
-      let location = 'bar location unavailable';
-      if (change.startBar != null && change.endBar != null) {
-        location = change.transition === 'gradual'
-          ? `from bar ${escapeHtml(change.startBar)} to bar ${escapeHtml(change.endBar)}`
-          : `at bar ${escapeHtml(change.startBar)}`;
-      }
-      return `<li>${style} ${direction}: ${escapeHtml(change.fromBpm)} to ${escapeHtml(change.toBpm)} BPM, ${location}.</li>`;
-    }).join('')
-    : `<li>Steady at ${escapeHtml(firstBpm)} BPM throughout the song.</li>`;
-  return `<details class="tempo-info"><summary aria-label="Show exact tempo changes">${summary}<span class="tempo-expand-cue">Details</span></summary><ul class="tempo-info-details">${details}</ul></details>`;
+  const detailMarkup = [];
+  changes.forEach((change, index) => {
+    const direction = change.toBpm > change.fromBpm ? 'increase' : change.toBpm < change.fromBpm ? 'decrease' : 'change';
+    const style = change.transition === 'gradual' ? 'Gradual' : 'Immediate';
+    let location = 'bar location unavailable';
+    if (change.startBar != null && change.endBar != null) {
+      location = change.transition === 'gradual'
+        ? `from bar ${escapeHtml(change.startBar)} to bar ${escapeHtml(change.endBar)}`
+        : `at bar ${escapeHtml(change.startBar)}`;
+    }
+    const detail = `${style} ${direction}: ${escapeHtml(change.fromBpm)} to ${escapeHtml(change.toBpm)} BPM, ${location}.`;
+    const label = `Show ${style.toLowerCase()} ${direction} from ${change.fromBpm} to ${change.toBpm} BPM details`;
+    sequence.push(
+      `<button type="button" class="tempo-change-trigger" data-tempo-change-toggle="${index}" aria-label="${escapeHtml(label)}" aria-expanded="false">${tempoTransitionIcon(change)}</button>`,
+      `<span class="tempo-bpm">${escapeHtml(change.toBpm)} BPM</span>`
+    );
+    detailMarkup.push(`<li data-tempo-change-detail="${index}" hidden>${detail}</li>`);
+  });
+  const details = detailMarkup.join('');
+  const panel = changes.length ? `<ul class="tempo-info-details" hidden>${details}</ul>` : '';
+  return `<div class="tempo-info"><div class="tempo-chain">${sequence.join('')}</div>${panel}</div>`;
 }
+document.addEventListener('click', (event) => {
+  const trigger = event.target.closest('.tempo-change-trigger');
+  if (!trigger) return;
+  const info = trigger.closest('.tempo-info');
+  const panel = info?.querySelector('.tempo-info-details');
+  if (!panel) return;
+  const wasOpen = trigger.getAttribute('aria-expanded') === 'true';
+  info.querySelectorAll('.tempo-change-trigger').forEach((button) => button.setAttribute('aria-expanded', 'false'));
+  panel.querySelectorAll('[data-tempo-change-detail]').forEach((item) => { item.hidden = true; });
+  if (wasOpen) {
+    panel.hidden = true;
+    return;
+  }
+  const detail = panel.querySelector(`[data-tempo-change-detail="${trigger.dataset.tempoChangeToggle}"]`);
+  if (!detail) return;
+  detail.hidden = false;
+  panel.hidden = false;
+  trigger.setAttribute('aria-expanded', 'true');
+});
 function songTempoLabel(song) {
   let points = Array.isArray(song?.tempo_segments) ? song.tempo_segments : [];
   if (!points.length && song?.tempo_start != null) {
