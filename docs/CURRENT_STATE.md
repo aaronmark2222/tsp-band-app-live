@@ -41,3 +41,12 @@ Some documentation describes earlier stages of the product. When sources differ,
 3. Keep changes narrow. Preserve the member ownership model and RLS. Never put privileged credentials in public code.
 4. Update the relevant documentation and this note when behavior, schema, or deployment changes.
 5. Verify changes with an appropriate targeted check. Do not apply database changes or deploy to production unless that change is part of the user's request.
+
+
+## Ableton metadata sync (2026-10-26)
+
+- The connected Supabase `songs` table was synchronized for all 50 current songs from the Ableton Live master arrangement. The update covered `tempo_start`, `tempo_end`, `tempo_change`, `tempo_segments`, `duration_seconds`, and the starting `keys` value.
+- The 58 `song_languages` links and 6 language definitions were left unchanged. Ableton's `Other` language labels are not used to overwrite the app's language values.
+- Tempo means Ableton playback tempo. The app shows the start BPM and an Ableton-style step icon for an immediate change or a slope icon for a gradual change; downward changes flip the glyph vertically. Expanding tempo shows the exact bar or bar range relative to the song's first bar.
+- Song duration is measured across the locator-bounded Ableton arrangement region and rounded to the nearest second. A medley key is its starting key only.
+- Source-of-truth SQL is [the Ableton metadata migration](../supabase/migrations/20261026130000_sync_song_metadata_from_ableton.sql). See [the sync notes](ABLETON_METADATA_SYNC.md) for methods and the seven recorded tempo transitions.

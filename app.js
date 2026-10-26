@@ -299,7 +299,7 @@ function renderSongDetails(songId) {
     ['backing', 'Backing tracks & vocals'],
     ['part', 'Band parts · Optional']
   ];
-  return `<div class="song-detail-metadata"><span>${songTypeLabel(song)}</span><span class="language-chips">${languages || '<span>No language set</span>'}</span><span>${secondsLabel(song?.duration_seconds)}</span><span>${escapeHtml(songTempoLabel(song))}</span></div><div class="song-details-overview"><span>Backing Track</span>${backingTrackControl(song, readiness)}</div><div class="task-groups">${groups.map(([category, label]) => {
+  return `<div class="song-detail-metadata"><span>${songTypeLabel(song)}</span><span class="language-chips">${languages || '<span>No language set</span>'}</span><span>${secondsLabel(song?.duration_seconds)}</span>${songTempoMarkup(song)}</div><div class="song-details-overview"><span>Backing Track</span>${backingTrackControl(song, readiness)}</div><div class="task-groups">${groups.map(([category, label]) => {
     const types = state.taskTypes.filter((type) => type.category === category);
     if (!types.length) return '';
     return `<section class="task-group"><h3>${label}</h3><div class="task-grid">${types.map((type) => {
@@ -939,6 +939,73 @@ function updateNewSongIdPreview() {
   const prefix = type === 'Inst' ? 'I' : codes.length ? `${codes.join('')}${isMedley ? 'M' : ''}` : '[language codes]';
   $('#new-song-id-preview').textContent = `Typical prefix for this selection: ${prefix}. Type only the letters; the next number is assigned automatically. Supported language codes: E, H, K, T, Kn, Ml, plus I for instrumental and M for medley.`;
   renderNewSongIdSuggestions();
+}
+function songTempoChanges(song) {
+  const points = Array.isArray(song?.tempo_segments) ? song.tempo_segments : [];
+  if (points.length && points.some((point) => point?.from_bpm != null || point?.to_bpm != null)) {
+    return points.map((point) => ({
+      fromBpm: Number(point.from_bpm),
+      toBpm: Number(point.to_bpm),
+      transition: point.transition_to_next || (point.kind === 'ramp' ? 'gradual' : point.kind === 'jump' ? 'instant' : null),
+      startBar: point.change_start_bar ?? point.start_bar ?? point.bar ?? null,
+      endBar: point.change_end_bar ?? point.end_bar ?? point.bar ?? null
+    })).filter((point) => Number.isFinite(point.fromBpm) && Number.isFinite(point.toBpm));
+  }
+  const changes = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const point = points[i] || {};
+    const next = points[i + 1] || {};
+    const transition = point.transition_to_next;
+    if (!transition || point.bpm == null || next.bpm == null) continue;
+    changes.push({
+      fromBpm: Number(point.bpm),
+      toBpm: Number(next.bpm),
+      transition,
+      startBar: point.change_start_bar ?? point.start_bar ?? null,
+      endBar: point.change_end_bar ?? point.end_bar ?? null
+    });
+  }
+  if (changes.length) return changes;
+  if (song?.tempo_start == null || song?.tempo_end == null || song.tempo_change === 'none') return [];
+  return [{
+    fromBpm: Number(song.tempo_start),
+    toBpm: Number(song.tempo_end),
+    transition: song.tempo_change === 'ramp' ? 'gradual' : 'instant',
+    startBar: null,
+    endBar: null
+  }];
+}
+function tempoTransitionIcon(change) {
+  const gradual = change.transition === 'gradual';
+  const descending = change.toBpm < change.fromBpm;
+  const path = gradual ? 'M2 16 H15 L31 4 H46' : 'M2 16 H15 V4 H46';
+  const direction = descending ? ' tempo-transition-down' : '';
+  const description = change.transition === 'gradual' ? 'Gradual tempo change' : 'Immediate tempo change';
+  return `<svg class="tempo-transition-icon${direction}" viewBox="0 0 48 20" role="img" aria-label="${description}"><path d="${path}"/></svg>`;
+}
+function songTempoMarkup(song) {
+  if (song?.tempo_start == null) return '<span class="tempo-info-label">Tempo not set</span>';
+  const changes = songTempoChanges(song);
+  const firstBpm = Number(song.tempo_start);
+  const sequence = [`<span class="tempo-bpm">${escapeHtml(firstBpm)} BPM</span>`];
+  for (const change of changes) {
+    sequence.push(tempoTransitionIcon(change), `<span class="tempo-bpm">${escapeHtml(change.toBpm)} BPM</span>`);
+  }
+  const summary = `<span class="tempo-chain">${sequence.join('')}</span>`;
+  const details = changes.length
+    ? changes.map((change) => {
+      const direction = change.toBpm > change.fromBpm ? 'increase' : change.toBpm < change.fromBpm ? 'decrease' : 'change';
+      const style = change.transition === 'gradual' ? 'Gradual' : 'Immediate';
+      let location = 'bar location unavailable';
+      if (change.startBar != null && change.endBar != null) {
+        location = change.transition === 'gradual'
+          ? `from bar ${escapeHtml(change.startBar)} to bar ${escapeHtml(change.endBar)}`
+          : `at bar ${escapeHtml(change.startBar)}`;
+      }
+      return `<li>${style} ${direction}: ${escapeHtml(change.fromBpm)} to ${escapeHtml(change.toBpm)} BPM, ${location}.</li>`;
+    }).join('')
+    : `<li>Steady at ${escapeHtml(firstBpm)} BPM throughout the song.</li>`;
+  return `<details class="tempo-info"><summary aria-label="Show exact tempo changes">${summary}<span class="tempo-expand-cue">Details</span></summary><ul class="tempo-info-details">${details}</ul></details>`;
 }
 function songTempoLabel(song) {
   let points = Array.isArray(song?.tempo_segments) ? song.tempo_segments : [];
