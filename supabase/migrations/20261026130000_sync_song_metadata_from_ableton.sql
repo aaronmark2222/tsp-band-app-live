@@ -1,0 +1,60 @@
+-- Sync the 50 song metadata rows to Ableton Live playback data (Live Set inspected 2026-10-26).
+-- Languages and song_languages are intentionally unchanged. The SQL only updates songs metadata.
+-- Durations are rounded seconds integrated over each song's locator-bounded arrangement region.
+-- Tempo change bars are relative to each song's first bar; beat offsets are relative to its start.
+
+with als_values(id,tempo_start,duration_seconds,song_key,tempo_end,tempo_change,tempo_segments) as (values
+('I1',102,295,'D',NULL,'none','[{"bpm":102,"transition_to_next":null}]'::jsonb),
+('I2',92,383,'D',NULL,'none','[{"bpm":92,"transition_to_next":null}]'::jsonb),
+('I3',133,278,'D',NULL,'none','[{"bpm":133,"transition_to_next":null}]'::jsonb),
+('I4',126,179,'D',NULL,'none','[{"bpm":126,"transition_to_next":null}]'::jsonb),
+('I5',90,262,'F#m',82,'ramp','[{"bpm":90,"transition_to_next":"gradual","change_start_bar":21,"change_end_bar":34,"change_start_beat":80,"change_end_beat":132},{"bpm":82,"transition_to_next":null}]'::jsonb),
+('I6',170,326,'G',NULL,'none','[{"bpm":170,"transition_to_next":null}]'::jsonb),
+('I7',166,273,'Em',NULL,'none','[{"bpm":166,"transition_to_next":null}]'::jsonb),
+('I8',115,263,'Dm',NULL,'none','[{"bpm":115,"transition_to_next":null}]'::jsonb),
+('I9',140,230,'G',NULL,'none','[{"bpm":140,"transition_to_next":null}]'::jsonb),
+('E1',125,204,'Dm',NULL,'none','[{"bpm":125,"transition_to_next":null}]'::jsonb),
+('E2',155,194,'Bm',NULL,'none','[{"bpm":155,"transition_to_next":null}]'::jsonb),
+('E3',117,230,'Dm',NULL,'none','[{"bpm":117,"transition_to_next":null}]'::jsonb),
+('E4',115,273,'Dm',NULL,'none','[{"bpm":115,"transition_to_next":null}]'::jsonb),
+('E5',138,210,'D',NULL,'none','[{"bpm":138,"transition_to_next":null}]'::jsonb),
+('E6',136,178,'D',NULL,'none','[{"bpm":136,"transition_to_next":null}]'::jsonb),
+('E7',112,231,'G',NULL,'none','[{"bpm":112,"transition_to_next":null}]'::jsonb),
+('EM1',130,241,'Bm',124,'ramp','[{"bpm":130,"transition_to_next":"gradual","change_start_bar":45,"change_end_bar":60,"change_start_beat":176,"change_end_beat":236},{"bpm":124,"transition_to_next":null}]'::jsonb),
+('EM2',130,356,'F',NULL,'none','[{"bpm":130,"transition_to_next":null}]'::jsonb),
+('EM3',148,367,'C#m',116,'jump','[{"bpm":148,"transition_to_next":"instant","change_start_bar":125,"change_end_bar":125,"change_start_beat":496,"change_end_beat":496},{"bpm":116,"transition_to_next":null}]'::jsonb),
+('EM4',136,263,'Dm',125,'ramp','[{"bpm":136,"transition_to_next":"gradual","change_start_bar":81,"change_end_bar":89,"change_start_beat":320,"change_end_beat":352},{"bpm":125,"transition_to_next":null}]'::jsonb),
+('EM5',112,339,'Dm',NULL,'none','[{"bpm":112,"transition_to_next":null}]'::jsonb),
+('EM6',140,597,'A',NULL,'none','[{"bpm":140,"transition_to_next":null}]'::jsonb),
+('EM7',132,764,'Dm',NULL,'none','[{"bpm":132,"transition_to_next":null}]'::jsonb),
+('EM8',128,332,'Dm',NULL,'none','[{"bpm":128,"transition_to_next":null}]'::jsonb),
+('EM9',120,292,'E',NULL,'none','[{"bpm":120,"transition_to_next":null}]'::jsonb),
+('H1',132,211,'D',NULL,'none','[{"bpm":132,"transition_to_next":null}]'::jsonb),
+('H2',120,206,'Dm',NULL,'none','[{"bpm":120,"transition_to_next":null}]'::jsonb),
+('H3',113,253,'Dm',NULL,'none','[{"bpm":113,"transition_to_next":null}]'::jsonb),
+('H4',148,261,'F#m',NULL,'none','[{"bpm":148,"transition_to_next":null}]'::jsonb),
+('H5',112,229,'Bm',NULL,'none','[{"bpm":112,"transition_to_next":null}]'::jsonb),
+('H6',156,178,'Dm',NULL,'none','[{"bpm":156,"transition_to_next":null}]'::jsonb),
+('H7',166,166,'A',NULL,'none','[{"bpm":166,"transition_to_next":null}]'::jsonb),
+('HM1',140,173,'D',NULL,'none','[{"bpm":140,"transition_to_next":null}]'::jsonb),
+('HM2',130,375,'A',140,'jump','[{"bpm":130,"transition_to_next":"instant","change_start_bar":113,"change_end_bar":113,"change_start_beat":448,"change_end_beat":448},{"bpm":140,"transition_to_next":null}]'::jsonb),
+('HM3',110,266,'C#m',NULL,'none','[{"bpm":110,"transition_to_next":null}]'::jsonb),
+('HM4',144,243,'Bm',NULL,'none','[{"bpm":144,"transition_to_next":null}]'::jsonb),
+('HM5',124,359,'C',NULL,'none','[{"bpm":124,"transition_to_next":null}]'::jsonb),
+('HM6',86,190,'A',NULL,'none','[{"bpm":86,"transition_to_next":null}]'::jsonb),
+('HM7',86,310,'F',NULL,'none','[{"bpm":86,"transition_to_next":null}]'::jsonb),
+('HM8',136,261,'C',NULL,'none','[{"bpm":136,"transition_to_next":null}]'::jsonb),
+('HM9',132,533,'C#m',NULL,'none','[{"bpm":132,"transition_to_next":null}]'::jsonb),
+('K1',110,192,'B',NULL,'none','[{"bpm":110,"transition_to_next":null}]'::jsonb),
+('K2',185,148,'F',NULL,'none','[{"bpm":185,"transition_to_next":null}]'::jsonb),
+('KM1',136,319,'G',NULL,'none','[{"bpm":136,"transition_to_next":null}]'::jsonb),
+('KM2',180,172,'C',NULL,'none','[{"bpm":180,"transition_to_next":null}]'::jsonb),
+('EHM1',112,334,'Dm',NULL,'none','[{"bpm":112,"transition_to_next":null}]'::jsonb),
+('EHM2',136,399,'E',NULL,'none','[{"bpm":136,"transition_to_next":null}]'::jsonb),
+('EHM3',94,220,'E',NULL,'none','[{"bpm":94,"transition_to_next":null}]'::jsonb),
+('EHM4',102,173,'Bm',109,'ramp','[{"bpm":102,"transition_to_next":"gradual","change_start_bar":28,"change_end_bar":44,"change_start_beat":108,"change_end_beat":172},{"bpm":109,"transition_to_next":null}]'::jsonb),
+('EHKM1',136,409,'Em',133,'ramp','[{"bpm":136,"transition_to_next":"gradual","change_start_bar":137,"change_end_bar":148,"change_start_beat":544,"change_end_beat":588},{"bpm":133,"transition_to_next":null}]'::jsonb)
+)
+update public.songs as s set tempo_start=v.tempo_start,duration_seconds=v.duration_seconds,keys=array[v.song_key]::text[],tempo_end=v.tempo_end,tempo_change=v.tempo_change::tempo_change,tempo_segments=v.tempo_segments,updated_at=now()
+from als_values as v where s.id=v.id
+returning s.id,s.tempo_start,s.tempo_end,s.tempo_change::text,s.duration_seconds,s.keys,s.tempo_segments;
