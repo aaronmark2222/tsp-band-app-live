@@ -58,7 +58,7 @@ Public sign-ups should stay disabled. Members are linked by the administrator. E
 ### App data flow
 
 - On login, `app.js` loads `songs`, `song_tasks`, `task_types`, `song_languages` (with language labels), `languages`, `setlists`, `gigs`, and `members`; it reads readiness from `song_readiness`.
-- Expanding a song shows metadata and its task rows. Admins can add songs and edit tempo metadata. The song ID prefix determines instrumental/vocal and single/medley identity; there is no separate format choice.
+- Expanding a song shows type, languages, duration, tempo, scales, backing status, and task rows. Admins can add songs and use one **Edit** action on either Songs or Setlists to change the song name, languages, scales, duration, tempo map, or backing status. Song ID and its derived format are shown as identity fields. The song ID prefix determines instrumental/vocal and single/medley identity; there is no separate format choice.
 - Inserting a song triggers task-row creation for every configured task type. The app then attaches language rows and any initial task statuses. If its multi-step save fails, the frontend attempts to clean up the created song.
 - Updating a task writes `song_tasks.status`; a database trigger records changes to `task_status_log`. RLS permits the task owner or an admin to update status.
 - Updating the manual backing state writes `songs.backing_track_manual`. A null value means automatic state from backing task statuses; the UI calls this “Auto”.
@@ -67,8 +67,8 @@ Public sign-ups should stay disabled. Members are linked by the administrator. E
 
 ### Main screens
 
-- **Songs:** searchable/filterable repertoire, song metadata, member and band progress, task statuses, backing status; admin-only add song and tempo editor.
-- **Setlists:** ordered gig repertoire, song details, runtime, and admin editing. Legacy break/note item types remain in the schema.
+- **Songs:** searchable/filterable repertoire, member and band progress, admin-only add song and shared song-details editor.
+- **Setlists:** ordered gig repertoire, song details, runtime, and admin setlist editing. Expanded songs use the same admin song-details editor here as on Songs. Legacy break/note item types remain in the schema.
 - **Gigs:** gig date/time/location/notes and associated setlist. Creating a gig also creates an initially empty setlist.
 - **Dashboard:** outstanding work by gig or full repertoire and selected member. Looking at another member's dashboard does not grant permission to edit their tasks.
 - **Member access:** admin operations routed through the protected Edge Function.
@@ -139,7 +139,7 @@ Example for a gradual change from 90 to 82 BPM, from relative bar 21 through bar
 ]
 ```
 
-For an immediate transition, `change_start_bar` and `change_end_bar` are the same. Bar numbers are relative to the first bar of the song. Beat positions are also song-relative. The scalar `tempo_change` remains a compatibility summary of the first transition: `ramp` for gradual and `jump` for immediate. The Add Song form and admin Edit tempo control edit the JSONB tempo chain; clicking a selected glyph cancels that transition. The transition UI uses compact left-aligned BPM and bar boxes.
+For an immediate transition, `change_start_bar` and `change_end_bar` are the same. Bar numbers are relative to the first bar of the song. Beat positions are also song-relative. The scalar `tempo_change` remains a compatibility summary of the first transition: `ramp` for gradual and `jump` for immediate. The Add Song form and shared admin Edit song details dialog edit the JSONB tempo chain; clicking a selected glyph cancels that transition. The expanded details display **Scale(s)** immediately after tempo. The editor includes language, scale, duration, tempo map, song name, and backing state; the Song ID/derived format are fixed identity fields. Its compact BPM and bar boxes are left-aligned.
 
 ### Live security model
 
@@ -267,4 +267,5 @@ This is a product requirement, not a currently available app action. The reposit
 | --- | --- |
 | 2026-10-26 | Documented the live project/schema relationship, RLS and app data flow, ALS track groups, task meanings, tempo-bar storage, metadata sync snapshot, and local MP3 export requirements. |
 | 2026-10-26 | Recorded the user's E6 Song ID clip merge and the requirement to revalidate it on future ALS audits. |
-| 2026-10-26 | Tempo editor updated in PRs #49–#52: multi-transition bar-aware tempo segments; edit existing songs; selected glyph cancels; compact left-aligned BPM/bar inputs. |
+| 2026-10-26 | Tempo editor updated in PRs #49–#52: multi-transition bar-aware tempo segments; selected glyph cancels; compact left-aligned BPM/bar inputs. |
+| 2026-10-26 | PR #54: expanded song metadata shows scales after tempo; one admin Edit action on both Songs and Setlists edits all displayed metadata. |

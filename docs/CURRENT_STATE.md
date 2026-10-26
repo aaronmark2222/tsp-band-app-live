@@ -19,7 +19,7 @@ This note summarizes information already documented in the public repository. It
 - The main views are Songs, Setlists, Gigs, and Dashboard. Song-task ownership in `task_types.owner_member_id` controls member editing; the administrator can manage broader work and setlists. Supabase row-level security is the authorization boundary.
 - The Dashboard has a tab for every gig plus **Total Setlist**, with the next upcoming gig selected by default. New gigs appear as their own tab and show the songs in their attached setlist.
 - Setlist editing is available to the administrator; additions, removals, and ordering are staged until Save, shown on the same edit control. The control reads **Done editing** when clean and **Save** when there are changes. The bottom of edit mode has a confirmed setlist deletion action; linked gigs remain but become unattached, and related running-order items and deadlines are removed. Members can view setlists.
-- The Songs page has an administrator-only **Add song** action and no setlist count card. The editor loads languages, keys, tempos, and all configured task statuses; it displays the generated Song ID in one field and accepts duration in minutes, converting to the database's `duration_seconds` value on save.
+- The Songs page has an administrator-only **Add song** action and no setlist count card. The Add Song editor loads languages, scales, tempos, and task statuses. Expanded song details show **Scale(s)** after tempo and provide one admin **Edit** button at the right of the information line on both Songs and Setlists. The shared editor changes name, languages, scales, duration, tempo, and backing status; Song ID and its derived format are fixed identity fields.
 
 ## Data model and references
 
@@ -57,6 +57,6 @@ Some documentation describes earlier stages of the product. When sources differ,
 
 - The live `public.songs.tempo_segments` column is `jsonb` and stores an ordered array of tempo points. Each point has its own `transition_to_next` value (`instant` or `gradual`), so the list supports any number of changes and mixed transition types.
 - The scalar `tempo_change` enum remains a compatibility summary of the first transition; the full chain is stored in `tempo_segments` and read from there by the app.
-- The Add Song and Edit tempo forms append one BPM field when a transition glyph is chosen after the current point. The glyph choices repeat after every BPM field. Clicking a selected glyph cancels that transition and removes its following tempo point; if there are later points, their following transition is carried back to the current point.
+- The Add Song and shared Edit song details forms append one BPM field when a transition glyph is chosen after the current point. The glyph choices repeat after every BPM field. Clicking a selected glyph cancels that transition and removes its following tempo point; if there are later points, their following transition is carried back to the current point.
 
 - A tempo point’s `change_start_bar` and `change_end_bar` fields store song-relative positions. Immediate changes use the same bar for both fields; gradual changes use their start and end bars. The compact tempo and bar fields in Add Song and the admin **Edit tempo** dialog write these fields, and the existing Songs tempo detail reads them.

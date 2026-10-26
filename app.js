@@ -291,6 +291,7 @@ function toggleFilterPanel(buttonId, panelId) {
 function renderSongDetails(songId, context = 'songs') {
   const song = state.songs.find((item) => item.id === songId);
   const languages = state.languages.filter((row) => row.song_id === songId).map((row) => `<span class="language-chip" style="--language-color:${languageColor(row.language_code)}">${escapeHtml(row.languages?.short_label || row.language_code)}</span>`).join('');
+  const scales = Array.isArray(song?.keys) && song.keys.length ? song.keys.join(', ') : 'Not set';
   const songTasks = new Map(state.tasks.filter((task) => task.song_id === songId).map((task) => [task.task_key, task]));
   const readiness = (state.readiness || []).find((row) => row.song_id === songId);
   const groups = [
@@ -299,10 +300,10 @@ function renderSongDetails(songId, context = 'songs') {
     ['backing', 'Backing tracks & vocals'],
     ['part', 'Band parts · Optional']
   ];
-  const tempoEditButton = context === 'songs' && state.member?.is_admin
-    ? `<button type="button" class="song-tempo-edit-button" data-song-tempo-edit="${escapeHtml(songId)}">Edit tempo</button>`
+  const songEditButton = state.member?.is_admin
+    ? `<button type="button" class="song-edit-button" data-song-edit="${escapeHtml(songId)}">Edit</button>`
     : '';
-  return `<div class="song-detail-metadata"><span>${songTypeLabel(song)}</span><span class="language-chips">${languages || '<span>No language set</span>'}</span><span>${secondsLabel(song?.duration_seconds)}</span>${songTempoMarkup(song)}${tempoEditButton}</div><div class="song-details-overview"><span>Backing Track</span>${backingTrackControl(song, readiness)}</div><div class="task-groups">${groups.map(([category, label]) => {
+  return `<div class="song-detail-metadata"><span>${songTypeLabel(song)}</span><span class="language-chips">${languages || '<span>No language set</span>'}</span><span>${secondsLabel(song?.duration_seconds)}</span>${songTempoMarkup(song)}<span class="song-scale-info">Scale(s): ${escapeHtml(scales)}</span>${songEditButton}</div><div class="song-details-overview"><span>Backing Track</span>${backingTrackControl(song, readiness)}</div><div class="task-groups">${groups.map(([category, label]) => {
     const types = state.taskTypes.filter((type) => type.category === category);
     if (!types.length) return '';
     return `<section class="task-group"><h3>${label}</h3><div class="task-grid">${types.map((type) => {
@@ -1317,14 +1318,35 @@ async function deleteActiveSetlist() {
   }
 }
 
-let editingSongTempoId = null;
-function openSongTempoEditor(songId) {
+let editingSongId = null;
+function updateEditSongKeySummary() {
+  const selected = [...document.querySelectorAll('input[name="edit-song-key"]:checked')].map((input) => input.value);
+  $('#edit-song-key-summary').textContent = selected.length ? selected.join(', ') : 'Choose scales';
+}
+function renderEditSongFields(song) {
+  $('#edit-song-language-options').innerHTML = state.languageOptions.map((language) =>
+    `<label class="editor-option" style="--language-color:${languageColor(language.code)}"><input type="checkbox" name="edit-song-language" value="${escapeHtml(language.code)}"><span>${escapeHtml(language.name)} <small>${escapeHtml(language.code)}</small></span></label>`).join('');
+  const selectedLanguages = new Set(state.languages.filter((row) => row.song_id === song.id).map((row) => row.language_code));
+  document.querySelectorAll('input[name="edit-song-language"]').forEach((input) => { input.checked = selectedLanguages.has(input.value); });
+  $('#edit-song-key-options').innerHTML = KEY_CHOICES.map((key) =>
+    `<label class="editor-option key-choice"><input type="checkbox" name="edit-song-key" value="${escapeHtml(key)}"><span>${escapeHtml(key)}</span></label>`).join('');
+  const selectedKeys = new Set(song.keys || []);
+  document.querySelectorAll('input[name="edit-song-key"]').forEach((input) => { input.checked = selectedKeys.has(input.value); });
+  updateEditSongKeySummary();
+}
+function openSongEditor(songId) {
   if (!state.member?.is_admin) return;
   const song = state.songs.find((item) => item.id === songId);
   if (!song) return;
-  editingSongTempoId = songId;
-  $('#edit-song-tempo-title').textContent = song.name + ' · tempo';
-  $('#edit-song-tempo-error').textContent = '';
+  editingSongId = songId;
+  $('#edit-song-title').textContent = 'Edit song details';
+  $('#edit-song-error').textContent = '';
+  $('#edit-song-name').value = song.name || '';
+  $('#edit-song-id-value').textContent = songId;
+  $('#edit-song-type-value').textContent = songTypeLabel(song);
+  $('#edit-song-duration').value = song.duration_seconds == null ? '' : String(Number((song.duration_seconds / 60).toFixed(2)));
+  $('#edit-song-backing').value = song.backing_track_manual || '';
+  renderEditSongFields(song);
   let points = Array.isArray(song.tempo_segments) ? song.tempo_segments.map((point) => ({ ...point })) : [];
   if (!points.length && song.tempo_start != null) {
     const transition = song.tempo_change === 'ramp' ? 'gradual' : song.tempo_change === 'jump' ? 'instant' : null;
@@ -1332,44 +1354,103 @@ function openSongTempoEditor(songId) {
     if (song.tempo_end != null) points.push({ bpm: song.tempo_end, transition_to_next: null });
   }
   renderTempoPoints(points, 'edit-song-tempo-points');
-  $('#edit-song-tempo-dialog').showModal();
-  $('#edit-song-tempo-points .tempo-point-bpm')?.focus();
+  $('#edit-song-dialog').showModal();
+  $('#edit-song-name').focus();
 }
-async function saveSongTempo(event) {
+async function saveSongMetadata(event) {
   event.preventDefault();
-  if (!state.member?.is_admin || !editingSongTempoId) return;
+  if (!state.member?.is_admin || !editingSongId) return;
+  const songId = editingSongId;
+  const song = state.songs.find((item) => item.id === songId);
+  if (!song) return;
+  const name = $('#edit-song-name').value.trim();
+  if (!name) { $('#edit-song-error').textContent = 'Enter a song name.'; return; }
+  const languageCodes = [...document.querySelectorAll('input[name="edit-song-language"]:checked')].map((input) => input.value);
+  if (song.type === 'Vox' && !languageCodes.length) { $('#edit-song-error').textContent = 'Choose at least one language for a vocal song.'; return; }
+  const keys = [...document.querySelectorAll('input[name="edit-song-key"]:checked')].map((input) => input.value);
+  const invalidKeys = keys.filter((key) => !KEY_CHOICES.includes(key));
+  if (invalidKeys.length) { $('#edit-song-error').textContent = `Unknown scale: ${invalidKeys.join(', ')}.`; return; }
+  const durationValue = $('#edit-song-duration').value.trim();
+  const durationMinutes = durationValue === '' ? null : Number(durationValue);
+  if (durationMinutes !== null && (!Number.isFinite(durationMinutes) || durationMinutes < 0)) {
+    $('#edit-song-error').textContent = 'Duration must be zero or more minutes.';
+    return;
+  }
   const tempoRows = readTempoPoints('edit-song-tempo-points');
   const tempoError = validateTempoRows(tempoRows);
-  if (tempoError) { $('#edit-song-tempo-error').textContent = tempoError; return; }
+  if (tempoError) { $('#edit-song-error').textContent = tempoError; return; }
   const tempoSegments = tempoSegmentsFromRows(tempoRows);
   const payload = {
+    name,
+    keys,
+    duration_seconds: durationMinutes == null ? null : Math.round(durationMinutes * 60),
     tempo_start: tempoSegments[0]?.bpm ?? null,
     tempo_end: tempoSegments.length > 1 ? tempoSegments.at(-1).bpm : null,
     tempo_change: tempoSegments.length > 1
       ? tempoSegments[0].transition_to_next === 'gradual' ? 'ramp' : 'jump'
       : 'none',
-    tempo_segments: tempoSegments
+    tempo_segments: tempoSegments,
+    backing_track_manual: $('#edit-song-backing').value || null
   };
-  const songId = editingSongTempoId;
-  const song = state.songs.find((item) => item.id === songId);
-  const button = $('#edit-song-tempo-form button[type="submit"]');
+  const previousLanguageRows = state.languages.filter((row) => row.song_id === songId)
+    .map((row) => ({ song_id: songId, language_code: row.language_code, position: row.position }));
+  const nextLanguageRows = languageCodes.map((language_code, position) => ({ song_id: songId, language_code, position }));
+  const button = $('#edit-song-form button[type="submit"]');
   button.disabled = true;
-  $('#edit-song-tempo-error').textContent = '';
+  $('#edit-song-error').textContent = '';
+  let songUpdated = false;
+  let languagesDeleted = false;
   try {
     const { data, error } = await db.from('songs').update(payload).eq('id', songId).select('*').single();
     if (error) throw error;
+    songUpdated = true;
+    const { error: deleteError } = await db.from('song_languages').delete().eq('song_id', songId);
+    if (deleteError) throw deleteError;
+    languagesDeleted = true;
+    if (nextLanguageRows.length) {
+      const { error: insertError } = await db.from('song_languages').insert(nextLanguageRows);
+      if (insertError) throw insertError;
+    }
     state.songs = state.songs.map((item) => item.id === songId ? { ...item, ...data } : item);
-    editingSongTempoId = null;
-    $('#edit-song-tempo-dialog').close();
+    const languageByCode = new Map(state.languageOptions.map((language) => [language.code, language]));
+    const newLinks = nextLanguageRows.map((row) => {
+      const language = languageByCode.get(row.language_code);
+      return { ...row, languages: language ? { code: language.code, short_label: language.short_label } : null };
+    });
+    state.languages = [...state.languages.filter((row) => row.song_id !== songId), ...newLinks];
+    try { await loadReadiness(); } catch (refreshError) { console.warn('Song saved, but readiness could not be refreshed.', refreshError); }
+    editingSongId = null;
+    $('#edit-song-dialog').close();
     renderSongs();
-    showNotice('Updated tempo details for ' + (song?.name || songId) + '.');
+    if (state.view === 'setlists') await renderActiveSetlist();
+    if (state.view === 'dashboard') renderDashboard();
+    showNotice('Updated song details for ' + name + '.');
   } catch (error) {
-    $('#edit-song-tempo-error').textContent = error.message || 'Could not save tempo details.';
+    if (songUpdated) {
+      try {
+        const { error: rollbackError } = await db.from('songs').update({
+          name: song.name, keys: song.keys, duration_seconds: song.duration_seconds,
+          tempo_start: song.tempo_start, tempo_end: song.tempo_end, tempo_change: song.tempo_change,
+          tempo_segments: song.tempo_segments, backing_track_manual: song.backing_track_manual
+        }).eq('id', songId);
+        if (rollbackError) throw rollbackError;
+      } catch (rollbackError) { console.error('Could not restore song metadata after a failed language update.', rollbackError); }
+    }
+    if (languagesDeleted) {
+      try {
+        const { error: deleteRollbackError } = await db.from('song_languages').delete().eq('song_id', songId);
+        if (deleteRollbackError) throw deleteRollbackError;
+        if (previousLanguageRows.length) {
+          const { error: insertRollbackError } = await db.from('song_languages').insert(previousLanguageRows);
+          if (insertRollbackError) throw insertRollbackError;
+        }
+      } catch (rollbackError) { console.error('Could not restore song languages after a failed update.', rollbackError); }
+    }
+    $('#edit-song-error').textContent = error.message || 'Could not save song details.';
   } finally {
     button.disabled = false;
   }
 }
-
 
 async function saveNewSetlist(event) {
   event.preventDefault();
@@ -1739,9 +1820,10 @@ $('#new-setlist').addEventListener('click', openNewSetlistDialog);
 
 $('#cancel-new-song').addEventListener('click', () => $('#song-editor-dialog').close());
 $('#new-song-form').addEventListener('submit', saveNewSong);
-$('#edit-song-tempo-form').addEventListener('submit', saveSongTempo);
-$('#cancel-edit-song-tempo').addEventListener('click', () => $('#edit-song-tempo-dialog').close());
-document.addEventListener('click', (event) => { const button = event.target.closest('[data-song-tempo-edit]'); if (button) openSongTempoEditor(button.dataset.songTempoEdit); });
+$('#edit-song-form').addEventListener('submit', saveSongMetadata);
+$('#cancel-edit-song').addEventListener('click', () => $('#edit-song-dialog').close());
+$('#edit-song-key-options').addEventListener('change', updateEditSongKeySummary);
+document.addEventListener('click', (event) => { const button = event.target.closest('[data-song-edit]'); if (button) openSongEditor(button.dataset.songEdit); });
 $('#new-song-id-prefix').addEventListener('input', (event) => {
   const input = event.target;
   newSongIdQuery = input.value.replace(/[^a-z]/gi, '').toUpperCase();

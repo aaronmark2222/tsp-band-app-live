@@ -124,14 +124,22 @@
           </form>
         </dialog>
 
-        <dialog id="edit-song-tempo-dialog" class="editor-dialog">
-          <form id="edit-song-tempo-form" class="editor-card">
+        <dialog id="edit-song-dialog" class="editor-dialog">
+          <form id="edit-song-form" class="editor-card">
             <p class="eyebrow">REPERTOIRE</p>
-            <h2 id="edit-song-tempo-title">Edit tempo</h2>
-            <p class="muted tempo-bar-help">Bar numbers are relative to the song’s first bar. Set bars on each tempo change or leave them blank.</p>
-            <div id="edit-song-tempo-points" class="tempo-points"></div>
-            <p id="edit-song-tempo-error" class="error" role="alert"></p>
-            <div class="editor-actions"><button id="cancel-edit-song-tempo" class="button quiet" type="button">Cancel</button><button class="button primary" type="submit">Save tempo</button></div>
+            <h2 id="edit-song-title">Edit song details</h2>
+            <div class="editor-grid">
+              <div class="song-identity-field"><span>Song ID</span><strong id="edit-song-id-value"></strong></div>
+              <div class="song-identity-field"><span>Format</span><strong id="edit-song-type-value"></strong></div>
+              <label class="song-name-field">Song Name<input id="edit-song-name" required maxlength="120" autocomplete="off"></label>
+              <fieldset class="editor-fieldset language-field"><legend>Languages</legend><div id="edit-song-language-options" class="editor-options"></div></fieldset>
+              <div class="key-dropdown-field"><span>Scale(s)</span><details id="edit-song-key-dropdown" class="key-dropdown"><summary id="edit-song-key-summary">Choose scales</summary><div id="edit-song-key-options" class="editor-options key-options"></div></details></div>
+              <section class="tempo-editor"><div class="tempo-editor-heading"><span>Tempo</span></div><div id="edit-song-tempo-points" class="tempo-points"></div><small>Bar numbers are relative to this song’s first bar. Set bars on each tempo change or leave them blank.</small></section>
+              <label>Duration (minutes)<input id="edit-song-duration" type="number" min="0" step="0.01" inputmode="decimal" placeholder="e.g. 3.5"></label>
+              <label>Backing track<select id="edit-song-backing"><option value="">Automatic</option><option value="Sent to Mix">Sent to Mix</option><option value="Mixed">Mixed</option></select></label>
+            </div>
+            <p id="edit-song-error" class="error" role="alert"></p>
+            <div class="editor-actions"><button id="cancel-edit-song" class="button quiet" type="button">Cancel</button><button class="button primary" type="submit">Save details</button></div>
           </form>
         </dialog>
 
