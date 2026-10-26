@@ -846,22 +846,21 @@ function nextAvailableSongIds(query = newSongIdQuery) {
     if (!family || number > family.max) families.set(normalized, { prefix: family?.prefix || match[1], max: number });
   });
   const selectedCodes = [...document.querySelectorAll('input[name="new-song-language"]:checked')].map((input) => input.value);
-  const selectedPrefix = $('#new-song-type')?.value === 'Inst'
-    ? 'I'
-    : selectedCodes.length
-      ? `${selectedCodes.join('')}${$('#new-song-format')?.value === 'medley' ? 'M' : ''}`
-      : '';
-  if (selectedPrefix) {
+  const selectedPrefixes = $('#new-song-type')?.value === 'Inst'
+    ? ['I', 'IM']
+    : selectedCodes.length ? [selectedCodes.join(''), selectedCodes.join('') + 'M'] : [];
+  selectedPrefixes.forEach((selectedPrefix) => {
     const normalized = selectedPrefix.toUpperCase();
     if (!families.has(normalized)) families.set(normalized, { prefix: selectedPrefix, max: 0 });
-  }
+  });
   const normalizedQuery = String(query || '').trim().toLocaleLowerCase();
   return [...families.values()]
-    .map(({ prefix, max }) => `${prefix}${max + 1}`)
+    .map(({ prefix, max }) => prefix + (max + 1))
     .filter((id) => !normalizedQuery || id.toLocaleLowerCase().startsWith(normalizedQuery))
     .sort((a, b) => a.replace(/\d+$/, '').length - b.replace(/\d+$/, '').length || a.localeCompare(b))
     .slice(0, 12);
 }
+
 function renderNewSongIdSuggestions() {
   const list = $('#new-song-id-suggestions');
   const input = $('#new-song-id-prefix');
@@ -890,9 +889,10 @@ function canonicalSongPrefix(prefix) {
   const existing = state.songs.find((song) => idPrefixFromId(song.id).toUpperCase() === prefix.toUpperCase());
   if (existing) return idPrefixFromId(existing.id);
   const selectedCodes = [...document.querySelectorAll('input[name="new-song-language"]:checked')].map((input) => input.value);
-  const selectedPrefix = $('#new-song-type')?.value === 'Inst' ? 'I' : selectedCodes.length ? `${selectedCodes.join('')}${$('#new-song-format')?.value === 'medley' ? 'M' : ''}` : '';
+  const selectedPrefix = $('#new-song-type')?.value === 'Inst' ? 'I' : selectedCodes.length ? selectedCodes.join('') : '';
   return selectedPrefix.toUpperCase() === prefix.toUpperCase() ? selectedPrefix : prefix.toUpperCase();
 }
+
 function updateGeneratedSongId() {
   const input = $('#new-song-id-prefix');
   if (!input) return;
@@ -919,7 +919,7 @@ function renderNewSongFields() {
     `<label class="editor-option" style="--language-color:${languageColor(language.code)}"><input type="checkbox" name="new-song-language" value="${escapeHtml(language.code)}"><span>${escapeHtml(language.name)} <small>${escapeHtml(language.code)}</small></span></label>`).join('');
   $('#new-song-key-options').innerHTML = KEY_CHOICES.map((key) => `<label class="editor-option key-choice"><input type="checkbox" name="new-song-key" value="${escapeHtml(key)}"><span>${escapeHtml(key)}</span></label>`).join('');
   updateNewSongKeySummary();
-  renderTempoPoints([{ bpm: '', transition_to_next: 'gradual' }]);
+  renderTempoPoints([{ bpm: '', transition_to_next: null }]);
   const taskTypes = Array.isArray(state.taskTypes) ? state.taskTypes : [];
   $('#new-song-task-statuses').innerHTML = taskTypes.map((type) => {
     const allowedStatuses = Array.isArray(type.allowed_statuses) && type.allowed_statuses.length
@@ -934,12 +934,12 @@ function renderNewSongFields() {
 }
 function updateNewSongIdPreview() {
   const type = $('#new-song-type')?.value || 'Vox';
-  const isMedley = $('#new-song-format')?.value === 'medley';
   const codes = [...document.querySelectorAll('input[name="new-song-language"]:checked')].map((input) => input.value);
-  const prefix = type === 'Inst' ? 'I' : codes.length ? `${codes.join('')}${isMedley ? 'M' : ''}` : '[language codes]';
-  $('#new-song-id-preview').textContent = `Typical prefix for this selection: ${prefix}. Type only the letters; the next number is assigned automatically. Supported language codes: E, H, K, T, Kn, Ml, plus I for instrumental and M for medley.`;
+  const prefix = type === 'Inst' ? 'I (or IM for a medley)' : codes.length ? codes.join('') + ' (add M at the end for a medley)' : '[language codes]';
+  $('#new-song-id-preview').textContent = 'Typical prefix: ' + prefix + '. Type the letters; the next number is assigned automatically. Medley IDs end in M.';
   renderNewSongIdSuggestions();
 }
+
 function songTempoChanges(song) {
   const points = Array.isArray(song?.tempo_segments) ? song.tempo_segments : [];
   if (points.length && points.some((point) => point?.from_bpm != null || point?.to_bpm != null)) {
@@ -1041,19 +1041,47 @@ function updateNewSongKeySummary() {
   const selected = [...document.querySelectorAll('input[name="new-song-key"]:checked')].map((input) => input.value);
   $('#new-song-key-summary').textContent = selected.length ? selected.join(', ') : 'Choose keys';
 }
+function tempoEditorTransitionIcon(transition) {
+  const path = transition === 'gradual' ? 'M2 16 H16 L32 4 H46' : 'M2 16 H24 V4 H46';
+  return '<svg class="tempo-editor-option-icon" viewBox="0 0 48 20" aria-hidden="true" focusable="false"><path d="' + path + '"/></svg>';
+}
 function renderTempoPoints(points) {
-  const rows = points.length ? points : [{ bpm: '', transition_to_next: 'gradual' }];
-  $('#new-song-tempo-points').innerHTML = rows.map((point, index) => `<div class="tempo-point">
-    <label>Tempo ${index + 1} (BPM)<input class="tempo-point-bpm" type="number" min="1" step="1" inputmode="numeric" value="${escapeHtml(point.bpm ?? '')}" aria-label="Tempo ${index + 1} in BPM"></label>
-    ${index < rows.length - 1 ? `<label>Change to next<select class="tempo-point-transition"><option value="gradual" ${point.transition_to_next === 'gradual' ? 'selected' : ''}>Gradual change</option><option value="instant" ${point.transition_to_next === 'instant' ? 'selected' : ''}>Instant change</option></select></label>` : '<span class="tempo-point-end">Final tempo</span>'}
-    ${rows.length > 1 ? `<button type="button" class="icon-button remove-tempo-point" aria-label="Remove tempo ${index + 1}" data-tempo-remove="${index}">×</button>` : ''}
-  </div>`).join('');
+  const rows = points.length ? points : [{ bpm: '', transition_to_next: null }];
+  const hasNextTempo = rows.length > 1;
+  const selectedTransition = hasNextTempo ? rows[0]?.transition_to_next : null;
+  const optionButton = (transition, label) => {
+    const selected = selectedTransition === transition;
+    return '<button type="button" class="tempo-transition-option' + (selected ? ' selected' : '') +
+      '" data-tempo-transition="' + transition + '" aria-label="' + label + '" aria-pressed="' + selected + '">' +
+      tempoEditorTransitionIcon(transition) + '</button>';
+  };
+  const nextTempoMarkup = hasNextTempo
+    ? '<div class="tempo-next-point"><label class="tempo-input-field">Next tempo (BPM)' +
+      '<input class="tempo-point-bpm" data-tempo-index="1" type="number" min="1" step="1" inputmode="numeric" value="' +
+      escapeHtml(rows[1]?.bpm ?? '') + '" aria-label="Next tempo in BPM"></label>' +
+      '<button type="button" class="remove-tempo-change" aria-label="Remove tempo change" title="Remove tempo change">×</button></div>'
+    : '';
+  $('#new-song-tempo-points').innerHTML =
+    '<div class="tempo-point"><label class="tempo-input-field">Starting tempo (BPM)' +
+    '<input class="tempo-point-bpm" data-tempo-index="0" type="number" min="1" step="1" inputmode="numeric" value="' +
+    escapeHtml(rows[0]?.bpm ?? '') + '" aria-label="Starting tempo in BPM"></label>' +
+    '<div class="tempo-transition-options" role="group" aria-label="Tempo change type">' +
+    optionButton('instant', 'Add an immediate tempo change') +
+    optionButton('gradual', 'Add a gradual tempo change') +
+    '</div>' + nextTempoMarkup + '</div>';
 }
 function readTempoPoints() {
-  return [...document.querySelectorAll('.tempo-point')].map((row) => ({
-    bpm: row.querySelector('.tempo-point-bpm').value.trim(),
-    transition_to_next: row.querySelector('.tempo-point-transition')?.value || null
-  }));
+  const inputs = [...document.querySelectorAll('#new-song-tempo-points .tempo-point-bpm')];
+  if (!inputs.length) return [];
+  const first = {
+    bpm: inputs[0].value.trim(),
+    transition_to_next: inputs.length > 1
+      ? document.querySelector('#new-song-tempo-points .tempo-transition-option[aria-pressed="true"]')?.dataset.tempoTransition || null
+      : null
+  };
+  return inputs.length > 1
+    ? [first, { bpm: inputs[1].value.trim(), transition_to_next: null }]
+    : [first];
 }
 
 function openNewSongDialog() {
@@ -1067,7 +1095,6 @@ function openNewSongDialog() {
     updateGeneratedSongId();
     $('#new-song-error').textContent = '';
     $('#new-song-type').value = 'Vox';
-    $('#new-song-format').value = 'single';
     $('#new-song-backing').value = '';
     renderNewSongFields();
     $('#new-song-id-prefix').focus();
@@ -1101,7 +1128,7 @@ async function saveNewSong(event) {
   if (durationMinutes && (!Number.isFinite(Number(durationMinutes)) || Number(durationMinutes) < 0)) { $('#new-song-error').textContent = 'Enter a valid duration in minutes.'; return; }
   const languageCodes = [...document.querySelectorAll('input[name="new-song-language"]:checked')].map((input) => input.value);
   const payload = {
-    id, name, type: $('#new-song-type').value, is_medley: $('#new-song-format').value === 'medley',
+    id, name, type: $('#new-song-type').value, is_medley: /M$/i.test(idPrefixFromId(id)),
     keys, tempo_start: tempoStart, tempo_end: tempoEnd, tempo_change: tempoChange, tempo_segments: tempoSegments,
     duration_seconds: duration, backing_track_manual: $('#new-song-backing').value || null,
     sort_order: Math.max(0, ...state.songs.map((song) => song.sort_order || 0)) + 1
@@ -1587,11 +1614,27 @@ $('#new-song-id-suggestions').addEventListener('click', (event) => {
   if (option) acceptSongIdSuggestion(option.dataset.songIdSuggestion);
 });
 $('#new-song-type').addEventListener('change', updateNewSongIdPreview);
-$('#new-song-format').addEventListener('change', updateNewSongIdPreview);
 $('#new-song-language-options').addEventListener('change', updateNewSongIdPreview);
 $('#new-song-key-options').addEventListener('change', updateNewSongKeySummary);
-$('#add-tempo-point').addEventListener('click', () => { const points = readTempoPoints(); if (points.length >= 6) return; points.push({ bpm:'', transition_to_next:'gradual' }); renderTempoPoints(points); });
-$('#new-song-tempo-points').addEventListener('click', (event) => { const button = event.target.closest('[data-tempo-remove]'); if (!button) return; const points = readTempoPoints(); points.splice(Number(button.dataset.tempoRemove), 1); renderTempoPoints(points); });
+$('#new-song-tempo-points').addEventListener('click', (event) => {
+  const transitionButton = event.target.closest('[data-tempo-transition]');
+  if (transitionButton) {
+    const points = readTempoPoints();
+    if (!points.length) return;
+    if (points.length === 1) points.push({ bpm: '', transition_to_next: null });
+    points[0].transition_to_next = transitionButton.dataset.tempoTransition;
+    renderTempoPoints(points);
+    $('#new-song-tempo-points [data-tempo-index="1"]')?.focus();
+    return;
+  }
+  if (event.target.closest('.remove-tempo-change')) {
+    const points = readTempoPoints();
+    if (!points.length) return;
+    points[0].transition_to_next = null;
+    renderTempoPoints([points[0]]);
+    $('#new-song-tempo-points [data-tempo-index="0"]')?.focus();
+  }
+});
 $('#new-song-task-statuses').addEventListener('change', (event) => { if (event.target.matches('.new-song-task-status')) event.target.dataset.status = event.target.value; });
 $('#cancel-new-setlist').addEventListener('click', () => $('#setlist-create-dialog').close());
 $('#new-setlist-form').addEventListener('submit', saveNewSetlist);
