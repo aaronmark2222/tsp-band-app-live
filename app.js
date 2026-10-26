@@ -978,7 +978,7 @@ function songTempoChanges(song) {
 function tempoTransitionIcon(change) {
   const gradual = change.transition === 'gradual';
   const descending = change.toBpm < change.fromBpm;
-  const path = gradual ? 'M2 16 H15 L31 4 H46' : 'M2 16 H15 V4 H46';
+  const path = gradual ? 'M2 16 H16 L32 4 H46' : 'M2 16 H24 V4 H46';
   const direction = descending ? ' tempo-transition-down' : '';
   return `<svg class="tempo-transition-icon${direction}" viewBox="0 0 48 20" aria-hidden="true" focusable="false"><path d="${path}"/></svg>`;
 }
