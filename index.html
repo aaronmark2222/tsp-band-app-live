@@ -113,7 +113,7 @@
               <label>Song type<select id="new-song-type"><option value="Vox">Vocal (Vox)</option><option value="Inst">Instrumental (Inst)</option></select></label>
               <fieldset class="editor-fieldset language-field"><legend>Languages</legend><div id="new-song-language-options" class="editor-options"></div></fieldset>
               <div class="key-dropdown-field"><span>Key(s)</span><details id="new-song-key-dropdown" class="key-dropdown"><summary id="new-song-key-summary">Choose keys</summary><div id="new-song-key-options" class="editor-options key-options"></div></details></div>
-              <section class="tempo-editor"><div class="tempo-editor-heading"><span>Tempo</span></div><div id="new-song-tempo-points" class="tempo-points"></div><small>Choose a glyph to add a tempo change.</small></section>
+              <section class="tempo-editor"><div class="tempo-editor-heading"><span>Tempo</span></div><div id="new-song-tempo-points" class="tempo-points"></div><small>Bar numbers are relative to this song’s first bar. Choose a glyph to add a tempo change.</small></section>
               <label>Duration (minutes)<input id="new-song-duration" type="number" min="0" step="0.1" inputmode="decimal" placeholder="e.g. 3.5"><small>Enter minutes; decimals are fine.</small></label>
               <label>Backing track<select id="new-song-backing"><option value="">Automatic (not finished)</option><option value="Sent to Mix">Sent to Mix</option><option value="Mixed">Mixed</option></select></label>
             </div>
@@ -121,6 +121,17 @@
             <div class="editor-section"><h3>Task Statuses</h3><p class="muted">Each task starts as Incomplete. Change any status that needs a different value.</p><div id="new-song-task-statuses" class="new-song-task-list"></div></div>
             <p id="new-song-error" class="error" role="alert"></p>
             <div class="editor-actions"><button id="cancel-new-song" class="button quiet" type="button">Cancel</button><button class="button primary" type="submit">Add to repertoire</button></div>
+          </form>
+        </dialog>
+
+        <dialog id="edit-song-tempo-dialog" class="editor-dialog">
+          <form id="edit-song-tempo-form" class="editor-card">
+            <p class="eyebrow">REPERTOIRE</p>
+            <h2 id="edit-song-tempo-title">Edit tempo</h2>
+            <p class="muted tempo-bar-help">Bar numbers are relative to the song’s first bar. Set bars on each tempo change or leave them blank.</p>
+            <div id="edit-song-tempo-points" class="tempo-points"></div>
+            <p id="edit-song-tempo-error" class="error" role="alert"></p>
+            <div class="editor-actions"><button id="cancel-edit-song-tempo" class="button quiet" type="button">Cancel</button><button class="button primary" type="submit">Save tempo</button></div>
           </form>
         </dialog>
 
