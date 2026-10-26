@@ -1077,8 +1077,8 @@ function renderTempoPoints(points, containerId = 'new-song-tempo-points') {
     const endBar = hasNextTempo && selectedTransition === 'gradual'
       ? barField(index, 'end', 'To bar', point.change_end_bar)
       : '';
-    const rowAttributes = ' data-original-start-bar="' + escapeHtml(point.change_start_bar ?? '') +
-      '" data-original-end-bar="' + escapeHtml(point.change_end_bar ?? '') +
+    const rowAttributes = ' data-original-start-bar="' + escapeHtml(point.original_change_start_bar ?? point.change_start_bar ?? '') +
+      '" data-original-end-bar="' + escapeHtml(point.original_change_end_bar ?? point.change_end_bar ?? '') +
       '" data-change-start-beat="' + escapeHtml(point.change_start_beat ?? '') +
       '" data-change-end-beat="' + escapeHtml(point.change_end_beat ?? '') + '"';
     return '<div class="tempo-point"' + rowAttributes + '><div class="tempo-input-wrap">' +
