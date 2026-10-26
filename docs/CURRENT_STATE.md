@@ -50,3 +50,10 @@ Some documentation describes earlier stages of the product. When sources differ,
 - Tempo means Ableton playback tempo. The app shows the start BPM and an Ableton-style step icon for an immediate change or a slope icon for a gradual change; downward changes flip the glyph vertically. Expanding tempo shows the exact bar or bar range relative to the song's first bar.
 - Song duration is measured across the locator-bounded Ableton arrangement region and rounded to the nearest second. A medley key is its starting key only.
 - Source-of-truth SQL is [the Ableton metadata migration](../supabase/migrations/20261026130000_sync_song_metadata_from_ableton.sql). See [the sync notes](ABLETON_METADATA_SYNC.md) for methods and the seven recorded tempo transitions.
+
+
+## Repeating tempo changes
+
+- The live `public.songs.tempo_segments` column is `jsonb` and stores an ordered array of tempo points. Each point has its own `transition_to_next` value (`instant` or `gradual`), so the list supports any number of changes and mixed transition types.
+- The scalar `tempo_change` enum remains a compatibility summary of the first transition; the full chain is stored in `tempo_segments` and read from there by the app.
+- The Add Song form appends one BPM field when a transition glyph is chosen after the current point. The glyph choices repeat after every BPM field. Removing a middle tempo joins the previous point to the following one using the previous point's chosen transition; removing the last tempo clears the preceding transition.

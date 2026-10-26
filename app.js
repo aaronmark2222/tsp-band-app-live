@@ -926,8 +926,9 @@ function renderNewSongFields() {
       ? type.allowed_statuses
       : ['Incomplete'];
     const defaultStatus = allowedStatuses.includes('Incomplete') ? 'Incomplete' : allowedStatuses[0];
+    const defaultColor = STATUS_COLORS[defaultStatus] || '#D0D0D0';
     const options = allowedStatuses.map((status) => `<option value="${escapeHtml(status)}" style="color:${STATUS_COLORS[status] || '#D0D0D0'};background-color:#19231c" ${status === defaultStatus ? 'selected' : ''}>${escapeHtml(status === 'Completed' ? 'Complete' : status)}</option>`).join('');
-    return `<label class="new-song-task-row"><span>${escapeHtml(type.label)}</span><select class="new-song-task-status" data-task-key="${escapeHtml(type.key)}" data-status="${escapeHtml(defaultStatus)}">${options}</select></label>`;
+    return `<label class="new-song-task-row"><span>${escapeHtml(type.label)}</span><select class="new-song-task-status" data-task-key="${escapeHtml(type.key)}" data-status="${escapeHtml(defaultStatus)}" style="color:${defaultColor};border-color:${defaultColor}">${options}</select></label>`;
   }).join('');
   updateNewSongIdPreview();
   renderNewSongIdSuggestions();
@@ -1047,41 +1048,38 @@ function tempoEditorTransitionIcon(transition) {
 }
 function renderTempoPoints(points) {
   const rows = points.length ? points : [{ bpm: '', transition_to_next: null }];
-  const hasNextTempo = rows.length > 1;
-  const selectedTransition = hasNextTempo ? rows[0]?.transition_to_next : null;
-  const optionButton = (transition, label) => {
-    const selected = selectedTransition === transition;
-    return '<button type="button" class="tempo-transition-option' + (selected ? ' selected' : '') +
-      '" data-tempo-transition="' + transition + '" aria-label="' + label + '" aria-pressed="' + selected + '">' +
-      tempoEditorTransitionIcon(transition) + '</button>';
-  };
-  const nextTempoMarkup = hasNextTempo
-    ? '<div class="tempo-next-point"><label class="tempo-input-field">Next tempo (BPM)' +
-      '<input class="tempo-point-bpm" data-tempo-index="1" type="number" min="1" step="1" inputmode="numeric" value="' +
-      escapeHtml(rows[1]?.bpm ?? '') + '" aria-label="Next tempo in BPM"></label>' +
-      '<button type="button" class="remove-tempo-change" aria-label="Remove tempo change" title="Remove tempo change">×</button></div>'
-    : '';
-  $('#new-song-tempo-points').innerHTML =
-    '<div class="tempo-point"><label class="tempo-input-field">Starting tempo (BPM)' +
-    '<input class="tempo-point-bpm" data-tempo-index="0" type="number" min="1" step="1" inputmode="numeric" value="' +
-    escapeHtml(rows[0]?.bpm ?? '') + '" aria-label="Starting tempo in BPM"></label>' +
-    '<div class="tempo-transition-options" role="group" aria-label="Tempo change type">' +
-    optionButton('instant', 'Add an immediate tempo change') +
-    optionButton('gradual', 'Add a gradual tempo change') +
-    '</div>' + nextTempoMarkup + '</div>';
+  $('#new-song-tempo-points').innerHTML = rows.map((point, index) => {
+    const selectedTransition = index < rows.length - 1 ? point.transition_to_next : null;
+    const optionButton = (transition, label) => {
+      const selected = selectedTransition === transition;
+      return '<button type="button" class="tempo-transition-option' + (selected ? ' selected' : '') +
+        '" data-tempo-transition="' + transition + '" data-tempo-index="' + index +
+        '" aria-label="' + label + '" aria-pressed="' + selected + '">' +
+        tempoEditorTransitionIcon(transition) + '</button>';
+    };
+    const removeButton = index > 0
+      ? '<button type="button" class="remove-tempo-change" data-tempo-remove="' + index +
+        '" aria-label="Remove tempo ' + (index + 1) + '" title="Remove tempo">×</button>'
+      : '';
+    return '<div class="tempo-point"><div class="tempo-input-wrap">' +
+      '<label class="tempo-input-field">Tempo ' + (index + 1) + ' (BPM)' +
+      '<input class="tempo-point-bpm" data-tempo-index="' + index +
+      '" type="number" min="1" step="1" inputmode="numeric" value="' +
+      escapeHtml(point.bpm ?? '') + '" aria-label="Tempo ' + (index + 1) + ' in BPM"></label>' +
+      removeButton + '</div>' +
+      '<div class="tempo-transition-options" role="group" aria-label="Change after tempo ' + (index + 1) + '">' +
+      optionButton('instant', 'Add an immediate tempo change after tempo ' + (index + 1)) +
+      optionButton('gradual', 'Add a gradual tempo change after tempo ' + (index + 1)) +
+      '</div></div>';
+  }).join('');
 }
 function readTempoPoints() {
-  const inputs = [...document.querySelectorAll('#new-song-tempo-points .tempo-point-bpm')];
-  if (!inputs.length) return [];
-  const first = {
-    bpm: inputs[0].value.trim(),
-    transition_to_next: inputs.length > 1
-      ? document.querySelector('#new-song-tempo-points .tempo-transition-option[aria-pressed="true"]')?.dataset.tempoTransition || null
+  return [...document.querySelectorAll('#new-song-tempo-points .tempo-point')].map((row, index, rows) => ({
+    bpm: row.querySelector('.tempo-point-bpm')?.value.trim() || '',
+    transition_to_next: index < rows.length - 1
+      ? row.querySelector('.tempo-transition-option[aria-pressed="true"]')?.dataset.tempoTransition || null
       : null
-  };
-  return inputs.length > 1
-    ? [first, { bpm: inputs[1].value.trim(), transition_to_next: null }]
-    : [first];
+  }));
 }
 
 function openNewSongDialog() {
@@ -1620,22 +1618,32 @@ $('#new-song-tempo-points').addEventListener('click', (event) => {
   const transitionButton = event.target.closest('[data-tempo-transition]');
   if (transitionButton) {
     const points = readTempoPoints();
-    if (!points.length) return;
-    if (points.length === 1) points.push({ bpm: '', transition_to_next: null });
-    points[0].transition_to_next = transitionButton.dataset.tempoTransition;
+    const index = Number(transitionButton.dataset.tempoIndex);
+    if (!points[index]) return;
+    points[index].transition_to_next = transitionButton.dataset.tempoTransition;
+    if (index === points.length - 1) points.push({ bpm: '', transition_to_next: null });
     renderTempoPoints(points);
-    $('#new-song-tempo-points [data-tempo-index="1"]')?.focus();
+    $('#new-song-tempo-points [data-tempo-index="' + (index + 1) + '"]')?.focus();
     return;
   }
-  if (event.target.closest('.remove-tempo-change')) {
+  const removeButton = event.target.closest('[data-tempo-remove]');
+  if (removeButton) {
     const points = readTempoPoints();
-    if (!points.length) return;
-    points[0].transition_to_next = null;
-    renderTempoPoints([points[0]]);
-    $('#new-song-tempo-points [data-tempo-index="0"]')?.focus();
+    const index = Number(removeButton.dataset.tempoRemove);
+    if (index <= 0 || index >= points.length) return;
+    points.splice(index, 1);
+    if (index === points.length) points[points.length - 1].transition_to_next = null;
+    renderTempoPoints(points);
+    $('#new-song-tempo-points [data-tempo-index="' + Math.min(index, points.length - 1) + '"]')?.focus();
   }
 });
-$('#new-song-task-statuses').addEventListener('change', (event) => { if (event.target.matches('.new-song-task-status')) event.target.dataset.status = event.target.value; });
+$('#new-song-task-statuses').addEventListener('change', (event) => {
+  if (!event.target.matches('.new-song-task-status')) return;
+  const color = STATUS_COLORS[event.target.value] || '#D0D0D0';
+  event.target.dataset.status = event.target.value;
+  event.target.style.color = color;
+  event.target.style.borderColor = color;
+});
 $('#cancel-new-setlist').addEventListener('click', () => $('#setlist-create-dialog').close());
 $('#new-setlist-form').addEventListener('submit', saveNewSetlist);
 $('#new-setlist-search').addEventListener('input', renderNewSetlistSongChoices);
