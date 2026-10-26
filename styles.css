@@ -834,3 +834,13 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .tempo-transition-down{transform:scaleY(-1)}
 .tempo-info-details{margin:0;padding:4px 0 0;border:0;background:transparent;color:var(--muted);font-size:10px;line-height:1.4;list-style:none;white-space:normal}
 .tempo-info-details[hidden],.tempo-info-details [hidden]{display:none}
+
+.tempo-bar-field { display:grid; align-self:center; gap:3px; min-width:0; color:var(--muted); font-size:9px; line-height:1; white-space:nowrap; }
+.tempo-bar-number { width:50px; min-width:50px; height:25px; padding:0 5px; color:var(--ink); background:#111a15; border:1px solid var(--line); border-radius:6px; outline:none; font:11px var(--mono); }
+.tempo-bar-number:focus { border-color:var(--lime); }
+.tempo-bar-number::-webkit-inner-spin-button,.tempo-bar-number::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
+.tempo-bar-number { -moz-appearance:textfield; appearance:textfield; }
+.song-tempo-edit-button { padding:5px 8px; border:1px solid var(--line); border-radius:6px; background:transparent; color:var(--muted); font-size:10px; cursor:pointer; }
+.song-tempo-edit-button:hover,.song-tempo-edit-button:focus-visible { border-color:var(--lime); color:var(--lime); }
+.tempo-bar-help { margin:0 0 10px; }
+#edit-song-tempo-points { margin:0 -8px 10px; }
