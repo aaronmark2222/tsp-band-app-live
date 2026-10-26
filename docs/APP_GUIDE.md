@@ -29,6 +29,7 @@ The current app is a static, single-page frontend. Supabase provides password au
 | `supabase/migrations/0010_corrections_remain_incomplete.sql` | Removes Corrections from task completion rules so it continues to count as unfinished work. |
 | `supabase/migrations/0011_oct_30_setlist_and_guitar_tone_owner.sql` | Assigns Guitar Tone Midi to Rowen and replaces the Oct 30th setlist with the supplied 21-song order. |
 | `supabase/migrations/0012_first_login_password_setup.sql` | Adds a first-login password change requirement for newly linked member email addresses. |
+| `supabase/migrations/20261026011851_readiness_requires_mixed_backing_and_ableset_completion.sql` | Requires all configured backing tasks complete, the manual backing state Mixed, and all configured Ableset tasks complete for performance readiness; Parts and Utility remain outside the readiness gate. |
 
 The migration files are the detailed source for database structure and seed data. Apply them only as described in `SETUP_SUPABASE.md`; the frontend does not apply them.
 
@@ -66,7 +67,7 @@ The Dashboard has one tab for every gig, plus **Total Setlist** for the full rep
 
 When any task is set to `Recorded`, it is assigned to the administrator (Anston) for the remaining quantizing, pitch correction, and project placement work. It remains unfinished and appears in Anston's Other Work until completed. Anston can update a Recorded task from the Dashboard or song task controls.
 
-Parts remain tracked and editable on the Songs screen, but are optional: they do not count toward personal or band remaining-work totals and do not prevent readiness. The Dashboard keeps unfinished Parts available in a collapsed **Optional Parts** section. All other task types, including AbleSet, Utility, backing tracks and vocals, are required. A required task is complete when its status is in that task type's `done_statuses` or is `No`. A song is ready when all required tasks are complete and its Backing Track is `Mixed`, or is automatically `Finished` with no manual override. `Sent to Mix` blocks readiness while waiting for the mix to return, but is not counted as remaining work; those songs are placed at the end of either Dashboard list.
+Parts remain tracked and editable on the Songs screen, but are optional: they do not count toward personal or band remaining-work totals and do not prevent readiness. The Dashboard keeps unfinished Parts available in a collapsed **Optional Parts** section. Performance readiness has a narrower rule: every configured task in the backing and Ableset categories must be Completed or No, and the Backing Track must be manually set to `Mixed`. Parts and Utility tasks do not gate Ready. `Sent to Mix` blocks readiness while waiting for the returned mix; it is not counted as remaining work and those songs are placed at the end of either Dashboard list.
 
 AbleSet work is tracked as three tasks: Sections, Lyrics, and Chords. Instrumental songs have Lyrics set to `No`. Utility contains Guitar Tone Midi and Prompts. These binary tasks display `Complete`/`Incomplete`, stored as `Completed`/`Incomplete` in the database. If the old AbleSet task was `Completed`, Sections, Chords, and Prompts carry over as completed; vocal Lyrics also carry over as completed. If the old task was `Incomplete`, the new applicable tasks start incomplete. Guitar Tone Midi is assigned to Rowen, the guitarist; Prompts inherits the old AbleSet owner.
 
@@ -88,7 +89,7 @@ Each song has task rows described by `task_types`:
 - A task counts as done when its current status appears in that task type's `done_statuses` list, except `Corrections`, which always remains unfinished. Other statuses—including in-progress, review, draft, and recorded states unless explicitly marked done—remain in the unfinished count.
 - The displayed “remaining” value is a count of task items, not an estimate of hours or effort.
 
-Song readiness is shown from the database's `song_readiness` view. All applicable non-Part tasks (including AbleSet and Utility) must be completed or marked `No`; `Corrections` is always unfinished. Parts are optional and do not affect readiness. A Backing Track set to `Sent to Mix` still prevents readiness but is not counted as an actionable remaining task. Songs waiting for a mix are sorted to the end of either Dashboard list. Do not replace the database readiness rule with a frontend-only calculation.
+Song readiness is shown from the database's `song_readiness` view. Every configured backing task and every configured Ableset task must be Completed or No, and the Backing Track must be Mixed. Parts and Utility tasks do not affect performance readiness. `Corrections` remains unfinished. A Backing Track set to `Sent to Mix` prevents readiness while waiting for the mix and is not counted as an actionable remaining task. Songs waiting for a mix are sorted to the end of either Dashboard list. Do not replace the database readiness rule with a frontend-only calculation.
 
 ## Setlists screen
 
@@ -108,7 +109,7 @@ The migrations define the complete schema. The main relationships used by the cu
 - `songs` stores song identity and overview details; `song_languages` links songs to `languages`.
 - `task_types` defines task labels, owners, editable statuses, and completion statuses; `song_tasks` stores each song's current status per task type.
 - `task_types.owner_member_id` stores which member is responsible for each task type.
-- `song_readiness` derives backing-track and ready state; Parts are excluded from its readiness calculation.
+- `song_readiness` derives backing-track and ready state; Ready requires all configured backing and Ableset task rows complete (or No) plus a Mixed backing track. Parts and Utility are excluded from this performance-readiness calculation.
 - `setlists` stores setlist names; `setlist_items` stores ordered songs; `gigs` links a performance to its setlist and date/location.
 - `setlist_summary` derives a setlist's song count and running time.
 - `member_emails` stores the admin-managed email association separately from public member data. Other tables, constraints, triggers, policies, and helper views/functions are documented in the SQL migrations and `PLAN.md`.

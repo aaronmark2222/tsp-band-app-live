@@ -64,20 +64,20 @@ Each song has one `song_tasks` row per task type. `task_types` defines each type
 **Task types.** The live database intentionally has **18 task types**. In addition to the original backing and instrument-part tasks, the expanded set includes Sections, Lyrics, Chords, Guitar Tone MIDI, and Prompts. The expansion is intentional and should be preserved.
 
 **Statuses:** Incomplete, Completed, No (not applicable), Corrections, Review, Draft, Recorded.
-- **Done** = Completed (plus Corrections cleared for the two Backing Vocals columns). Corrections never counts as done. "Recorded" is shown separately as waiting for Aaron, and ownership of that task moves to the admin.
+- **Done** = Completed. No means not applicable and is treated as clear for required-work calculations. Recorded means the recording has been captured; it remains under review until Aaron checks it and corrects timing/tuning issues as needed. Corrections never counts as done.
 - **No** removes the task from the counts. A missing row counts as Incomplete.
-- Ableset: Completed / Incomplete, set by Aaron (sections, lyrics, other Ableset work in the master Ableton project).
-- Backing Vocals: recorded by Dale/Anston, then warped, tuned and placed by Aaron (hence the extra states).
-- Part columns: "Completed" means the member has recorded their part and it exists in the Ableton project, so everyone can hear the full performance.
+- Ableset: Sections, Lyrics, Chords are Completed after their work is written into the relevant AbleSet MIDI clips; each configured Ableset task must be complete (or No) for Ready.
+- Backing work: Recorded means captured; Completed follows Aaron’s review and timing/tuning fixes. The produced Backing Tracks are sent to mix and become Mixed when the returned mix has been received and placed in the master project. The Backing Tracks group feeds directly to the Ableton master output.
+- Part columns: Recorded means the member recorded the part; Completed follows Aaron’s review and any timing/tuning fixes. Parts are reference/rehearsal/substitution material and do not feed live performance or gate Ready.
 
 **Backing Track:** Not Finished → Finished → Sent to Mix → Mixed.
-- Not Finished = not produced. Finished = produced. Sent to Mix = with the external mix engineer. Mixed = mixed tracks received and placed in the master Ableton project.
-- **Automatic:** starts Not Finished, becomes Finished once every other Backing column is Completed or No.
-- **Manual (Aaron only):** Sent to Mix and Mixed, stored in `songs.backing_track_manual`. A blank override shows "Auto".
+- Not Finished = backing work is not complete. Finished = backing task rows are complete. Sent to Mix = with the external mix engineer. Mixed = the mixed return has been received and placed in the master Ableton project.
+- **Automatic:** derives Finished once all configured backing task rows are Completed or No.
+- **Manual (Aaron only):** Sent to Mix and Mixed, stored in `songs.backing_track_manual`. Ready requires Mixed; Sent to Mix is not enough.
 
 **Ready** is automatic and nobody can set it by hand.
-- Original step-3 rule: Backing Track = Mixed + Ableset = Completed + **all Parts** Completed or No.
-- **Current rule (verified in the live database and confirmed working by the user):** Backing Track = Mixed + at least one Ableset-category task = Completed. Parts do not block readiness. The live `song_readiness` view implements this rule.
+- Original step-3 proposal: Backing Track = Mixed + Ableset = Completed + all Parts Completed or No.
+- **Current rule (user-confirmed and now implemented):** the Backing Track must be Mixed, every configured Backing task must be Completed or No, and every configured Ableset task (Sections, Lyrics, Chords) must be Completed or No. Parts and Utility do not gate performance readiness. Missing task rows also prevent Ready.
 
 ## 6. Gigs, setlists, deadlines
 
@@ -98,8 +98,10 @@ A new, **separate Supabase project in Aaron's own account** (keeps guitar-studen
 - `0010_corrections_remain_incomplete`
 - `0011_oct_30_setlist_and_guitar_tone_owner`
 - `first_login_password_setup`
+- `song_tempo_segments`
+- `readiness_requires_mixed_backing_and_ableset_completion`
 
-Supabase's recorded migration history currently lists seven entries: `0006` through `0011`, plus `first_login_password_setup`. It does not list repository migrations `0001` through `0005`; preserve these files as project history, and do not rerun them against production without reconciling the live schema and migration history. The live public schema has 15 tables, and row-level security is enabled on the inspected public tables. Reference data currently includes 7 members, 6 languages, 18 task types, and 12 percussion instruments. Database structures for medley constituents, deadlines, and percussion assignments exist, but their corresponding frontend workflows have not been implemented yet.
+Supabase's recorded migration history now includes `0006` through `0011`, `first_login_password_setup`, `song_tempo_segments`, and `readiness_requires_mixed_backing_and_ableset_completion` (version `20261026011851`). Earlier repository migrations `0001` through `0005` are not in the live ledger; preserve them as project history and do not rerun them against production without reconciling the live schema and migration history. The live public schema has 15 tables, and row-level security is enabled on the inspected public tables. Reference data currently includes 7 members, 6 languages, 18 task types, and 12 percussion instruments. Database structures for medley constituents, deadlines, and percussion assignments exist, but their corresponding frontend workflows have not been implemented yet.
 
 **What the frontend reads and writes:**
 
@@ -155,13 +157,19 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 - Separate Supabase project in Aaron's account.
 - Medleys stay one row, with a separate constituents table.
 - Setlists stay simple: one per gig, Aaron edits.
-- Parts do not block readiness. Ready = Backing Track Mixed + Ableset Completed.
+- Parts do not block readiness. Ready = Mixed backing + all Backing tasks complete (or No) + all Ableset tasks complete (or No). Utility is not a performance-readiness gate.
 - The official app name is **TSP Work**.
 - Preserve the live 18-task configuration and the current Oct 30th setlist data.
 - Keep this summary as a living Markdown document. Update the local copy and repository copy together at every meaningful work step.
 
 
 ## 13. Change log
+
+### 26 Oct 2026 — confirmed Ableton workflow and readiness rule
+- User clarified: source STEMS are reference-only and do not feed the Backing Tracks group; produced Backing Tracks feed directly to master. Parts are rehearsal/reference material, not live playback.
+- Song regions use arrangement markers and SONG ID clips; the SECTIONS track divides each song for AbleSet.
+- Updated Ready to require complete backing task rows, Mixed backing, and complete Ableset task rows. Parts and Utility do not gate Ready.
+- The live database migration 20261026011851 was applied; readiness and migration-source documentation updates are in the review branch `docs/readiness-completion-rule`.
 
 ### 19 Oct 2026 — baseline clarification and TSP Work rename
 
