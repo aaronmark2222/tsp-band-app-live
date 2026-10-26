@@ -1067,10 +1067,6 @@ function renderTempoPoints(points, containerId = 'new-song-tempo-points') {
         '" aria-label="' + label + '" aria-pressed="' + selected + '">' +
         tempoEditorTransitionIcon(transition) + '</button>';
     };
-    const removeButton = index > 0
-      ? '<button type="button" class="remove-tempo-change" data-tempo-remove="' + index +
-        '" aria-label="Remove tempo ' + (index + 1) + '" title="Remove tempo">×</button>'
-      : '';
     const startBar = hasNextTempo && selectedTransition
       ? barField(index, 'start', selectedTransition === 'instant' ? 'At bar' : 'From bar', point.change_start_bar)
       : '';
@@ -1085,8 +1081,7 @@ function renderTempoPoints(points, containerId = 'new-song-tempo-points') {
       '<label class="tempo-input-field">Tempo ' + (index + 1) + ' (BPM)' +
       '<input class="tempo-point-bpm" data-tempo-index="' + index +
       '" type="number" min="1" step="1" inputmode="numeric" value="' +
-      escapeHtml(point.bpm ?? '') + '" aria-label="Tempo ' + (index + 1) + ' in BPM"></label>' +
-      removeButton + '</div>' + startBar +
+      escapeHtml(point.bpm ?? '') + '" aria-label="Tempo ' + (index + 1) + ' in BPM"></label></div>' + startBar +
       '<div class="tempo-transition-options" role="group" aria-label="Change after tempo ' + (index + 1) + '">' +
       optionButton('instant', 'Add an immediate tempo change after tempo ' + (index + 1)) +
       optionButton('gradual', 'Add a gradual tempo change after tempo ' + (index + 1)) +
@@ -1117,21 +1112,32 @@ function handleTempoPointsClick(event, containerId) {
     const points = readTempoPoints(containerId);
     const index = Number(transitionButton.dataset.tempoIndex);
     if (!points[index]) return;
-    points[index].transition_to_next = transitionButton.dataset.tempoTransition;
-    if (index === points.length - 1) points.push({ bpm: '', transition_to_next: null });
+    const selectedTransition = transitionButton.getAttribute('aria-pressed') === 'true';
+    if (selectedTransition) {
+      if (index < points.length - 1) {
+        const following = points[index + 1];
+        points.splice(index + 1, 1);
+        points[index].transition_to_next = following.transition_to_next || null;
+        points[index].change_start_bar = following.change_start_bar || '';
+        points[index].change_end_bar = following.change_end_bar || '';
+        points[index].original_change_start_bar = following.original_change_start_bar || '';
+        points[index].original_change_end_bar = following.original_change_end_bar || '';
+        points[index].change_start_beat = following.change_start_beat || '';
+        points[index].change_end_beat = following.change_end_beat || '';
+      } else {
+        points[index].transition_to_next = null;
+      }
+    } else {
+      points[index].transition_to_next = transitionButton.dataset.tempoTransition;
+      if (index === points.length - 1) points.push({ bpm: '', transition_to_next: null });
+    }
     renderTempoPoints(points, containerId);
-    container.querySelector('.tempo-point-bpm[data-tempo-index="' + (index + 1) + '"]')?.focus();
+    if (!selectedTransition) {
+      container.querySelector('.tempo-point-bpm[data-tempo-index="' + (index + 1) + '"]')?.focus();
+    } else {
+      container.querySelector('.tempo-point-bpm[data-tempo-index="' + Math.min(index + 1, points.length - 1) + '"]')?.focus();
+    }
     return;
-  }
-  const removeButton = event.target.closest('[data-tempo-remove]');
-  if (removeButton) {
-    const points = readTempoPoints(containerId);
-    const index = Number(removeButton.dataset.tempoRemove);
-    if (index <= 0 || index >= points.length) return;
-    points.splice(index, 1);
-    if (index === points.length) points[points.length - 1].transition_to_next = null;
-    renderTempoPoints(points, containerId);
-    container.querySelector('.tempo-point-bpm[data-tempo-index="' + Math.min(index, points.length - 1) + '"]')?.focus();
   }
 }
 function validateTempoRows(tempoRows) {
