@@ -57,3 +57,5 @@ Some documentation describes earlier stages of the product. When sources differ,
 - The live `public.songs.tempo_segments` column is `jsonb` and stores an ordered array of tempo points. Each point has its own `transition_to_next` value (`instant` or `gradual`), so the list supports any number of changes and mixed transition types.
 - The scalar `tempo_change` enum remains a compatibility summary of the first transition; the full chain is stored in `tempo_segments` and read from there by the app.
 - The Add Song form appends one BPM field when a transition glyph is chosen after the current point. The glyph choices repeat after every BPM field. Removing a middle tempo joins the previous point to the following one using the previous point's chosen transition; removing the last tempo clears the preceding transition.
+
+- A tempo point’s `change_start_bar` and `change_end_bar` fields store song-relative positions. Immediate changes use the same bar for both fields; gradual changes use their start and end bars. The Add Song form and the admin **Edit tempo** dialog write these fields, and the existing Songs tempo detail reads them.
