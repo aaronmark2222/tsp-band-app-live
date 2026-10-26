@@ -76,8 +76,8 @@ Each song has one `song_tasks` row per task type. `task_types` defines each type
 - **Manual (Aaron only):** Sent to Mix and Mixed, stored in `songs.backing_track_manual`. Ready requires Mixed; Sent to Mix is not enough.
 
 **Ready** is automatic and nobody can set it by hand.
+- Original step-3 proposal: Backing Track = Mixed + Ableset = Completed + all Parts Completed or No.
 - **Current rule (user-confirmed and now implemented):** the Backing Track must be Mixed, every configured Backing task must be Completed or No, and every configured Ableset task (Sections, Lyrics, Chords) must be Completed or No. Parts and Utility do not gate performance readiness. Missing task rows also prevent Ready.
-- **Current rule (verified in the live database and confirmed working by the user):** Backing Track = Mixed + at least one Ableset-category task = Completed. Parts do not block readiness. The live `song_readiness` view implements this rule.
 
 ## 6. Gigs, setlists, deadlines
 
@@ -101,7 +101,7 @@ A new, **separate Supabase project in Aaron's own account** (keeps guitar-studen
 - `song_tempo_segments`
 - `readiness_requires_mixed_backing_and_ableset_completion`
 
-Supabase's recorded migration history currently lists seven entries: `0006` through `0011`, plus `first_login_password_setup`. It does not list repository migrations `0001` through `0005`; preserve these files as project history, and do not rerun them against production without reconciling the live schema and migration history. The live public schema has 15 tables, and row-level security is enabled on the inspected public tables. Reference data currently includes 7 members, 6 languages, 18 task types, and 12 percussion instruments. Database structures for medley constituents, deadlines, and percussion assignments exist, but their corresponding frontend workflows have not been implemented yet.
+Supabase's recorded migration history now includes `0006` through `0011`, `first_login_password_setup`, `song_tempo_segments`, and `readiness_requires_mixed_backing_and_ableset_completion` (version `20261026011851`). Earlier repository migrations `0001` through `0005` are not in the live ledger; preserve them as project history and do not rerun them against production without reconciling the live schema and migration history. It does not list repository migrations `0001` through `0005`; preserve these files as project history, and do not rerun them against production without reconciling the live schema and migration history. The live public schema has 15 tables, and row-level security is enabled on the inspected public tables. Reference data currently includes 7 members, 6 languages, 18 task types, and 12 percussion instruments. Database structures for medley constituents, deadlines, and percussion assignments exist, but their corresponding frontend workflows have not been implemented yet.
 
 **What the frontend reads and writes:**
 
