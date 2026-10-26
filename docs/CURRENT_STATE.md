@@ -4,6 +4,7 @@ This note summarizes information already documented in the public repository. It
 
 ## Architecture
 
+- The [cross-system map](SYSTEM_MAP.md) is the detailed reference for live Supabase schema and RLS, browser data flow, Ableton track groups and metadata, task meanings, and the planned MP3 export workflow.
 - This repository is a **public** GitHub Pages static-site repo. The deployed app requires an account linked through Supabase Auth.
 - The app is a static single page: `index.html`, `app.js`, and `styles.css`. It has no build step or server runtime. The frontend imports a pinned `@supabase/supabase-js` version from esm.sh.
 - GitHub Actions workflow `.github/workflows/deploy.yml` deploys on pushes to `main` and manual dispatch. It stages the app files and required images for GitHub Pages.
@@ -22,7 +23,7 @@ This note summarizes information already documented in the public repository. It
 
 ## Data model and references
 
-The migration files describe the intended schema and history. Core entities cover members and linked emails; songs, languages and medley parts; task types, per-song tasks and task status history; percussion instruments; setlists and setlist items; gigs; and deadlines. Views documented in the app guide summarize readiness, setlist duration, member progress, and deadlines.
+The migration files describe schema evolution; the [cross-system map](SYSTEM_MAP.md) records a read-only snapshot of the live schema and migration ledger checked on 2026-10-26. Always recheck live state before database changes. Core entities cover members and linked emails; songs, languages and medley parts; task types, per-song tasks and task status history; percussion instruments; setlists and setlist items; gigs; and deadlines. Views documented in the app guide summarize readiness, setlist duration, member progress, and deadlines.
 
 Start with:
 

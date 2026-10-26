@@ -1,6 +1,6 @@
 # TSP Band App: how it works
 
-This is the working guide to the current app. Keep it in sync with changes to the app and database. The repository is intended to contain the code and the information needed to understand and maintain it.
+This is the working guide to the current app. Keep it in sync with changes to the app and database. The repository is intended to contain the code and the information needed to understand and maintain it. For the current end-to-end relationship among the app, live Supabase project, Ableton master, and planned audio export, see the [cross-system map](SYSTEM_MAP.md). That map records the latest user-confirmed workflow and separates implemented behavior from future work.
 
 ## What the app is for
 

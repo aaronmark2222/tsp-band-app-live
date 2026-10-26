@@ -1,5 +1,7 @@
 # Setting up the TSP Band App database in Supabase (beginner guide)
 
+> **Historical bootstrap guide:** these instructions and expected row counts describe an earlier initial setup. The live project has since evolved (including 18 task types and a 900-row song_tasks table). Do not rerun the seed/import SQL against an existing project. Read the [current system map](docs/SYSTEM_MAP.md) and inspect the live schema/migration ledger before database work.
+
 Supabase is the online database for the app. You will create a project, paste four SQL files into it, and create your own login. About 20 minutes. Nothing here can break Marks Music: this is a brand-new, separate project.
 
 ## Words you will see

@@ -4,6 +4,7 @@ A band workspace for tracking song work and performance setlists. **The GitHub r
 
 ## Start here
 
+- [Cross-system map](docs/SYSTEM_MAP.md) — current app, Supabase schema/security, Ableton workflow, metadata relationship, and planned local MP3 exports.
 - [Current implementation context](docs/CURRENT_STATE.md) — app architecture, deployment, data-model references, and a checklist for future changes.
 - [Project summary](TSP%20Band%20App%20Summary.md) — product behavior, confirmed decisions, and change log.
 - [App guide](docs/APP_GUIDE.md) — screens, data flow, permissions, and maintenance notes.
