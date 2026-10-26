@@ -1428,17 +1428,22 @@ async function saveSongMetadata(event) {
   } catch (error) {
     if (songUpdated) {
       try {
-        await db.from('songs').update({
+        const { error: rollbackError } = await db.from('songs').update({
           name: song.name, keys: song.keys, duration_seconds: song.duration_seconds,
           tempo_start: song.tempo_start, tempo_end: song.tempo_end, tempo_change: song.tempo_change,
           tempo_segments: song.tempo_segments, backing_track_manual: song.backing_track_manual
         }).eq('id', songId);
+        if (rollbackError) throw rollbackError;
       } catch (rollbackError) { console.error('Could not restore song metadata after a failed language update.', rollbackError); }
     }
     if (languagesDeleted) {
       try {
-        await db.from('song_languages').delete().eq('song_id', songId);
-        if (previousLanguageRows.length) await db.from('song_languages').insert(previousLanguageRows);
+        const { error: deleteRollbackError } = await db.from('song_languages').delete().eq('song_id', songId);
+        if (deleteRollbackError) throw deleteRollbackError;
+        if (previousLanguageRows.length) {
+          const { error: insertRollbackError } = await db.from('song_languages').insert(previousLanguageRows);
+          if (insertRollbackError) throw insertRollbackError;
+        }
       } catch (rollbackError) { console.error('Could not restore song languages after a failed update.', rollbackError); }
     }
     $('#edit-song-error').textContent = error.message || 'Could not save song details.';
