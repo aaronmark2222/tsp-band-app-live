@@ -89,7 +89,7 @@ One nuance for future export automation: Part task completion is an export-selec
 
 ## 3. Supabase model and policies
 
-The current live project was queried on 2026-10-26. Its public schema has the following primary tables:
+The current live project was queried on 2026-10-26. Snapshot counts were 50 songs, 7 members, 6 languages (58 song-language links), 18 task types, 900 song-task rows, and 12 percussion instruments. Its public schema has 15 primary tables and 4 views:
 
 | Table | Role in the app |
 | --- | --- |
@@ -155,7 +155,7 @@ RLS is enabled on application tables:
 
 ### Migration and live drift notes
 
-Repository files in `supabase/migrations/` are historical source and useful to understand how the project evolved; they are not a safe instruction to blindly replay every SQL file against production. The live migration ledger, queried 2026-10-26, included:
+`SETUP_SUPABASE.md` and repository files in `supabase/migrations/` preserve historical bootstrap/source material; they are not safe instructions to blindly replay against production. The bootstrap guide's original expected `song_tasks` count (700) predates the current 18-task catalogue; the live snapshot currently has 900 rows. The live migration ledger, queried 2026-10-26, included:
 
 - `0006_split_ableset_tasks`
 - `0007_optional_parts_dashboard_readiness`
