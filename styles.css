@@ -528,7 +528,7 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .tempo-point { position:relative; display:flex; flex:0 0 auto; align-items:center; gap:7px; min-width:0; padding:0; border:0; background:transparent; }
 .tempo-input-wrap { position:relative; flex:0 0 auto; }
 .tempo-input-field { display:grid; gap:6px; color:#c6d0c4; font-size:11px; }
-.tempo-point-bpm { box-sizing:border-box; width:60px; min-width:60px; height:32px; padding:0 5px; color:var(--ink); background:#111a15; border:1px solid var(--line); border-radius:7px; outline:none; font:13px var(--mono); }
+.tempo-point-bpm { box-sizing:border-box; width:44px; min-width:44px; height:26px; padding:0 4px; color:var(--ink); background:#111a15; border:1px solid var(--line); border-radius:6px; outline:none; font:11px var(--mono); text-align:left; }
 .tempo-point-bpm:focus { border-color:var(--lime); }
 .tempo-point-bpm::-webkit-inner-spin-button,.tempo-point-bpm::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
 .tempo-point-bpm { -moz-appearance:textfield; appearance:textfield; }
@@ -834,7 +834,7 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .tempo-info-details[hidden],.tempo-info-details [hidden]{display:none}
 
 .tempo-bar-field { display:grid; align-self:center; gap:3px; min-width:0; color:var(--muted); font-size:9px; line-height:1; white-space:nowrap; }
-.tempo-bar-number { box-sizing:border-box; width:42px; min-width:42px; height:28px; padding:0 3px; color:var(--ink); background:#111a15; border:1px solid var(--line); border-radius:5px; outline:none; font:10px var(--mono); text-align:center; }
+.tempo-bar-number { box-sizing:border-box; width:34px; min-width:34px; height:23px; padding:0 3px; color:var(--ink); background:#111a15; border:1px solid var(--line); border-radius:4px; outline:none; font:9px var(--mono); text-align:left; }
 .tempo-bar-number:focus { border-color:var(--lime); }
 .tempo-bar-number::-webkit-inner-spin-button,.tempo-bar-number::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
 .tempo-bar-number { -moz-appearance:textfield; appearance:textfield; }
