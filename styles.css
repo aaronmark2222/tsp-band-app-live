@@ -811,3 +811,16 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
   justify-content:center;
   padding:0 15px;
 }
+\n/* Tempo display follows the user's Ableton-style step and ramp symbols. */
+.song-detail-metadata .tempo-info{padding:0;border:0;background:transparent;color:inherit}
+.tempo-info summary{display:flex;align-items:center;gap:7px;min-height:30px;padding:5px 9px;border:1px solid var(--line);border-radius:7px;background:#19231c;color:#cbd7c6;font-size:11px;cursor:pointer;list-style:none}
+.tempo-info summary::-webkit-details-marker{display:none}
+.tempo-info summary:focus-visible{outline:2px solid var(--lime);outline-offset:2px}
+.tempo-chain{display:inline-flex;align-items:center;gap:7px}
+.tempo-bpm{white-space:nowrap}
+.tempo-transition-icon{display:block;width:38px;height:18px;flex:0 0 auto;overflow:visible}
+.tempo-transition-icon path{fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:square;stroke-linejoin:miter}
+.tempo-transition-down{transform:scaleY(-1)}
+.tempo-expand-cue{margin-left:3px;color:var(--muted);font:9px var(--mono);white-space:nowrap}
+.tempo-info[open] summary{border-color:#60744e;color:var(--lime)}
+.tempo-info-details{margin:6px 0 0;padding:9px 12px 9px 24px;border:1px solid var(--line);border-radius:7px;background:#141d17;color:#cbd7c6;font-size:11px;line-height:1.6;list-style:disc}
