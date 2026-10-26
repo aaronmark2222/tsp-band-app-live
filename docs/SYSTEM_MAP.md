@@ -268,5 +268,4 @@ This is a product requirement, not a currently available app action. The reposit
 | 2026-10-26 | Documented the live project/schema relationship, RLS and app data flow, ALS track groups, task meanings, tempo-bar storage, metadata sync snapshot, and local MP3 export requirements. |
 | 2026-10-26 | Recorded the user's E6 Song ID clip merge and the requirement to revalidate it on future ALS audits. |
 | 2026-10-26 | Tempo editor updated in PRs #49–#52: multi-transition bar-aware tempo segments; selected glyph cancels; compact left-aligned BPM/bar inputs. |
-
 | 2026-10-26 | PR #54: expanded song metadata shows scales after tempo; one admin Edit action on both Songs and Setlists edits all displayed metadata. |
