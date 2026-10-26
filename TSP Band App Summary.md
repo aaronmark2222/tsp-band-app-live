@@ -1,6 +1,6 @@
 # TSP Work — Project Summary
 
-*Official project summary for **TSP Work**, the band workspace for The String Project. Updated 20 Oct 2026 using the user’s clarifications, the live frontend repository (`aaronmark2222/tsp-band-app-live`), and the connected Supabase project (`hzvfrvjuqvmkeqbrgmqu`). Treat the live repository and database as the current implementation; user-confirmed decisions define intended behaviour. Keep this file synchronized with the repository copy after every meaningful work step.*
+*Official project summary for **TSP Work**, the band workspace for The String Project. Updated 26 Oct 2026 using the user’s clarifications, the live frontend repository (`aaronmark2222/tsp-band-app-live`), the connected Supabase project (`hzvfrvjuqvmkeqbrgmqu`), and the Ableton master project. The detailed current reference for app ↔ database ↔ Ableton behavior is [the cross-system map](docs/SYSTEM_MAP.md); older dated status notes below are historical where they conflict with that map or later user decisions. Treat the live repository and database as implementation truth; user-confirmed decisions define intended behavior. Keep this file synchronized after meaningful changes.*
 
 ---
 
@@ -54,7 +54,7 @@ A private web app named **TSP Work** for The String Project’s 7-member band, r
 - **Languages** are a flexible multi-select managed in the app. Codes: E, H, K, **T** (Tamil), **Kn** (Kannada), **Ml** (Malayalam). Codes are one capital + lowercase. `I` and `M` are reserved so IDs always parse unambiguously. The app must reject a new code that conflicts with an existing one.
 - The old "Oth" language was replaced: I1 = Hindi + Malayalam, I3 and I4 = Tamil, I5 = Tamil + Hindi (confirmed).
 - **Medleys** are one row in the song list. A separate table holds each medley's **constituent songs** (name, language, original artist, key, tempo, order, duration).
-- **Tempo** is stored as start tempo, end tempo and change type, and shown in the sheet's notation: `90 to 82` = ramp mid-song then stable; `148 & 116` = instant jump mid-song.
+- **Tempo** comes from Ableton playback tempo. `songs.tempo_segments` stores an ordered JSONB tempo map with multiple gradual/immediate transitions and song-relative bar positions. The older `tempo_start`, `tempo_end`, and `tempo_change` columns remain summary/compatibility fields.
 - Setlists show total running time.
 
 ## 5. Tasks, statuses, readiness
@@ -64,20 +64,20 @@ Each song has one `song_tasks` row per task type. `task_types` defines each type
 **Task types.** The live database intentionally has **18 task types**. In addition to the original backing and instrument-part tasks, the expanded set includes Sections, Lyrics, Chords, Guitar Tone MIDI, and Prompts. The expansion is intentional and should be preserved.
 
 **Statuses:** Incomplete, Completed, No (not applicable), Corrections, Review, Draft, Recorded.
-- **Done** = Completed (plus Corrections cleared for the two Backing Vocals columns). Corrections never counts as done. "Recorded" is shown separately as waiting for Aaron, and ownership of that task moves to the admin.
+- **Done** = Completed. `No` means not applicable. Corrections remains unfinished, and Recorded is not Completed; Recorded appears separately in progress summaries.
 - **No** removes the task from the counts. A missing row counts as Incomplete.
-- Ableset: Completed / Incomplete, set by Aaron (sections, lyrics, other Ableset work in the master Ableton project).
-- Backing Vocals: recorded by Dale/Anston, then warped, tuned and placed by Aaron (hence the extra states).
-- Part columns: "Completed" means the member has recorded their part and it exists in the Ableton project, so everyone can hear the full performance.
+- AbleSet tasks (Sections, Lyrics, Chords): Completed means the corresponding AbleSet writing/annotation work is finished.
+- Band Parts and backing recordings: Recorded means the member has recorded them. Completed follows review and any timing/tuning correction.
+- Parts are reference/practice recordings and do not form the live performance mix. Parts are optional for readiness; a Completed Part has been reviewed and corrected.
 
 **Backing Track:** Not Finished → Finished → Sent to Mix → Mixed.
 - Not Finished = not produced. Finished = produced. Sent to Mix = with the external mix engineer. Mixed = mixed tracks received and placed in the master Ableton project.
-- **Automatic:** starts Not Finished, becomes Finished once every other Backing column is Completed or No.
+- **Automatic:** starts Not Finished and becomes Finished when all applicable backing task rows are Completed or No.
 - **Manual (Aaron only):** Sent to Mix and Mixed, stored in `songs.backing_track_manual`. A blank override shows "Auto".
 
 **Ready** is automatic and nobody can set it by hand.
 - Original step-3 rule: Backing Track = Mixed + Ableset = Completed + **all Parts** Completed or No.
-- **Current rule (verified in the live database and confirmed working by the user):** Backing Track = Mixed + at least one Ableset-category task = Completed. Parts do not block readiness. The live `song_readiness` view implements this rule.
+- **Current rule (verified in the live database):** all configured backing tasks and all configured AbleSet tasks must be Completed or No, and backing state must be Mixed. Parts do not block readiness. The live `song_readiness` view implements this rule.
 
 ## 6. Gigs, setlists, deadlines
 
@@ -99,14 +99,14 @@ A new, **separate Supabase project in Aaron's own account** (keeps guitar-studen
 - `0011_oct_30_setlist_and_guitar_tone_owner`
 - `first_login_password_setup`
 
-Supabase's recorded migration history currently lists seven entries: `0006` through `0011`, plus `first_login_password_setup`. It does not list repository migrations `0001` through `0005`; preserve these files as project history, and do not rerun them against production without reconciling the live schema and migration history. The live public schema has 15 tables, and row-level security is enabled on the inspected public tables. Reference data currently includes 7 members, 6 languages, 18 task types, and 12 percussion instruments. Database structures for medley constituents, deadlines, and percussion assignments exist, but their corresponding frontend workflows have not been implemented yet.
+Supabase's recorded migration history snapshot (2026-10-26) lists nine entries: `0006` through `0011`, `first_login_password_setup`, `song_tempo_segments`, and `readiness_requires_mixed_backing_and_ableset_completion`. It does not list repository migrations `0001` through `0005`; preserve these files as project history, and do not rerun them against production without reconciling the live schema and migration history. The live public schema has 15 tables, and row-level security is enabled on the inspected public tables. Reference data currently includes 7 members, 6 languages, 18 task types, and 12 percussion instruments. Database structures for medley constituents, deadlines, and percussion assignments exist, but their corresponding frontend workflows have not been implemented yet.
 
 **What the frontend reads and writes:**
 
 | Table / view | Used by the app | App writes |
 |---|---|---|
 | `members` | id, name, slug, is_admin, must_change_password, user_id, sort_order | none |
-| `songs` | id, name, type, is_medley, keys, tempo_start/end/change, duration_seconds, backing_track_manual, sort_order | `backing_track_manual` (admin) |
+| `songs` | id, name, type, is_medley, keys, tempo_start/end/change, tempo_segments (JSONB), duration_seconds, backing_track_manual, sort_order | `backing_track_manual` (admin) |
 | `song_tasks` | song_id, task_key, status, updated_at | `status` (owner or admin) |
 | `task_types` | key, label, category, owner_member_id, allowed_statuses, done_statuses, sort_order | none |
 | `languages`, `song_languages` | code, short_label; song_id, language_code, position | none |
@@ -306,9 +306,17 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 
 ### 20 Oct 2026 — repertoire and setlist creation
 
-- Added an admin-only **Add song** workflow on the Songs page. It collects a unique song ID, title, song type (Vox or Inst), standalone/medley format, languages, keys, tempos, tempo change, duration, and backing-track state.
+- Added an admin-only **Add song** workflow on the Songs page. It collects a unique song ID, title, languages, starting key, duration, backing-track state, task statuses, and a repeatable chain of BPM values with optional immediate/gradual transitions and song-relative bar positions. The Song ID prefix determines the song format; there is no standalone/medley selector.
 - Added ID guidance for the supported language codes E, H, K, T, Kn, and Ml, instrumental I IDs, medley marker M, multi-language prefixes, and the required trailing number.
 - The form displays every configured task type and its allowed status choices. Tasks default to Incomplete and can be changed before saving. The existing database trigger creates task rows; selected languages and any non-default statuses are then saved.
 - Added an admin-only **Create a setlist** workflow on the Setlists page. Admins can search and select songs, adjust their running order, and create the setlist with its selected songs in one step.
 - No database schema changes were needed. Existing admin-only row-level security policies protect song, language, task, setlist, and setlist-item writes.
-- Code is prepared on branch `feature/repertoire-and-setlist-creation`; deployment follows review and merge.
+- The feature was subsequently merged. Current app behavior and tempo editor state are recorded in [the cross-system map](docs/SYSTEM_MAP.md).
+
+
+## 26 Oct 2026 — app, Supabase, and Ableton reference
+
+- The maintained end-to-end reference is [docs/SYSTEM_MAP.md](docs/SYSTEM_MAP.md). It records confirmed app↔schema data flows, live table/view roles, RLS, task meanings, Ableton track-group purpose, ALS metadata mapping, and the requested local MP3 export design.
+- Current export status: requirements are documented, but no local ALS exporter is implemented. First output is MP3 to song-organized folders on the Mac; Google Drive is a later step.
+- Recent tempo editor changes: the database already supports multiple per-transition bar fields in `tempo_segments`; admins can add and edit tempo maps, and selected glyphs toggle transitions off. UI controls are compact and left-aligned.
+- Ableton user clarification: original stems are reference only and do not feed the backing arrangement; Parts are practice/reference recordings and do not enter live performance audio. See the map for the export selection rules and the routing detail to verify before automation.
