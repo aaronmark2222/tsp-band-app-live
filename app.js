@@ -1364,58 +1364,6 @@ async function saveSongTempo(event) {
   }
 }
 
-let editingSongTempoId = null;
-function openSongTempoEditor(songId) {
-  if (!state.member?.is_admin) return;
-  const song = state.songs.find((item) => item.id === songId);
-  if (!song) return;
-  editingSongTempoId = songId;
-  $('#edit-song-tempo-title').textContent = song.name + ' · tempo';
-  $('#edit-song-tempo-error').textContent = '';
-  let points = Array.isArray(song.tempo_segments) ? song.tempo_segments.map((point) => ({ ...point })) : [];
-  if (!points.length && song.tempo_start != null) {
-    const transition = song.tempo_change === 'ramp' ? 'gradual' : song.tempo_change === 'jump' ? 'instant' : null;
-    points = [{ bpm: song.tempo_start, transition_to_next: transition }];
-    if (song.tempo_end != null) points.push({ bpm: song.tempo_end, transition_to_next: null });
-  }
-  renderTempoPoints(points, 'edit-song-tempo-points');
-  $('#edit-song-tempo-dialog').showModal();
-  $('#edit-song-tempo-points .tempo-point-bpm')?.focus();
-}
-async function saveSongTempo(event) {
-  event.preventDefault();
-  if (!state.member?.is_admin || !editingSongTempoId) return;
-  const tempoRows = readTempoPoints('edit-song-tempo-points');
-  const tempoError = validateTempoRows(tempoRows);
-  if (tempoError) { $('#edit-song-tempo-error').textContent = tempoError; return; }
-  const tempoSegments = tempoSegmentsFromRows(tempoRows);
-  const payload = {
-    tempo_start: tempoSegments[0]?.bpm ?? null,
-    tempo_end: tempoSegments.length > 1 ? tempoSegments.at(-1).bpm : null,
-    tempo_change: tempoSegments.length > 1
-      ? tempoSegments[0].transition_to_next === 'gradual' ? 'ramp' : 'jump'
-      : 'none',
-    tempo_segments: tempoSegments
-  };
-  const songId = editingSongTempoId;
-  const song = state.songs.find((item) => item.id === songId);
-  const button = $('#edit-song-tempo-form button[type="submit"]');
-  button.disabled = true;
-  $('#edit-song-tempo-error').textContent = '';
-  try {
-    const { data, error } = await db.from('songs').update(payload).eq('id', songId).select('*').single();
-    if (error) throw error;
-    state.songs = state.songs.map((item) => item.id === songId ? { ...item, ...data } : item);
-    editingSongTempoId = null;
-    $('#edit-song-tempo-dialog').close();
-    renderSongs();
-    showNotice('Updated tempo details for ' + (song?.name || songId) + '.');
-  } catch (error) {
-    $('#edit-song-tempo-error').textContent = error.message || 'Could not save tempo details.';
-  } finally {
-    button.disabled = false;
-  }
-}
 
 async function saveNewSetlist(event) {
   event.preventDefault();
