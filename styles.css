@@ -238,6 +238,12 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .gig-auto-setlist-note { align-self: end; margin: 0 0 9px; color: #999; font-size: 11px; }
 .gig-form-actions { display: flex; gap: 8px; margin-top: 14px; }
 .gig-list { display: grid; gap: 9px; }
+.gig-section { margin-top: 22px; }
+.gig-section > h2 { margin: 0 0 10px; color: #eee; font-size: 18px; }
+.completed-gigs { padding-top: 22px; border-top: 1px solid #2c3a31; }
+.gig-list-card-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.gig-list-card.is-completed { border-left-color: #738275; }
+@media(max-width:600px) { .gig-list-card-main { flex-direction: column; } .gig-list-card-actions { justify-content: flex-start; } }
 .gig-list-card { padding: 15px; background: #343434; border: 1px solid #202020; border-left: 3px solid #f39a26; border-radius: 3px; }
 .gig-list-card-main { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .gig-list-card h2 { margin: 0; color: #eee; font-size: 16px; font-weight: 700; }
