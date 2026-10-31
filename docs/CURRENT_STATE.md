@@ -23,7 +23,7 @@ This note summarizes information already documented in the public repository. It
 
 ## Data model and references
 
-The migration files describe schema evolution; the [cross-system map](SYSTEM_MAP.md) records a read-only snapshot of the live schema and migration ledger checked on 2026-10-26. Always recheck live state before database changes. Core entities cover members and linked emails; songs, languages and medley parts; task types, per-song tasks and task status history; percussion instruments; setlists and setlist items; gigs; and deadlines. Views documented in the app guide summarize readiness, setlist duration, member progress, and deadlines.
+The migration files describe schema evolution; the [cross-system map](SYSTEM_MAP.md) records the live schema and migration ledger snapshots. The gigs table's `completed` field was added on 2026-10-31. Always recheck live state before database changes. Core entities cover members and linked emails; songs, languages and medley parts; task types, per-song tasks and task status history; percussion instruments; setlists and setlist items; gigs; and deadlines. Views documented in the app guide summarize readiness, setlist duration, member progress, and deadlines.
 
 Start with:
 
