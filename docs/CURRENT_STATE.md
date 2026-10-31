@@ -60,3 +60,9 @@ Some documentation describes earlier stages of the product. When sources differ,
 - The Add Song and shared Edit song details forms append one BPM field when a transition glyph is chosen after the current point. The glyph choices repeat after every BPM field. Clicking a selected glyph cancels that transition and removes its following tempo point; if there are later points, their following transition is carried back to the current point.
 
 - A tempo point’s `change_start_bar` and `change_end_bar` fields store song-relative positions. Immediate changes use the same bar for both fields; gradual changes use their start and end bars. The compact tempo and bar fields in Add Song and the admin **Edit tempo** dialog write these fields, and the existing Songs tempo detail reads them.
+
+
+## Song library ordering (2026-11-01)
+
+- New songs now inherit their sort position from neighboring IDs with the same alphabetic prefix. The Songs view uses a natural numeric tie-breaker so E8 follows E7 when they share the same sort position.
+- E8 (Sweet Caroline) was moved in Supabase from the end of the repertoire to immediately after E7. Existing later songs keep their established group order.
