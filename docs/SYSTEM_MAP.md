@@ -166,6 +166,7 @@ RLS is enabled on application tables:
 - `first_login_password_setup`
 - `song_tempo_segments`
 - `readiness_requires_mixed_backing_and_ableset_completion`
+- `completed_gigs` (2026-10-31): adds `public.gigs.completed`, defaulting to false, for admin-managed historical gig archiving.
 
 The live ledger did not list every repository baseline/import SQL file, and the metadata sync file is an explicit song-data update. Inspect the current schema, migration ledger, policies, and target rows before applying future database work. Prefer a new, narrowly scoped migration for schema changes. Never use `service_role` in frontend code.
 
