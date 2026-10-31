@@ -132,7 +132,7 @@ async function loadData() {
     db.from('song_languages').select('song_id,language_code,position,languages(code,short_label)').order('position'),
     db.from('languages').select('code,name,short_label').order('sort_order'),
     db.from('setlists').select('id,name,description,created_at').order('created_at'),
-    db.from('gigs').select('id,name,event_date,start_time,location,setlist_id,notes').order('event_date'),
+    db.from('gigs').select('id,name,event_date,start_time,location,setlist_id,notes,completed').order('event_date'),
     db.from('members').select('id,name,is_admin,sort_order').order('sort_order')
   ]);
   for (const result of [songs, tasks, taskTypes, languages, setlists, gigs, members, languageOptions]) if (result.error) throw result.error;
@@ -471,18 +471,33 @@ function renderSetlistOptions() {
   renderActiveSetlist();
 }
 
+function localDateString(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function gigCard(gig, canEdit) {
+  const setlist = state.setlists.find((item) => item.id === gig.setlist_id);
+  const date = new Date(`${gig.event_date}T12:00:00`).toLocaleDateString(undefined, { dateStyle: 'long' });
+  const details = [date, gig.start_time?.slice(0, 5), gig.location].filter(Boolean).join(' · ');
+  const past = gig.event_date < localDateString();
+  const completeButton = canEdit && past && !gig.completed
+    ? `<button type="button" class="button quiet" data-complete-gig="${escapeHtml(gig.id)}">Mark as Complete</button>`
+    : '';
+  const editButton = canEdit ? `<button type="button" class="button quiet" data-edit-gig="${escapeHtml(gig.id)}">Edit gig</button>` : '';
+  return `<article class="gig-list-card ${gig.completed ? 'is-completed' : ''}"><div class="gig-list-card-main"><div><h2>${escapeHtml(gig.name)}</h2><p>${escapeHtml(details)}</p></div><div class="gig-list-card-actions">${completeButton}${editButton}</div></div>${gig.notes ? `<p class="gig-list-notes">${escapeHtml(gig.notes)}</p>` : ''}<div class="gig-setlist-link"><span>Setlist</span>${setlist ? `<button type="button" class="text-button" data-open-gig-setlist="${escapeHtml(setlist.id)}">${escapeHtml(setlist.name)} →</button>` : '<em>No setlist attached</em>'}</div></article>`;
+}
+
 function renderGigs() {
   const canEdit = !!state.member?.is_admin;
   $('#new-gig').classList.toggle('hidden', !canEdit);
-  const gigs = [...state.gigs].sort((a, b) => a.event_date.localeCompare(b.event_date) || a.name.localeCompare(b.name));
-  $('#gig-list').innerHTML = gigs.length ? gigs.map((gig) => {
-    const setlist = state.setlists.find((item) => item.id === gig.setlist_id);
-    const date = new Date(`${gig.event_date}T12:00:00`).toLocaleDateString(undefined, { dateStyle: 'long' });
-    const details = [date, gig.start_time?.slice(0, 5), gig.location].filter(Boolean).join(' · ');
-    return `<article class="gig-list-card"><div class="gig-list-card-main"><div><h2>${escapeHtml(gig.name)}</h2><p>${escapeHtml(details)}</p></div>${canEdit ? `<button type="button" class="button quiet" data-edit-gig="${escapeHtml(gig.id)}">Edit gig</button>` : ''}</div>${gig.notes ? `<p class="gig-list-notes">${escapeHtml(gig.notes)}</p>` : ''}<div class="gig-setlist-link"><span>Setlist</span>${setlist ? `<button type="button" class="text-button" data-open-gig-setlist="${escapeHtml(setlist.id)}">${escapeHtml(setlist.name)} →</button>` : '<em>No setlist attached</em>'}</div></article>`;
-  }).join('') : '<div class="empty-state">No gigs have been added yet.</div>';
+  const active = state.gigs.filter((gig) => !gig.completed)
+    .sort((a, b) => a.event_date.localeCompare(b.event_date) || a.name.localeCompare(b.name));
+  const completed = state.gigs.filter((gig) => gig.completed)
+    .sort((a, b) => b.event_date.localeCompare(a.event_date) || a.name.localeCompare(b.name));
+  const activeCards = active.map((gig) => gigCard(gig, canEdit)).join('') || '<div class="empty-state">No active gigs.</div>';
+  const completedCards = completed.map((gig) => gigCard(gig, canEdit)).join('') || '<div class="empty-state">No completed gigs yet.</div>';
+  $('#gig-list').innerHTML = `<section class="gig-section"><h2>Gigs</h2><div class="gig-list">${activeCards}</div></section><section class="gig-section completed-gigs"><h2>Completed Gigs</h2><div class="gig-list">${completedCards}</div></section>`;
 }
-
 function openGigForm(gig = null) {
   const form = $('#gig-form');
   form.reset();
@@ -547,18 +562,19 @@ async function renderActiveSetlist() {
 }
 
 function nextDashboardGig() {
-  const today = new Date();
-  const localDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  const upcoming = state.gigs.filter((gig) => gig.event_date >= localDate && gig.setlist_id).sort((a, b) => a.event_date.localeCompare(b.event_date));
-  return upcoming[0] || [...state.gigs].sort((a, b) => b.event_date.localeCompare(a.event_date))[0] || null;
+  const activeGigs = state.gigs.filter((gig) => !gig.completed);
+  const today = localDateString();
+  const upcoming = activeGigs.filter((gig) => gig.event_date >= today && gig.setlist_id).sort((a, b) => a.event_date.localeCompare(b.event_date));
+  return upcoming[0] || [...activeGigs].sort((a, b) => b.event_date.localeCompare(a.event_date))[0] || null;
 }
 
 function renderDashboardTabs() {
   const upcomingGig = nextDashboardGig();
   if (state.dashboardScope === 'gig') state.dashboardScope = upcomingGig ? `gig:${upcomingGig.id}` : 'total';
-  const availableScopes = new Set(state.gigs.map((gig) => `gig:${gig.id}`).concat('total'));
+  const activeGigs = state.gigs.filter((gig) => !gig.completed);
+  const availableScopes = new Set(activeGigs.map((gig) => `gig:${gig.id}`).concat('total'));
   if (!availableScopes.has(state.dashboardScope)) state.dashboardScope = upcomingGig ? `gig:${upcomingGig.id}` : 'total';
-  const gigs = [...state.gigs].sort((a, b) => a.event_date.localeCompare(b.event_date) || a.name.localeCompare(b.name));
+  const gigs = activeGigs.sort((a, b) => a.event_date.localeCompare(b.event_date) || a.name.localeCompare(b.name));
   const tabs = gigs.map((gig) => {
     const date = new Date(`${gig.event_date}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
     const label = upcomingGig?.id === gig.id ? `Upcoming · ${date}` : date;
@@ -624,7 +640,7 @@ async function renderDashboard() {
   memberSelect.value = state.dashboardMemberId;
   const viewedMember = state.members.find((member) => member.id === state.dashboardMemberId) || state.member;
   renderDashboardTabs();
-  const selectedGig = state.gigs.find((gig) => state.dashboardScope === `gig:${gig.id}`) || null;
+  const selectedGig = state.gigs.find((gig) => !gig.completed && state.dashboardScope === `gig:${gig.id}`) || null;
   let songs = state.songs;
   if (selectedGig) {
     if (!selectedGig.setlist_id) {
@@ -1485,6 +1501,16 @@ async function saveNewSetlist(event) {
 }
 
 
+async function completeGig(gig) {
+  if (!state.member?.is_admin || gig.completed || gig.event_date >= localDateString()) return;
+  const { error } = await db.from('gigs').update({ completed: true }).eq('id', gig.id);
+  if (error) return fail('Could not mark this gig complete.', error);
+  gig.completed = true;
+  renderGigs();
+  if (state.view === 'dashboard') await renderDashboard();
+  showNotice(`${gig.name} moved to Completed Gigs.`);
+}
+
 async function saveGig(event) {
   event.preventDefault();
   if (!state.member.is_admin) return;
@@ -1898,6 +1924,12 @@ $('#new-gig').addEventListener('click', () => openGigForm());
 $('#gig-form').addEventListener('submit', saveGig);
 $('#cancel-gig-edit').addEventListener('click', () => $('#gig-form').classList.add('hidden'));
 $('#gig-list').addEventListener('click', (event) => {
+  const completeButton = event.target.closest('[data-complete-gig]');
+  if (completeButton) {
+    const gig = state.gigs.find((item) => item.id === completeButton.dataset.completeGig);
+    if (gig) completeGig(gig);
+    return;
+  }
   const editButton = event.target.closest('[data-edit-gig]');
   if (editButton) {
     const gig = state.gigs.find((item) => item.id === editButton.dataset.editGig);

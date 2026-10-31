@@ -1,6 +1,6 @@
 # TSP Work: system map
 
-_Last consolidated: 2026-10-26. This note connects the deployed band app, its live Supabase database, the Ableton master project, and the planned local export workflow. It records confirmed implementation separately from future work._
+_Last consolidated: 2026-10-31. This note connects the deployed band app, its live Supabase database, the Ableton master project, and the planned local export workflow. It records confirmed implementation separately from future work._
 
 ## Start here
 
@@ -69,7 +69,7 @@ Public sign-ups should stay disabled. Members are linked by the administrator. E
 
 - **Songs:** searchable/filterable repertoire, member and band progress, admin-only add song and shared song-details editor.
 - **Setlists:** ordered gig repertoire, song details, runtime, and admin setlist editing. Expanded songs use the same admin song-details editor here as on Songs. Legacy break/note item types remain in the schema.
-- **Gigs:** gig date/time/location/notes and associated setlist. Creating a gig also creates an initially empty setlist.
+- **Gigs:** gig date/time/location/notes, associated setlist, and a persistent `completed` flag. Admins can mark a gig complete after its date has passed; completed gigs remain as history on Gigs and are excluded from Dashboard gig tabs. Creating a gig also creates an initially empty setlist.
 - **Dashboard:** outstanding work by gig or full repertoire and selected member. Looking at another member's dashboard does not grant permission to edit their tasks.
 - **Member access:** admin operations routed through the protected Edge Function.
 
@@ -166,6 +166,7 @@ RLS is enabled on application tables:
 - `first_login_password_setup`
 - `song_tempo_segments`
 - `readiness_requires_mixed_backing_and_ableset_completion`
+- `completed_gigs` (2026-10-31): adds `public.gigs.completed`, defaulting to false, for admin-managed historical gig archiving.
 
 The live ledger did not list every repository baseline/import SQL file, and the metadata sync file is an explicit song-data update. Inspect the current schema, migration ledger, policies, and target rows before applying future database work. Prefer a new, narrowly scoped migration for schema changes. Never use `service_role` in frontend code.
 

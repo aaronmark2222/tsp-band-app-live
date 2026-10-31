@@ -29,6 +29,7 @@ The current app is a static, single-page frontend. Supabase provides password au
 | `supabase/migrations/0010_corrections_remain_incomplete.sql` | Removes Corrections from task completion rules so it continues to count as unfinished work. |
 | `supabase/migrations/0011_oct_30_setlist_and_guitar_tone_owner.sql` | Assigns Guitar Tone Midi to Rowen and replaces the Oct 30th setlist with the supplied 21-song order. |
 | `supabase/migrations/0012_first_login_password_setup.sql` | Adds a first-login password change requirement for newly linked member email addresses. |
+| `supabase/migrations/20261031160820_completed_gigs.sql` | Adds a persistent completion flag to gigs so past performances can be archived without deleting history. |
 
 The migration files are the detailed source for database structure and seed data. Apply them only as described in `SETUP_SUPABASE.md`; the frontend does not apply them.
 
@@ -98,7 +99,7 @@ Setlist structure starts in read-only mode. Only an admin sees **Edit setlist**.
 
 ## Gigs screen
 
-The Gigs screen lists performances with their date, optional start time, location, notes, and attached setlist. Admins can create and edit gig records. Creating a gig also creates a new, initially empty setlist named after the gig and attaches it to that gig. When editing an existing gig, the admin can select which existing setlist is attached. The attached setlist name opens that setlist in the Setlists screen. Creating or editing gigs changes the `gigs` and `setlists` rows; permissions are enforced by the database's admin-only write policies. The current Oct 30th gig is linked to the Oct 30th setlist.
+The Gigs screen lists active performances with their date, optional start time, location, notes, and attached setlist, followed by a **Completed Gigs** section for historical records. Admins can create and edit gig records. When an active gig's date is before the member's local date, admins see **Mark as Complete**. Marking it complete sets `gigs.completed = true`; the gig and linked setlist remain intact in the history section, while the gig disappears from Dashboard gig tabs and selected-gig views. Creating a gig also creates a new, initially empty setlist named after it. The attached setlist name opens that setlist in the Setlists screen. Gig writes remain protected by the database's admin-only policy.
 
 ## Data map
 
