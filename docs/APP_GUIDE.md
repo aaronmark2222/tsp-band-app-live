@@ -98,7 +98,7 @@ Setlist structure starts in read-only mode. Only an admin sees **Edit setlist**.
 
 ## Gigs screen
 
-The Gigs screen lists performances with their date, optional start time, location, notes, and attached setlist. Admins can create and edit gig records. Creating a gig also creates a new, initially empty setlist named after the gig and attaches it to that gig. When editing an existing gig, the admin can select which existing setlist is attached. The attached setlist name opens that setlist in the Setlists screen. Creating or editing gigs changes the `gigs` and `setlists` rows; permissions are enforced by the database's admin-only write policies. The current Oct 30th gig is linked to the Oct 30th setlist.
+The Gigs screen lists active performances with their date, optional start time, location, notes, and attached setlist, followed by a **Completed Gigs** section for historical records. Admins can create and edit gig records. When an active gig's date is before the member's local date, admins see **Mark as Complete**. Marking it complete sets `gigs.completed = true`; the gig and linked setlist remain intact in the history section, while the gig disappears from Dashboard gig tabs and selected-gig views. Creating a gig also creates a new, initially empty setlist named after it. The attached setlist name opens that setlist in the Setlists screen. Gig writes remain protected by the database's admin-only policy.
 
 ## Data map
 
