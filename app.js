@@ -136,7 +136,7 @@ async function loadData() {
     db.from('members').select('id,name,is_admin,sort_order').order('sort_order')
   ]);
   for (const result of [songs, tasks, taskTypes, languages, setlists, gigs, members, languageOptions]) if (result.error) throw result.error;
-  Object.assign(state, { songs: songs.data, tasks: tasks.data, taskTypes: taskTypes.data, languages: languages.data, languageOptions: languageOptions.data, setlists: setlists.data, gigs: gigs.data, members: members.data });
+  Object.assign(state, { songs: [...songs.data].sort(compareSongLibraryOrder), tasks: tasks.data, taskTypes: taskTypes.data, languages: languages.data, languageOptions: languageOptions.data, setlists: setlists.data, gigs: gigs.data, members: members.data });
   $('#song-count').textContent = state.songs.length;
   $('#song-total').textContent = `· ${state.songs.length} tracks`;
   renderSongs();
@@ -357,7 +357,7 @@ function renderSongs() {
       && (!key || (song.keys || []).includes(key));
   });
   const sorted = [...filtered].sort((a, b) => {
-    const original = a.sort_order - b.sort_order;
+    const original = compareSongLibraryOrder(a, b);
     switch (sort) {
       case 'name-asc': return a.name.localeCompare(b.name) || original;
       case 'name-desc': return b.name.localeCompare(a.name) || original;
@@ -900,6 +900,16 @@ function renderNewSongIdSuggestions() {
   input.setAttribute('aria-expanded', options.length ? 'true' : 'false');
 }
 function idPrefixFromId(id) { return String(id || '').replace(/\d+$/, ''); }
+function compareSongIdsNaturally(a, b) {
+  const prefixOrder = idPrefixFromId(a.id).localeCompare(idPrefixFromId(b.id));
+  if (prefixOrder) return prefixOrder;
+  const numberA = Number(String(a.id).match(/\d+$/)?.[0] || 0);
+  const numberB = Number(String(b.id).match(/\d+$/)?.[0] || 0);
+  return numberA - numberB;
+}
+function compareSongLibraryOrder(a, b) {
+  return (a.sort_order ?? 0) - (b.sort_order ?? 0) || compareSongIdsNaturally(a, b);
+}
 function nextSongNumber(prefix) {
   const max = state.songs.filter((song) => idPrefixFromId(song.id).toUpperCase() === prefix.toUpperCase())
     .reduce((value, song) => Math.max(value, Number(String(song.id).match(/\d+$/)?.[0] || 0)), 0);
@@ -1245,11 +1255,19 @@ async function saveNewSong(event) {
   const duration = durationMinutes ? Math.round(Number(durationMinutes) * 60) : null;
   if (durationMinutes && (!Number.isFinite(Number(durationMinutes)) || Number(durationMinutes) < 0)) { $('#new-song-error').textContent = 'Enter a valid duration in minutes.'; return; }
   const languageCodes = [...document.querySelectorAll('input[name="new-song-language"]:checked')].map((input) => input.value);
+  const prefix = idPrefixFromId(id);
+  const songNumber = Number(id.match(/\d+$/)?.[0] || 0);
+  const familySongs = state.songs
+    .filter((song) => idPrefixFromId(song.id).toLowerCase() === prefix.toLowerCase())
+    .sort((a, b) => Number(a.id.match(/\d+$/)?.[0] || 0) - Number(b.id.match(/\d+$/)?.[0] || 0));
+  const nextFamilySong = familySongs.find((song) => Number(song.id.match(/\d+$/)?.[0] || 0) > songNumber);
+  const previousFamilySong = [...familySongs].reverse().find((song) => Number(song.id.match(/\d+$/)?.[0] || 0) < songNumber);
+  const familySortOrder = nextFamilySong?.sort_order ?? previousFamilySong?.sort_order;
   const payload = {
     id, name, type: $('#new-song-type').value, is_medley: /M$/i.test(idPrefixFromId(id)),
     keys, tempo_start: tempoStart, tempo_end: tempoEnd, tempo_change: tempoChange, tempo_segments: tempoSegments,
     duration_seconds: duration, backing_track_manual: $('#new-song-backing').value || null,
-    sort_order: Math.max(0, ...state.songs.map((song) => song.sort_order || 0)) + 1
+    sort_order: familySortOrder ?? (Math.max(0, ...state.songs.map((song) => song.sort_order || 0)) + 1)
   };
   const saveButton = $('#new-song-form button[type="submit"]');
   saveButton.disabled = true;
