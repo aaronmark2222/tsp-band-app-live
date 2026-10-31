@@ -29,6 +29,7 @@ The current app is a static, single-page frontend. Supabase provides password au
 | `supabase/migrations/0010_corrections_remain_incomplete.sql` | Removes Corrections from task completion rules so it continues to count as unfinished work. |
 | `supabase/migrations/0011_oct_30_setlist_and_guitar_tone_owner.sql` | Assigns Guitar Tone Midi to Rowen and replaces the Oct 30th setlist with the supplied 21-song order. |
 | `supabase/migrations/0012_first_login_password_setup.sql` | Adds a first-login password change requirement for newly linked member email addresses. |
+| `supabase/migrations/20261031160820_completed_gigs.sql` | Adds a persistent completion flag to gigs so past performances can be archived without deleting history. |
 
 The migration files are the detailed source for database structure and seed data. Apply them only as described in `SETUP_SUPABASE.md`; the frontend does not apply them.
 
