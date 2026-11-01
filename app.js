@@ -1251,9 +1251,10 @@ async function saveNewSong(event) {
   const tempoStart = tempoSegments[0]?.bpm ?? null;
   const tempoEnd = tempoSegments.length > 1 ? tempoSegments.at(-1).bpm : null;
   const tempoChange = tempoSegments.length > 1 ? (tempoSegments[0].transition_to_next === 'gradual' ? 'ramp' : 'jump') : 'none';
-  const durationMinutes = $('#new-song-duration').value.trim();
-  const duration = durationMinutes ? Math.round(Number(durationMinutes) * 60) : null;
-  if (durationMinutes && (!Number.isFinite(Number(durationMinutes)) || Number(durationMinutes) < 0)) { $('#new-song-error').textContent = 'Enter a valid duration in minutes.'; return; }
+  const durationText = $('#new-song-duration').value.trim();
+  const durationMatch = durationText.match(/^(\\d+):([0-5]\\d)$/);
+  const duration = durationMatch ? Number(durationMatch[1]) * 60 + Number(durationMatch[2]) : null;
+  if (durationText && !durationMatch) { $('#new-song-error').textContent = 'Enter duration as minutes:seconds, for example 4:22.'; return; }
   const languageCodes = [...document.querySelectorAll('input[name="new-song-language"]:checked')].map((input) => input.value);
   const prefix = idPrefixFromId(id);
   const songNumber = Number(id.match(/\d+$/)?.[0] || 0);
