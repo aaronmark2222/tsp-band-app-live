@@ -1252,7 +1252,7 @@ async function saveNewSong(event) {
   const tempoEnd = tempoSegments.length > 1 ? tempoSegments.at(-1).bpm : null;
   const tempoChange = tempoSegments.length > 1 ? (tempoSegments[0].transition_to_next === 'gradual' ? 'ramp' : 'jump') : 'none';
   const durationText = $('#new-song-duration').value.trim();
-  const durationMatch = durationText.match(/^(\\d+):([0-5]\\d)$/);
+  const durationMatch = durationText.match(/^(\d+):([0-5]\d)$/);
   const duration = durationMatch ? Number(durationMatch[1]) * 60 + Number(durationMatch[2]) : null;
   if (durationText && !durationMatch) { $('#new-song-error').textContent = 'Enter duration as minutes:seconds, for example 4:22.'; return; }
   const languageCodes = [...document.querySelectorAll('input[name="new-song-language"]:checked')].map((input) => input.value);
