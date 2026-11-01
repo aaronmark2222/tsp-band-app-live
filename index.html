@@ -12,7 +12,7 @@
     <title>TSP Work · The String Project</title>
     <link rel="icon" href="assets/the-string-project-logo.png?v=20261019" type="image/png">
     <link rel="stylesheet" href="styles.css?v=20261031-completed-gigs">
-    <script type="module" src="app.js?v=20261101-song-order"></script>
+    <script type="module" src="app.js?v=20261101-duration-mmss"></script>
   </head>
   <body>
     <main id="app" class="shell">
@@ -114,7 +114,7 @@
               <fieldset class="editor-fieldset language-field"><legend>Languages</legend><div id="new-song-language-options" class="editor-options"></div></fieldset>
               <div class="key-dropdown-field"><span>Key(s)</span><details id="new-song-key-dropdown" class="key-dropdown"><summary id="new-song-key-summary">Choose keys</summary><div id="new-song-key-options" class="editor-options key-options"></div></details></div>
               <section class="tempo-editor"><div class="tempo-editor-heading"><span>Tempo</span></div><div id="new-song-tempo-points" class="tempo-points"></div><small>Bar numbers are relative to this song’s first bar. Choose a glyph to add a tempo change.</small></section>
-              <label>Duration (minutes)<input id="new-song-duration" type="number" min="0" step="0.1" inputmode="decimal" placeholder="e.g. 3.5"><small>Enter minutes; decimals are fine.</small></label>
+              <label>Duration (min:sec)<input id="new-song-duration" type="text" inputmode="numeric" pattern="[0-9]+:[0-5][0-9]" placeholder="e.g. 4:22"><small>Enter minutes and seconds as M:SS.</small></label>
               <label>Backing track<select id="new-song-backing"><option value="">Automatic (not finished)</option><option value="Sent to Mix">Sent to Mix</option><option value="Mixed">Mixed</option></select></label>
             </div>
             <p id="new-song-id-preview" class="form-help"></p>
