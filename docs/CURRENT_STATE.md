@@ -66,3 +66,8 @@ Some documentation describes earlier stages of the product. When sources differ,
 
 - New songs now inherit their sort position from neighboring IDs with the same alphabetic prefix. The Songs view uses a natural numeric tie-breaker so E8 follows E7 when they share the same sort position.
 - E8 (Sweet Caroline) was moved in Supabase from the end of the repertoire to immediately after E7. Existing later songs keep their established group order.
+
+
+## Add Song duration entry (2026-11-01)
+
+- The Add Song duration field accepts minutes and seconds in M:SS format, for example 4:22, and saves the equivalent total seconds to `songs.duration_seconds`. Seconds must be 00–59. The shared song editor still uses decimal minutes.
