@@ -1394,6 +1394,48 @@ function openSongEditor(songId) {
   $('#edit-song-dialog').showModal();
   $('#edit-song-name').focus();
 }
+async function deleteSongFromEditor() {
+  if (!state.member?.is_admin || !editingSongId) return;
+  const songId = editingSongId;
+  const song = state.songs.find((item) => item.id === songId);
+  if (!song) return;
+  const prefix = idPrefixFromId(songId);
+  const number = Number(songId.match(/\d+$/)?.[0] || 0);
+  const followingCount = state.songs.filter((item) =>
+    idPrefixFromId(item.id).toLowerCase() === prefix.toLowerCase()
+    && Number(item.id.match(/\d+$/)?.[0] || 0) > number
+  ).length;
+  const shiftedSummary = followingCount
+    ? `${followingCount} later song${followingCount === 1 ? '' : 's'} in the ${prefix} ID group will shift down by one.`
+    : `No later songs in the ${prefix} ID group need renumbering.`;
+  const confirmed = window.confirm(
+    `Are you sure you want to delete ${songId} — ${song.name}?\n\nThis permanently removes it from the repertoire and all setlists. ${shiftedSummary} This cannot be undone.`
+  );
+  if (!confirmed) return;
+
+  const button = $('#delete-song-button');
+  button.disabled = true;
+  $('#edit-song-error').textContent = '';
+  try {
+    const { data: shiftedCount, error } = await db.rpc('delete_song_and_shift_ids', { p_song_id: songId });
+    if (error) throw error;
+    editingSongId = null;
+    state.expandedSongIds.clear();
+    $('#edit-song-dialog').close();
+    await loadData();
+    await loadReadiness();
+    if (state.view === 'setlists') await renderActiveSetlist();
+    if (state.view === 'dashboard') await renderDashboard();
+    const count = Number(shiftedCount) || 0;
+    showNotice(count
+      ? `Deleted ${songId}. ${count} song${count === 1 ? '' : 's'} in the ${prefix} group renumbered.`
+      : `Deleted ${songId} from the repertoire.`);
+  } catch (error) {
+    $('#edit-song-error').textContent = error.message || 'Could not delete this song.';
+  } finally {
+    button.disabled = false;
+  }
+}
 async function saveSongMetadata(event) {
   event.preventDefault();
   if (!state.member?.is_admin || !editingSongId) return;
@@ -1868,6 +1910,7 @@ $('#new-setlist').addEventListener('click', openNewSetlistDialog);
 $('#cancel-new-song').addEventListener('click', () => $('#song-editor-dialog').close());
 $('#new-song-form').addEventListener('submit', saveNewSong);
 $('#edit-song-form').addEventListener('submit', saveSongMetadata);
+$('#delete-song-button').addEventListener('click', deleteSongFromEditor);
 $('#cancel-edit-song').addEventListener('click', () => $('#edit-song-dialog').close());
 $('#edit-song-key-options').addEventListener('change', updateEditSongKeySummary);
 document.addEventListener('click', (event) => {
