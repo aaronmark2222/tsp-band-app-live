@@ -71,3 +71,9 @@ Some documentation describes earlier stages of the product. When sources differ,
 ## Add Song duration entry (2026-11-01)
 
 - The Add Song duration field accepts minutes and seconds in M:SS format, for example 4:22, and saves the equivalent total seconds to `songs.duration_seconds`. Seconds must be 00–59. The shared song editor still uses decimal minutes.
+
+
+## Add Song and status display (2026-11-02)
+
+- Add Song ID and Song Name entries suppress browser contact autofill, and the Key(s) dropdown closes on outside click.
+- The shared song progress indicator displays **Finished** when the derived backing-track state is Finished, in both Songs and Setlists.
