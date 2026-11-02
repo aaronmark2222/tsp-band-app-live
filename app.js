@@ -539,12 +539,8 @@ async function renderActiveSetlist() {
   $('#setlist-delete-controls').classList.toggle('hidden', !canEditSetlist || !setlist || deletingSetlist);
   $('#delete-setlist').disabled = deletingSetlist;
   $('#setlist-edit-toggle').setAttribute('aria-pressed', String(state.setlistEditMode));
-  $('#add-song-toggle').classList.toggle('hidden', !canEditSetlist);
-  $('#add-song-toggle').disabled = !canEditSetlist;
   $('#new-setlist').classList.toggle('hidden', !state.member.is_admin);
   $('#new-setlist').disabled = !state.member.is_admin;
-  if (!canEditSetlist) $('#add-song-panel').classList.add('hidden');
-  $('#add-song-toggle').title = canEditSetlist ? '' : 'Choose Edit setlist to change the running order.';
   if (!setlist) {
     state.activeSetlistItems = [];
     $('#setlist-items').innerHTML = '';
@@ -565,7 +561,6 @@ async function renderActiveSetlist() {
     state.activeSetlistItems = items;
     if (canEditSetlist && !state.setlistOrderDirty) state.originalSetlistItems = [...items];
     renderSetlistItems(items, canEditSetlist);
-    $('#add-song-select').innerHTML = state.songs.map((song) => `<option value="${escapeHtml(song.id)}">${escapeHtml(song.id)} · ${escapeHtml(song.name)}</option>`).join('');
   } catch (error) { fail('Could not load this setlist.', error); }
 }
 
@@ -757,10 +752,6 @@ async function stageSongInSetlist(songId) {
   return true;
 }
 
-function addSongToSetlist() {
-  if (stageSongInSetlist($('#add-song-select').value)) $('#add-song-panel').classList.add('hidden');
-}
-
 function hasSetlistChanges() {
   return state.setlistOrderDirty || state.setlistNameDraft.trim() !== state.originalSetlistName.trim();
 }
@@ -816,8 +807,7 @@ async function saveSetlistOrder(items) {
     state.originalSetlistItems = [];
     state.originalSetlistName = nextName;
     state.setlistNameDraft = nextName;
-    $('#add-song-panel').classList.add('hidden');
-    showNotice('Setlist changes saved.');
+      showNotice('Setlist changes saved.');
     await renderActiveSetlist();
   } catch (error) {
     fail('Could not save the setlist changes. Your staged edits are still here; try saving again.', error);
@@ -1358,8 +1348,7 @@ async function deleteActiveSetlist() {
     state.setlistOrderDirty = false;
     state.originalSetlistItems = [];
     state.activeSetlistItems = [];
-    $('#add-song-panel').classList.add('hidden');
-    await loadData();
+      await loadData();
     if (state.view === 'dashboard') await renderDashboard();
     showNotice(`Deleted “${setlist.name}”.${linkedGigs.length ? ' Linked gigs remain without a setlist.' : ''}`);
   } catch (error) {
@@ -1635,8 +1624,7 @@ function setView(view) {
     state.originalSetlistItems = [];
     state.originalSetlistName = '';
     state.setlistNameDraft = '';
-    $('#add-song-panel').classList.add('hidden');
-  }
+    }
   document.querySelectorAll('.tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.view === view));
   $('#songs-view').classList.toggle('hidden', view !== 'songs');
   $('#setlists-view').classList.toggle('hidden', view !== 'setlists');
@@ -1876,7 +1864,6 @@ $('#setlist-select').addEventListener('change', (event) => {
   state.activeSetlist = event.target.value;
   renderActiveSetlist();
 });
-$('#add-song-toggle').addEventListener('click', () => $('#add-song-panel').classList.toggle('hidden'));
 $('#setlist-edit-toggle').addEventListener('click', async () => {
   if (!state.member.is_admin || savingSetlistOrder) return;
   if (!state.setlistEditMode) {
@@ -1887,8 +1874,7 @@ $('#setlist-edit-toggle').addEventListener('click', async () => {
     state.originalSetlistName = activeSetlist?.name || '';
     state.setlistNameDraft = state.originalSetlistName;
     state.setlistOrderDirty = false;
-    $('#add-song-panel').classList.add('hidden');
-    await renderActiveSetlist();
+      await renderActiveSetlist();
     updateSetlistEditControls();
     return;
   }
@@ -1900,7 +1886,6 @@ $('#setlist-edit-toggle').addEventListener('click', async () => {
   state.originalSetlistItems = [];
   state.originalSetlistName = '';
   state.setlistNameDraft = '';
-  $('#add-song-panel').classList.add('hidden');
   await renderActiveSetlist();
 });
 $('#setlist-name-input').addEventListener('input', (event) => {
@@ -1916,10 +1901,8 @@ $('#discard-setlist-order').addEventListener('click', () => {
   state.originalSetlistItems = [];
   state.originalSetlistName = '';
   state.setlistNameDraft = '';
-  $('#add-song-panel').classList.add('hidden');
   renderActiveSetlist();
 });
-$('#add-song').addEventListener('click', addSongToSetlist);
 $('#new-setlist').addEventListener('click', openNewSetlistDialog);
 
 $('#cancel-new-song').addEventListener('click', () => $('#song-editor-dialog').close());
