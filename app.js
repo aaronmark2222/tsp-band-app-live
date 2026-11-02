@@ -37,7 +37,7 @@ const LANGUAGE_COLORS = {
 };
 const STATUS_COLORS = {
   Completed: '#A5D17D', Incomplete: '#F27A73', Corrections: '#F6CAAE',
-  Recorded: '#F6CAAE', Draft: '#FBE6A8', Review: '#FBE6A8', No: '#D0D0D0'
+  Finished: '#F6CAAE', Recorded: '#F6CAAE', Draft: '#FBE6A8', Review: '#FBE6A8', No: '#D0D0D0'
 };
 const BACKING_TRACK_COLORS = { 'Not Finished': '#F27A73', Finished: '#F6CAAE', 'Sent to Mix': '#7FA8D8', Mixed: '#A5D17D' };
 const state = { member: null, members: [], songs: [], tasks: [], taskTypes: [], languages: [], languageOptions: [], setlists: [], gigs: [], activeSetlist: null, activeSetlistItems: [], originalSetlistItems: [], setlistOrderDirty: false, originalSetlistName: '', setlistNameDraft: '', view: 'songs', expandedSongIds: new Set(), setlistEditMode: false, dashboardScope: 'gig', dashboardMemberId: null, accessMembers: [], newSetlistSongIds: [] };
@@ -145,10 +145,16 @@ async function loadData() {
   renderGigs();
 }
 
-function taskEditable(type, current) {
+function taskOwnerForStatus(type, status) {
   const adminMember = state.members.find((member) => member.is_admin);
-  const ownerMemberId = current === 'Recorded' && adminMember ? adminMember.id : type.owner_member_id;
-  return state.member.is_admin || ownerMemberId === state.member.id;
+  const handedToAdmin = status === 'Recorded'
+    || (type.key === 'song_cue' && status === 'Completed')
+    || (type.key === 'guitar_tone_midi' && ['Finished', 'Completed'].includes(status));
+  return handedToAdmin && adminMember ? adminMember.id : type.owner_member_id;
+}
+
+function taskEditable(type, current) {
+  return state.member.is_admin || taskOwnerForStatus(type, current) === state.member.id;
 }
 
 function statusControl(songId, type, current) {
@@ -270,8 +276,7 @@ function songWorkItems(songId, includeParts = false) {
     .filter((type) => includeParts || type.category !== 'part')
     .map((type) => {
       const status = songTasks.get(type.key)?.status || 'Incomplete';
-      const adminMember = state.members.find((member) => member.is_admin);
-      return { type, status, owner_member_id: status === 'Recorded' && adminMember ? adminMember.id : type.owner_member_id, category: type.category };
+      return { type, status, owner_member_id: taskOwnerForStatus(type, status), category: type.category };
     })
     .filter((item) => item.status !== 'No');
 }
@@ -311,8 +316,7 @@ function renderSongDetails(songId, context = 'songs') {
     return `<section class="task-group"><h3>${label}</h3><div class="task-grid">${types.map((type) => {
       const row = songTasks.get(type.key);
       const status = row?.status || 'Incomplete';
-      const adminMember = state.members.find((member) => member.is_admin);
-      const ownerMemberId = status === 'Recorded' && adminMember ? adminMember.id : type.owner_member_id;
+      const ownerMemberId = taskOwnerForStatus(type, status);
       const unfinished = status !== 'No' && (status === 'Corrections' || !type.done_statuses.includes(status));
       const personalTask = type.category !== 'part' && ownerMemberId === state.member.id && unfinished;
       const trackColor = ABLETON_TASK_COLORS[type.key] || { index: '', color: '#a9a9a9' };
