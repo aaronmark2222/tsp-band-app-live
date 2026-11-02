@@ -82,4 +82,9 @@ Some documentation describes earlier stages of the product. When sources differ,
 ## Finished badge readiness gate (2026-11-02)
 
 - The backing-track state can be Finished while required AbleSet and utility tasks remain incomplete. The Songs/Setlists Finished badge now appears only when the backing track is Finished and all required work is done; otherwise the remaining-work indicator stays visible.
-\n\n## Song deletion and ID renumbering (2026-11-02)\n\n- The admin song editor has a red **Delete song** action with a confirmation prompt that explains setlist removal and same-family renumbering.\n- The Supabase RPC `delete_song_and_shift_ids` runs the deletion and renumbering atomically. It removes setlist entries for the deleted song, preserves the setlists themselves, and lets existing foreign keys cascade changed IDs for the remaining songs. The append-only task status log keeps IDs as recorded at the time of each event.\n
+
+
+## Song deletion and ID renumbering (2026-11-02)
+
+- The admin song editor has a red **Delete song** action with a confirmation prompt that explains setlist removal and same-family renumbering.
+- The Supabase RPC `delete_song_and_shift_ids` runs the deletion and renumbering atomically. It removes setlist entries for the deleted song, preserves the setlists themselves, and lets existing foreign keys cascade changed IDs for the remaining songs. The append-only task status log keeps IDs as recorded at the time of each event.
