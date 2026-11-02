@@ -124,10 +124,25 @@ async function loadMember(user) {
   state.dashboardMemberId = data.id;
 }
 
+async function loadAllSongTasks() {
+  const pageSize = 500;
+  const allTasks = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const result = await db.from('song_tasks')
+      .select('song_id,task_key,status,updated_at')
+      .order('song_id')
+      .order('task_key')
+      .range(offset, offset + pageSize - 1);
+    if (result.error) return result;
+    allTasks.push(...result.data);
+    if (result.data.length < pageSize) return { data: allTasks, error: null };
+  }
+}
+
 async function loadData() {
   const [songs, tasks, taskTypes, languages, languageOptions, setlists, gigs, members] = await Promise.all([
     db.from('songs').select('id,name,type,is_medley,keys,tempo_start,tempo_end,tempo_change,tempo_segments,duration_seconds,backing_track_manual,sort_order').order('sort_order'),
-    db.from('song_tasks').select('song_id,task_key,status,updated_at'),
+    loadAllSongTasks(),
     db.from('task_types').select('key,label,category,owner_member_id,allowed_statuses,done_statuses,sort_order').order('sort_order'),
     db.from('song_languages').select('song_id,language_code,position,languages(code,short_label)').order('position'),
     db.from('languages').select('code,name,short_label').order('sort_order'),
