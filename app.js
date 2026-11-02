@@ -153,7 +153,7 @@ function taskEditable(type, current) {
 
 function statusControl(songId, type, current) {
   const options = type.allowed_statuses.map((status) => {
-    const label = ['sections', 'lyrics', 'chords', 'guitar_tone_midi', 'prompts'].includes(type.key) && status === 'Completed' ? 'Complete' : status;
+    const label = ['sections', 'lyrics', 'chords', 'guitar', 'keyboard', 'drums', 'guitar_tone_midi', 'prompts'].includes(type.key) && status === 'Completed' ? 'Complete' : status;
     const color = STATUS_COLORS[status] || '#D0D0D0';
     return `<option ${status === current ? 'selected' : ''} value="${escapeHtml(status)}" style="color:${color};background-color:#19231c">${escapeHtml(label)}</option>`;
   }).join('');
