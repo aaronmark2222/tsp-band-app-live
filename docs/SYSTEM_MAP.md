@@ -204,10 +204,14 @@ The app tracks production/checklist state rather than individual Ableton track a
 
 | App category/key | Ableton relation |
 | --- | --- |
-| `ableset`: `sections`, `lyrics`, `chords` | Written AbleSet annotations/arrangement metadata; not a track-audio export by themselves. |
-| `utility`: `prompts`, `guitar_tone_midi` | Prompts are CPC work; Guitar Tone Midi is the Ableton MIDI tone programming check. |
+| `ableset`: `sections`, `lyrics`, `chords`, `guitar`, `keyboard`, `drums` | Written AbleSet annotations. Instrument-specific Guitar, Keyboard, and Drums tracks give those players lyrics plus playing notes; all AbleSet tasks are readiness factors. |
+| `utility`: `prompts`, `guitar_tone_midi`, `song_cue`, `backup_que` | Prompts are CPC work; Guitar Tone Midi is the Ableton MIDI tone programming check. Song Cue is Dale’s spoken announcement of song name and scale; Recorded transfers it to the administrator to place in Ableton. Backup Que is administrator-owned playback setup work. |
 | `backing`: `backing_music`, `backing_vocals_dale`, `backing_vocals_anston`, `backing_percussion`, `backing_sfx` | Backing group production/checklist pieces. Export the Backing Tracks main group, not each subgroup. |
 | `part`: `bass_part`, `keyboard_part`, `guitar_part`, `violin_part`, `percussion_part`, `drums_part`, `vox_dale`, `vox_anston` | Tracks whether the member's recorded reference part has been made and reviewed. These task rows gate Live Channel export selection per the user's requested process; they do not make the Parts group a live mix source. |
+
+### Dashboard task widgets
+
+The selected member's top widgets group remaining tasks as **Playback Work** (Prompts, Song Cue, Backup Que), **AbleSet Work** (all tasks in the `ableset` category), **Backing Work**, and **Other Work**. The Recorded state keeps Song Cue in Playback Work while ownership transfers from Dale to the administrator. Per-song required tasks are still grouped by owner; Part tasks remain separate as optional work.
 
 ### Metadata import snapshot
 
