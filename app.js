@@ -153,7 +153,7 @@ function taskEditable(type, current) {
 
 function statusControl(songId, type, current) {
   const options = type.allowed_statuses.map((status) => {
-    const label = ['sections', 'lyrics', 'chords', 'guitar', 'keyboard', 'drums', 'guitar_tone_midi', 'prompts'].includes(type.key) && status === 'Completed' ? 'Complete' : status;
+    const label = ['sections', 'lyrics', 'chords', 'guitar', 'keyboard', 'drums', 'guitar_tone_midi', 'prompts', 'song_cue', 'backup_que'].includes(type.key) && status === 'Completed' ? 'Complete' : status;
     const color = STATUS_COLORS[status] || '#D0D0D0';
     return `<option ${status === current ? 'selected' : ''} value="${escapeHtml(status)}" style="color:${color};background-color:#19231c">${escapeHtml(label)}</option>`;
   }).join('');
@@ -604,8 +604,9 @@ function renderDashboardTaskGroups(items, song, viewedMemberId) {
 }
 
 function dashboardWorkCategory(item) {
+  if (['prompts', 'song_cue', 'backup_que'].includes(item.type.key)) return 'playback';
+  if (item.category === 'ableset') return 'ableset';
   if (item.status === 'Recorded') return 'other';
-  if (item.category === 'ableset' || item.type.key === 'prompts') return 'playback';
   if (item.category === 'backing') return 'backing';
   return 'other';
 }
@@ -672,11 +673,12 @@ async function renderDashboard() {
   const memberOpenItems = openItems.filter((item) => item.owner_member_id === viewedMember.id);
   const assignedCategories = new Set(state.taskTypes
     .filter((type) => type.owner_member_id === viewedMember.id && type.category !== 'part')
-    .map((type) => type.category === 'ableset' || type.key === 'prompts' ? 'playback' : type.category === 'backing' ? 'backing' : 'other'));
+    .map((type) => type.category === 'ableset' ? 'ableset' : ['prompts', 'song_cue', 'backup_que'].includes(type.key) ? 'playback' : type.category === 'backing' ? 'backing' : 'other'));
   // Recorded tasks are reassigned to the admin; include their current categories in the dashboard headings.
   for (const item of memberOpenItems) assignedCategories.add(dashboardWorkCategory(item));
   const widgets = [];
   if (assignedCategories.has('playback')) widgets.push(renderDashboardWorkWidget('Playback Work', 'playback', memberOpenItems.filter((item) => dashboardWorkCategory(item) === 'playback')));
+  if (assignedCategories.has('ableset')) widgets.push(renderDashboardWorkWidget('AbleSet Work', 'ableset', memberOpenItems.filter((item) => dashboardWorkCategory(item) === 'ableset')));
   if (assignedCategories.has('backing')) widgets.push(renderDashboardWorkWidget('Backing Work', 'backing', memberOpenItems.filter((item) => dashboardWorkCategory(item) === 'backing')));
   const otherItems = memberOpenItems.filter((item) => dashboardWorkCategory(item) === 'other');
   if (assignedCategories.has('other')) {
