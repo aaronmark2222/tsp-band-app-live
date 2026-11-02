@@ -197,8 +197,10 @@ function songProgress(songId, songName) {
   const hasAbleSetWork = applicable.some((item) => item.category === 'ableset');
   const allRequiredWorkDone = applicable.every(isWorkItemDone);
   const ready = !!readiness?.ready;
+  const finishedBacking = !ready && readiness?.backing_track === 'Finished';
   const sentToMixOnly = !ready && readiness?.backing_track === 'Sent to Mix' && hasAbleSetWork && allRequiredWorkDone;
   if (ready) return '<span class="song-status-indicator" data-status="Ready">Ready</span>';
+  if (finishedBacking) return '<span class="song-status-indicator" data-status="Finished">Finished</span>';
   if (sentToMixOnly) return '<span class="song-status-indicator" data-status="Sent to Mix">Sent to Mix</span>';
   const label = `Status: In progress. Work remaining for ${songName}: You have ${mine.length ? `${myRemaining} of ${mine.length} tasks left` : 'no assigned tasks'}; the band has ${applicable.length ? `${bandRemaining} of ${applicable.length} tasks left` : 'no tasks'}.`;
   return `<span class="song-progress-lines" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><span class="song-progress-line song-progress-line-band" style="--progress:${bandPercent}%"></span><span class="song-progress-line song-progress-line-personal" style="--progress:${personalPercent}%"></span></span>`;
@@ -1868,6 +1870,10 @@ $('#new-song-form').addEventListener('submit', saveNewSong);
 $('#edit-song-form').addEventListener('submit', saveSongMetadata);
 $('#cancel-edit-song').addEventListener('click', () => $('#edit-song-dialog').close());
 $('#edit-song-key-options').addEventListener('change', updateEditSongKeySummary);
+document.addEventListener('click', (event) => {
+  const dropdown = $('#new-song-key-dropdown');
+  if (dropdown?.open && !dropdown.contains(event.target)) dropdown.open = false;
+});
 document.addEventListener('click', (event) => { const button = event.target.closest('[data-song-edit]'); if (button) openSongEditor(button.dataset.songEdit); });
 $('#new-song-id-prefix').addEventListener('input', (event) => {
   const input = event.target;
