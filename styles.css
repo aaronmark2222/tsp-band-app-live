@@ -850,3 +850,58 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .song-identity-field strong { min-height:42px; display:flex; align-items:center; padding:0 11px; border:1px solid var(--line); border-radius:8px; background:#111a15; color:var(--muted); font-size:12px; font-weight:500; }
 .tempo-bar-help { margin:0 0 10px; }
 #edit-song-tempo-points { margin:0 -8px 10px; }
+
+
+/* In setlist edit mode, keep selected IDs yellow and make unselected repertoire
+   entries quieter while keeping their add action easy to find. */
+.setlist-row.editing .setlist-song-edit-summary .song-id {
+  color: var(--lime);
+}
+.setlist-repertoire-row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #252f29;
+  border-radius: 10px;
+  background: #151d18;
+  color: #78847a;
+}
+.setlist-repertoire-id {
+  color: #78847a;
+  font: 11px var(--mono);
+}
+.setlist-repertoire-name {
+  min-width: 0;
+  overflow: hidden;
+  color: #78847a;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.add-repertoire-song {
+  width: 32px;
+  height: 32px;
+  border: 1px solid #536344;
+  border-radius: 7px;
+  background: #202c23;
+  color: var(--lime);
+  font-size: 21px;
+  line-height: 1;
+}
+.add-repertoire-song:hover,
+.add-repertoire-song:focus-visible {
+  border-color: var(--lime);
+  background: #2b3b2d;
+  outline: none;
+}
+@media(max-width:600px) {
+  .setlist-repertoire-row {
+    grid-template-columns: 46px minmax(0, 1fr) 32px;
+    gap: 6px;
+    padding: 8px;
+  }
+  .setlist-repertoire-name { font-size: 12px; }
+}
