@@ -1400,16 +1400,16 @@ async function deleteSongFromEditor() {
   const song = state.songs.find((item) => item.id === songId);
   if (!song) return;
   const prefix = idPrefixFromId(songId);
-  const number = Number(songId.match(/\\d+$/)?.[0] || 0);
+  const number = Number(songId.match(/\d+$/)?.[0] || 0);
   const followingCount = state.songs.filter((item) =>
     idPrefixFromId(item.id).toLowerCase() === prefix.toLowerCase()
-    && Number(item.id.match(/\\d+$/)?.[0] || 0) > number
+    && Number(item.id.match(/\d+$/)?.[0] || 0) > number
   ).length;
   const shiftedSummary = followingCount
     ? `${followingCount} later song${followingCount === 1 ? '' : 's'} in the ${prefix} ID group will shift down by one.`
     : `No later songs in the ${prefix} ID group need renumbering.`;
   const confirmed = window.confirm(
-    `Are you sure you want to delete ${songId} — ${song.name}?\\n\\nThis permanently removes it from the repertoire and all setlists. ${shiftedSummary} This cannot be undone.`
+    `Are you sure you want to delete ${songId} — ${song.name}?\n\nThis permanently removes it from the repertoire and all setlists. ${shiftedSummary} This cannot be undone.`
   );
   if (!confirmed) return;
 
@@ -1436,7 +1436,6 @@ async function deleteSongFromEditor() {
     button.disabled = false;
   }
 }
-
 async function saveSongMetadata(event) {
   event.preventDefault();
   if (!state.member?.is_admin || !editingSongId) return;
@@ -1910,7 +1909,8 @@ $('#new-setlist').addEventListener('click', openNewSetlistDialog);
 
 $('#cancel-new-song').addEventListener('click', () => $('#song-editor-dialog').close());
 $('#new-song-form').addEventListener('submit', saveNewSong);
-$('#edit-song-form').addEventListener('submit', saveSongMetadata);\n$('#delete-song-button').addEventListener('click', deleteSongFromEditor);
+$('#edit-song-form').addEventListener('submit', saveSongMetadata);
+$('#delete-song-button').addEventListener('click', deleteSongFromEditor);
 $('#cancel-edit-song').addEventListener('click', () => $('#edit-song-dialog').close());
 $('#edit-song-key-options').addEventListener('change', updateEditSongKeySummary);
 document.addEventListener('click', (event) => {
