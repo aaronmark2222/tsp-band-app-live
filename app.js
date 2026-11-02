@@ -6,7 +6,7 @@ const db = createClient(SUPABASE_URL, SUPABASE_KEY);
 const $ = (selector) => document.querySelector(selector);
 // Task accents use the Ableton colors shown in the user's Live 12 screenshots.
 const ABLETON_TASK_COLORS = {
-  sections: { index: '', color: '#3C3C3C' },
+  sections: { index: '', color: '#00FFFF' },
   lyrics: { index: '', color: '#EB4CCE' },
   chords: { index: '', color: '#F7F48D' },
   guitar_tone_midi: { index: 2, color: '#E5742E' },
