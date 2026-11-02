@@ -205,7 +205,7 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .dashboard-work-widget > header { display: flex; justify-content: space-between; align-items: center; padding: 11px 12px; border-bottom: 1px solid #494949; }
 .dashboard-work-widget > header h2 { margin: 0; color: #ddd; font: 500 11px var(--mono); letter-spacing: .05em; text-transform: uppercase; }
 .dashboard-work-widget > header > span { color: #f39a26; font: 12px var(--mono); }
-.dashboard-member-work-list { display: grid; gap: 1px; max-height: 410px; overflow: auto; }
+.dashboard-member-work-list { display: grid; gap: 1px; max-height: 410px; overflow: auto; overscroll-behavior: contain; }
 .dashboard-member-song-group { padding: 9px 10px; background: #2d2d2d; border-bottom: 1px solid #3a3a3a; }
 .dashboard-member-song-group > .dashboard-open-song { min-width: 0; max-width: 100%; overflow: hidden; }
 .dashboard-member-song-group > .dashboard-open-song strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
