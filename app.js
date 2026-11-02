@@ -435,6 +435,12 @@ function renderSetlistItems(items, canEditSetlist) {
   updateFilterButton('setlist-filters-toggle', [filters.language, filters.performance, filters.key].filter(Boolean).length);
   $('#clear-setlist-filters').classList.toggle('hidden', !filters.active);
   $('#setlist-filter-hint').classList.toggle('hidden', !canEditSetlist || !filters.active);
+  const includedSongIds = new Set(items.filter((item) => item.item_type === 'song').map((item) => item.song_id));
+  const repertoireRows = canEditSetlist
+    ? state.songs.filter((song) => !includedSongIds.has(song.id)).map((song) =>
+      `<li class="setlist-repertoire-row"><span class="setlist-repertoire-id">${escapeHtml(song.id)}</span><span class="setlist-repertoire-name">${escapeHtml(song.name)}</span><button class="add-repertoire-song" type="button" data-song-id="${escapeHtml(song.id)}" aria-label="Add ${escapeHtml(song.id)} · ${escapeHtml(song.name)} to setlist" title="Add to setlist">+</button></li>`
+    ).join('')
+    : '';
   $('#setlist-items').innerHTML = items.map((item, index) => {
     const isSong = item.item_type === 'song';
     const title = isSong ? item.songs?.name || item.song_id : item.label || (item.item_type === 'break' ? 'Break' : 'Note');
@@ -451,10 +457,10 @@ function renderSetlistItems(items, canEditSetlist) {
     const details = isSong && expanded ? `<div class="setlist-song-details">${renderSongDetails(item.song_id, 'setlists')}</div>` : '';
     const rowClass = `${setlistItemMatches(item, filters) ? 'setlist-row' : 'setlist-row hidden'}${canEditSetlist ? ' editing' : ''}`;
     return `<li class="${rowClass}" data-id="${item.id}" ${canDrag ? 'draggable="true"' : ''}><div class="setlist-item-summary">${summary}</div><span class="position">${String(index + 1).padStart(2, '0')}</span><div class="item-actions">${!isSong ? `<span class="duration">${secondsLabel(duration)}</span>` : ''}${controls}</div>${details}</li>`;
-  }).join('');
+  }).join('') + repertoireRows;
   requestAnimationFrame(() => { updateSongTitleAbbreviations(); observeSongTitleAbbreviations(); });
-  $('#setlist-items').classList.toggle('hidden', !items.length);
-  $('#setlist-empty').classList.toggle('hidden', !!items.length);
+  $('#setlist-items').classList.toggle('hidden', !items.length && !repertoireRows);
+  $('#setlist-empty').classList.toggle('hidden', !!items.length || !!repertoireRows);
   $('#setlist-filter-empty').classList.toggle('hidden', !items.length || !!matches.length);
 }
 function renderSetlistOptions() {
@@ -726,12 +732,17 @@ async function saveBackingTrackStatus(select) {
   showNotice('Backing Track status updated.');
 }
 
-async function addSongToSetlist() {
-  if (!state.member.is_admin || !state.setlistEditMode || !state.activeSetlist) return;
-  const songId = $('#add-song-select').value;
-  if (state.activeSetlistItems.some((item) => item.item_type === 'song' && item.song_id === songId)) return showNotice('That song is already in this setlist.', true);
+async function stageSongInSetlist(songId) {
+  if (!state.member.is_admin || !state.setlistEditMode || !state.activeSetlist) return false;
+  if (state.activeSetlistItems.some((item) => item.item_type === 'song' && item.song_id === songId)) {
+    showNotice('That song is already in this setlist.', true);
+    return false;
+  }
   const song = state.songs.find((item) => item.id === songId);
-  if (!song) return showNotice('Choose a song to add.', true);
+  if (!song) {
+    showNotice('Choose a song to add.', true);
+    return false;
+  }
   state.activeSetlistItems.push({
     id: `pending:${crypto.randomUUID()}`,
     setlist_id: state.activeSetlist,
@@ -740,10 +751,14 @@ async function addSongToSetlist() {
     song_id: songId,
     songs: song
   });
-  $('#add-song-panel').classList.add('hidden');
   refreshSetlistDirtyState();
   renderSetlistItems(state.activeSetlistItems, true);
   updateSetlistEditControls();
+  return true;
+}
+
+function addSongToSetlist() {
+  if (stageSongInSetlist($('#add-song-select').value)) $('#add-song-panel').classList.add('hidden');
 }
 
 function hasSetlistChanges() {
@@ -2026,6 +2041,7 @@ $('#setlist-items').addEventListener('click', (event) => {
   if (!button) return;
   if (button.matches('.song-summary-toggle')) { toggleSongDetails(button.dataset.songId, 'setlists'); return; }
   if (button.matches('.remove-item')) removeSetlistItem(button.dataset.id);
+  if (button.matches('.add-repertoire-song')) stageSongInSetlist(button.dataset.songId);
 });
 $('#setlist-items').addEventListener('change', (event) => {
   if (event.target.matches('.backing-track-select')) saveBackingTrackStatus(event.target);
