@@ -197,7 +197,7 @@ function songProgress(songId, songName) {
   const hasAbleSetWork = applicable.some((item) => item.category === 'ableset');
   const allRequiredWorkDone = applicable.every(isWorkItemDone);
   const ready = !!readiness?.ready;
-  const finishedBacking = !ready && readiness?.backing_track === 'Finished';
+  const finishedBacking = !ready && readiness?.backing_track === 'Finished' && allRequiredWorkDone;
   const sentToMixOnly = !ready && readiness?.backing_track === 'Sent to Mix' && hasAbleSetWork && allRequiredWorkDone;
   if (ready) return '<span class="song-status-indicator" data-status="Ready">Ready</span>';
   if (finishedBacking) return '<span class="song-status-indicator" data-status="Finished">Finished</span>';
