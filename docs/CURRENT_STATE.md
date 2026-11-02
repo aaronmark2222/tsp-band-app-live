@@ -77,3 +77,8 @@ Some documentation describes earlier stages of the product. When sources differ,
 
 - Add Song ID and Song Name entries suppress browser contact autofill, and the Key(s) dropdown closes on outside click.
 - The shared song progress indicator displays **Finished** when the derived backing-track state is Finished, in both Songs and Setlists.
+
+
+## Finished badge readiness gate (2026-11-02)
+
+- The backing-track state can be Finished while required AbleSet and utility tasks remain incomplete. The Songs/Setlists Finished badge now appears only when the backing track is Finished and all required work is done; otherwise the remaining-work indicator stays visible.
