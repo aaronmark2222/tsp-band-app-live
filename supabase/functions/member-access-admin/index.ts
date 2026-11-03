@@ -79,14 +79,23 @@ Deno.serve(async (request) => {
         else await adminClient.from("member_emails").delete().eq("member_id", target.id);
         throw new HttpError(400, createError?.message ?? "Could not create the sign-in account.");
       }
-      const { data: linked, error: linkError } = await adminClient.from("members")
-        .update({ user_id: created.user.id, must_change_password: true }).eq("id", target.id)
-        .is("user_id", null).select("id").maybeSingle();
-      if (linkError || !linked) {
+      const { error: linkError } = await adminClient.from("members")
+        .update({ user_id: created.user.id }).eq("id", target.id).is("user_id", null);
+      const { data: linkedMember, error: linkedMemberError } = await adminClient.from("members")
+        .select("user_id").eq("id", target.id).maybeSingle();
+      if (linkError || linkedMemberError || linkedMember?.user_id !== created.user.id) {
         await adminClient.auth.admin.deleteUser(created.user.id);
         if (priorMapping) await adminClient.from("member_emails").update({ email: priorMapping.email }).eq("member_id", target.id);
         else await adminClient.from("member_emails").delete().eq("member_id", target.id);
         throw new HttpError(500, "The account was created but could not be linked. Please retry.");
+      }
+      const { error: passwordFlagError } = await adminClient.from("members")
+        .update({ must_change_password: true }).eq("id", target.id).eq("user_id", created.user.id);
+      if (passwordFlagError) {
+        await adminClient.auth.admin.deleteUser(created.user.id);
+        if (priorMapping) await adminClient.from("member_emails").update({ email: priorMapping.email }).eq("member_id", target.id);
+        else await adminClient.from("member_emails").delete().eq("member_id", target.id);
+        throw new HttpError(500, "The account was linked but its first-login password change could not be enabled.");
       }
       return respond({ temporary_password: temporaryPassword }, 200);
     }
