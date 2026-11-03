@@ -1732,30 +1732,52 @@ $('#member-access-open').addEventListener('click', async () => {
     state.accessMembers = data.members || [];
     $('#access-member-select').innerHTML = state.accessMembers.length
       ? '<option value="">Choose a band member</option>' + state.accessMembers.map((member) =>
-          `<option value="${escapeHtml(member.id)}">${escapeHtml(member.name)}${member.must_change_password ? ' · password change required' : ''}</option>`).join('')
-      : '<option value="">No linked accounts</option>';
+          `<option value="${escapeHtml(member.id)}">${escapeHtml(member.name)}${member.linked ? (member.must_change_password ? ' · password change required' : '') : ' · sign-in not set up'}</option>`).join('')
+      : '<option value="">No band members found</option>';
+    $('#access-member-select').dispatchEvent(new Event('change'));
     $('#access-message').textContent = '';
   } catch (error) { $('#access-message').textContent = error.message || 'Could not load member accounts.'; }
 });
+function updateAccessMemberControls() {
+  const member = state.accessMembers.find((item) => item.id === $('#access-member-select').value);
+  const unlinked = Boolean(member && !member.linked);
+  $('#access-email-label').classList.toggle('hidden', !unlinked);
+  $('#access-member-email').classList.toggle('hidden', !unlinked);
+  $('#access-member-email').required = unlinked;
+  $('#access-member-email').value = unlinked ? (member.email || '') : '';
+  $('#issue-temporary-password').textContent = unlinked ? 'Create sign-in + temporary password' : 'Create temporary password';
+  $('#send-member-reset').classList.toggle('hidden', unlinked);
+}
+$('#access-member-select').addEventListener('change', updateAccessMemberControls);
 async function runMemberAccessAction(action) {
   const memberId = $('#access-member-select').value;
   if (!memberId) { $('#access-message').textContent = 'Choose a band member first.'; return; }
+  const member = state.accessMembers.find((item) => item.id === memberId);
+  if (action === 'temporary_password' && member && !member.linked) action = 'create_member_login';
+  const email = $('#access-member-email').value.trim();
+  if (action === 'create_member_login' && !email) { $('#access-message').textContent = 'Enter the member’s sign-in email.'; return; }
   const buttons = [$('#issue-temporary-password'), $('#send-member-reset')];
   buttons.forEach((button) => { button.disabled = true; });
-  $('#access-message').textContent = action === 'temporary_password' ? 'Creating a temporary password…' : 'Sending a reset email…';
+  $('#access-message').textContent = action === 'send_reset' ? 'Sending a reset email…' : 'Creating a temporary password…';
   $('#temporary-password-result').classList.add('hidden');
   $('#temporary-password-value').textContent = '';
   try {
-    const { data, error } = await db.functions.invoke('member-access-admin', { body: { action, member_id: memberId } });
+    const { data, error } = await db.functions.invoke('member-access-admin', { body: { action, member_id: memberId, email } });
     if (error) throw error;
-    if (action === 'temporary_password') {
+    if (action === 'temporary_password' || action === 'create_member_login') {
       $('#temporary-password-value').textContent = data.temporary_password;
       $('#temporary-password-result').classList.remove('hidden');
       $('#access-message').textContent = 'Share this password privately. The member must change it at their next sign-in.';
-      const member = state.accessMembers.find((item) => item.id === memberId);
-      if (member) member.must_change_password = true;
+      if (member) {
+        member.must_change_password = true;
+        if (action === 'create_member_login') { member.linked = true; member.user_id = 'linked'; member.email = email; }
+      }
       const option = $('#access-member-select').selectedOptions[0];
-      if (option && !option.textContent.includes('password change required')) option.textContent += ' · password change required';
+      if (option) {
+        option.textContent = option.textContent.replace(' · sign-in not set up', '');
+        if (!option.textContent.includes('password change required')) option.textContent += ' · password change required';
+      }
+      updateAccessMemberControls();
     } else { $('#access-message').textContent = 'Password reset email sent.'; }
   } catch (error) { $('#access-message').textContent = error.message || 'Could not update member access.'; }
   finally { buttons.forEach((button) => { button.disabled = false; }); }
