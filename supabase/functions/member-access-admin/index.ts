@@ -38,16 +38,58 @@ Deno.serve(async (request) => {
     if (!adminMember?.is_admin) throw new HttpError(403, "Administrator access is required.");
     const body = await request.json().catch(() => ({}));
     if (body.action === "list_members") {
-      const { data, error } = await adminClient.from("members").select("id,name,must_change_password,sort_order")
-        .not("user_id", "is", null).order("sort_order");
-      if (error) throw new HttpError(500, "Could not load linked member accounts.");
-      return respond({ members: data ?? [] }, 200);
+      const [{ data: members, error: membersError }, { data: emails, error: emailsError }] = await Promise.all([
+        adminClient.from("members").select("id,name,user_id,must_change_password,sort_order").order("sort_order"),
+        adminClient.from("member_emails").select("member_id,email"),
+      ]);
+      if (membersError || emailsError) throw new HttpError(500, "Could not load member accounts.");
+      const emailByMember = new Map((emails ?? []).map((row) => [row.member_id, row.email]));
+      return respond({ members: (members ?? []).map((member) => ({
+        id: member.id, name: member.name, user_id: member.user_id,
+        linked: Boolean(member.user_id), email: emailByMember.get(member.id) ?? null,
+        must_change_password: member.must_change_password, sort_order: member.sort_order,
+      })) }, 200);
     }
     const memberId = typeof body.member_id === "string" ? body.member_id : "";
     if (!/^[0-9a-f-]{36}$/i.test(memberId)) throw new HttpError(400, "Choose a valid band member.");
     const { data: target, error: targetError } = await adminClient.from("members")
       .select("id,name,user_id,must_change_password").eq("id", memberId).maybeSingle();
     if (targetError) throw new HttpError(500, "Could not load that member.");
+    if (body.action === "create_member_login") {
+      if (!target) throw new HttpError(404, "That member could not be found.");
+      if (target.user_id) throw new HttpError(409, "That member already has a sign-in account.");
+      const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new HttpError(400, "Enter a valid sign-in email.");
+      const { data: existingEmail, error: emailLookupError } = await adminClient.from("member_emails")
+        .select("member_id").eq("email", email).maybeSingle();
+      if (emailLookupError) throw new HttpError(500, "Could not verify that email.");
+      if (existingEmail && existingEmail.member_id !== target.id) throw new HttpError(409, "That email is already assigned to another band member.");
+      const { data: priorMapping, error: priorError } = await adminClient.from("member_emails")
+        .select("email").eq("member_id", target.id).maybeSingle();
+      if (priorError) throw new HttpError(500, "Could not load that member's email mapping.");
+      const { error: mappingError } = await adminClient.from("member_emails")
+        .upsert({ member_id: target.id, email }, { onConflict: "member_id" });
+      if (mappingError) throw new HttpError(400, "Could not save that sign-in email.");
+      const temporaryPassword = `${crypto.randomUUID()}Aa1!`;
+      const { data: created, error: createError } = await adminClient.auth.admin.createUser({
+        email, password: temporaryPassword, email_confirm: true, user_metadata: { member_name: target.name },
+      });
+      if (createError || !created.user) {
+        if (priorMapping) await adminClient.from("member_emails").update({ email: priorMapping.email }).eq("member_id", target.id);
+        else await adminClient.from("member_emails").delete().eq("member_id", target.id);
+        throw new HttpError(400, createError?.message ?? "Could not create the sign-in account.");
+      }
+      const { data: linked, error: linkError } = await adminClient.from("members")
+        .update({ user_id: created.user.id, must_change_password: true }).eq("id", target.id)
+        .is("user_id", null).select("id").maybeSingle();
+      if (linkError || !linked) {
+        await adminClient.auth.admin.deleteUser(created.user.id);
+        if (priorMapping) await adminClient.from("member_emails").update({ email: priorMapping.email }).eq("member_id", target.id);
+        else await adminClient.from("member_emails").delete().eq("member_id", target.id);
+        throw new HttpError(500, "The account was created but could not be linked. Please retry.");
+      }
+      return respond({ temporary_password: temporaryPassword }, 200);
+    }
     if (!target?.user_id) throw new HttpError(404, "That member has no sign-in account linked.");
     if (body.action === "send_reset") {
       const { data: accountData, error: accountError } = await adminClient.auth.admin.getUserById(target.user_id);
