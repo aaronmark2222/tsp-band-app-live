@@ -29,7 +29,7 @@ import Live
 from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
-VERSION = '1.0'
+VERSION = '1.1'
 ALLOWED_ORIGINS = (
     'https://aaronmark2222.github.io',
     'http://localhost:8000',
@@ -179,11 +179,6 @@ class TSPWork(ControlSurface):
                 return clip.start_time, clip.end_time
         return None
 
-    def _show_arranger(self):
-        view = self.application().view
-        view.show_view('Arranger')
-        view.focus_view('Arranger')
-
     # ------------------------------------------------------------ commands
     def _cmd_status(self):
         region_track = self._find_track(None, 'SONG ID')
@@ -203,12 +198,24 @@ class TSPWork(ControlSurface):
             if abs(point.time - start) < 0.01:
                 cue = point
                 break
-        if cue is not None and song.is_playing:
-            cue.jump()  # quantized like a locator click while playing
+        # Show the Arrangement but do not give it keyboard focus: Live 12 only
+        # scrolls its view to a remote-controlled position when it is unfocused.
+        self.application().view.show_view('Arranger')
+        if cue is not None:
+            cue.jump()  # same as clicking the locator (how AbleSet jumps)
         else:
             song.current_song_time = start
-        self._show_arranger()
-        return {'ok': True, 'start_beat': start}
+        # Nudge Follow so the view scrolls to the new position.
+        if song.view.follow_song:
+            song.view.follow_song = False
+            self.schedule_message(1, self._follow_on)
+        return {'ok': True, 'start_beat': start, 'locator': cue is not None}
+
+    def _follow_on(self):
+        try:
+            self.song().view.follow_song = True
+        except Exception:
+            pass
 
     def _cmd_prepare_select(self, song_id, task_key):
         region = self._song_region(song_id)
@@ -226,7 +233,7 @@ class TSPWork(ControlSurface):
             song.current_song_time = start
         song.loop_start = start
         song.loop_length = end - start
-        self._show_arranger()
+        self.application().view.show_view('Arranger')
         return {'ok': True, 'saved_loop': saved, 'track': track.name}
 
     def _cmd_restore_loop(self, saved):
