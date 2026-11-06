@@ -906,3 +906,13 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
   .setlist-repertoire-name { font-size: 12px; }
 }
 .dashboard-work-widget-ableset { border-top-color: #f7f48d; }
+
+/* Ableton bridge (admin's Mac only) */
+.ableton-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border: 1px solid #4e693e; border-radius: 999px; color: var(--lime); font: 500 11px var(--mono); letter-spacing: .04em; }
+.ableton-chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 6px var(--lime); }
+.ableton-connected .task-detail .task-label,
+.ableton-connected .dashboard-task-row > span:first-child,
+.ableton-connected .dashboard-member-task-row > span:first-child { cursor: pointer; }
+.ableton-connected .task-detail .task-label:hover,
+.ableton-connected .dashboard-task-row > span:first-child:hover,
+.ableton-connected .dashboard-member-task-row > span:first-child:hover { text-decoration: underline; text-underline-offset: 3px; }

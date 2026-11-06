@@ -91,6 +91,7 @@ function showWorkspace() {
   $('#new-song-open').onclick = openNewSongDialog;
   $('#member-name').textContent = state.member.name;
   $('#member-badge').textContent = state.member.name.slice(0, 1).toUpperCase();
+  startAbletonBridge();
 }
 
 function showLogin() {
@@ -2129,3 +2130,115 @@ db.auth.getSession().then(async ({ data, error }) => {
     renderSongs();
   } catch (loadError) { await db.auth.signOut(); showLogin(); $('#login-error').textContent = loadError.message || 'Could not open the band workspace.'; }
 });
+
+
+// ---------------------------------------------------------------------------
+// Ableton bridge (admin's Mac only). The TSPWork control surface inside Ableton
+// listens on 127.0.0.1, so this only ever works on the Mac running Ableton.
+// Clicking a song title jumps to its marker; clicking a work title selects the
+// song region in that task's track and zooms. Nothing here edits the Live set.
+const ABLETON_BRIDGE_URL = 'http://127.0.0.1:47710';
+const abletonBridge = { connected: false, timer: null, busy: false, started: false };
+
+function abletonBridgeEligible() {
+  const isMac = /Mac/.test(navigator.platform || navigator.userAgent || '') && (navigator.maxTouchPoints || 0) < 2;
+  return !!state.member?.is_admin && isMac;
+}
+
+async function abletonRequest(path, body) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), body ? 9000 : 1500);
+  try {
+    const response = await fetch(`${ABLETON_BRIDGE_URL}${path}`, {
+      method: body ? 'POST' : 'GET',
+      headers: body ? { 'Content-Type': 'text/plain' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+      cache: 'no-store',
+      signal: controller.signal
+    });
+    return await response.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function setAbletonConnected(connected) {
+  abletonBridge.connected = connected;
+  document.body.classList.toggle('ableton-connected', connected);
+  let chip = document.querySelector('#ableton-chip');
+  if (!chip) {
+    chip = document.createElement('span');
+    chip.id = 'ableton-chip';
+    chip.className = 'ableton-chip hidden';
+    chip.title = 'Click a song title to jump in Ableton, or a work title to select and zoom';
+    chip.textContent = 'Ableton';
+    $('#sign-out')?.before(chip);
+  }
+  chip.classList.toggle('hidden', !connected);
+}
+
+async function probeAbletonBridge() {
+  if (!abletonBridgeEligible()) return setAbletonConnected(false);
+  try {
+    const status = await abletonRequest('/status');
+    setAbletonConnected(!!status?.ok);
+  } catch {
+    setAbletonConnected(false);
+  }
+}
+
+function startAbletonBridge() {
+  if (!abletonBridgeEligible()) return;
+  probeAbletonBridge();
+  if (abletonBridge.started) return;
+  abletonBridge.started = true;
+  abletonBridge.timer = setInterval(probeAbletonBridge, 15000);
+  window.addEventListener('focus', probeAbletonBridge);
+}
+
+const ABLETON_ERRORS = {
+  song_not_found: 'That song has no Song ID clip in the open Ableton set.',
+  track_not_found: 'That track was not found in the open Ableton set.',
+  busy: 'Ableton is still finishing the last jump.',
+  timeout: 'Ableton did not respond in time.',
+  not_front: 'Ableton could not come to the front. The region is not selected.',
+  no_select_loop: 'Ableton\'s Edit › Select Loop command was not found.',
+  no_zoom_item: 'Selected in Ableton, but the zoom command was not found. Press Z.',
+  zoom_disabled: 'Selected in Ableton, but zoom was unavailable. Press Z.'
+};
+
+async function sendAbletonCommand(path, body) {
+  if (abletonBridge.busy) return;
+  abletonBridge.busy = true;
+  try {
+    const result = await abletonRequest(path, body);
+    if (result?.ok) return;
+    const error = String(result?.error || '');
+    if (error === 'accessibility_needed') {
+      showNotice('TSP Work needs Accessibility access for Ableton Live to select and zoom (System Settings › Privacy & Security › Accessibility). Your loop brace was left unchanged.', true);
+    } else {
+      showNotice(ABLETON_ERRORS[error] || `Ableton: ${error || 'unknown error'}`, true);
+    }
+  } catch {
+    setAbletonConnected(false);
+    showNotice('Lost the connection to Ableton. Is the TSPWork control surface on?', true);
+  } finally {
+    abletonBridge.busy = false;
+  }
+}
+
+document.addEventListener('click', (event) => {
+  if (!abletonBridge.connected || event.target.closest('select, input, option')) return;
+  const workLabel = event.target.closest('.task-detail .task-label, .dashboard-task-row > span:first-child, .dashboard-member-task-row > span:first-child');
+  if (workLabel) {
+    const select = workLabel.parentElement?.querySelector('.status-select');
+    if (!select?.dataset.song || !select.dataset.task) return;
+    event.preventDefault(); // keep the label from opening the status menu
+    sendAbletonCommand('/select', { song_id: select.dataset.song, task_key: select.dataset.task });
+    return;
+  }
+  const title = event.target.closest('.song-summary-toggle, .dashboard-open-song');
+  if (title?.dataset.songId && !(title.dataset.view === 'setlists' && state.setlistEditMode)) {
+    sendAbletonCommand('/jump', { song_id: title.dataset.songId });
+  }
+}, true);
