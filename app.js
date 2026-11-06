@@ -2370,7 +2370,7 @@ function syncIsSnoozed(item) {
 
 async function snoozeSyncTask(item) {
   const fingerprint = syncFingerprint(item.songId, item.taskKey);
-  if (!fingerprint) { showNotice('Update TSPWork in Ableton to 1.9 to use Snooze.', true); return; }
+  if (!fingerprint) { showNotice('Press Read Ableton set again (TSPWork 1.10.1 or later is needed for Snooze).', true); return; }
   const { error } = await db.from('ableton_sync_snoozes').upsert({ song_id: item.songId, task_key: item.taskKey, fingerprint, snoozed_at: new Date().toISOString() });
   if (error) { fail(`Could not snooze: ${error.message}`, error); return; }
   sync.snoozes.set(`${item.songId}:${item.taskKey}`, fingerprint);
@@ -2528,7 +2528,7 @@ function renderSyncPage() {
       ${snoozed.length ? `<button type="button" class="sync-snoozed-toggle" data-sync-toggle-snoozed aria-expanded="${sync.showSnoozed}">${sync.showSnoozed ? 'Hide' : 'Show'} ${snoozed.length} snoozed</button>${sync.showSnoozed ? `<ul class="sync-list">${snoozedRows}</ul>` : ''}` : ''}</section>
     <section class="sync-card"><header><h2>Chord mismatches <span>${chordOpen.length}</span></h2></header>
       <p class="muted">Chords that differ between the Chords track and the Guitar + or Keyboard + track. Bar is the bar within the song; Ableton's bar is in brackets. Click it to see it in Ableton. Press Allow if the difference is intended.</p>
-      ${!sync.snapshot.songs || Object.values(sync.snapshot.songs).some((d) => d.chord_mismatches) ? (chordOpen.length ? `<ul class="sync-list">${chordOpen.map(chordRow).join('')}</ul>` : '<p class="sync-empty">Guitar and Keyboard chords match the Chords track.</p>') : '<p class="sync-empty">Update TSPWork in Ableton to 1.10 to check chords.</p>'}
+      ${!sync.snapshot.songs || Object.values(sync.snapshot.songs).some((d) => d.chord_mismatches) ? (chordOpen.length ? `<ul class="sync-list">${chordOpen.map(chordRow).join('')}</ul>` : '<p class="sync-empty">Guitar and Keyboard chords match the Chords track.</p>') : '<p class="sync-empty">Press Read Ableton set again (TSPWork 1.10.1 or later is needed to check chords).</p>'}
       ${chordAllowed.length ? `<button type="button" class="sync-snoozed-toggle" data-sync-toggle-allowed aria-expanded="${!!sync.showAllowed}">${sync.showAllowed ? 'Hide' : 'Show'} ${chordAllowed.length} allowed</button>${sync.showAllowed ? `<ul class="sync-list">${chordAllowed.map(chordRow).join('')}</ul>` : ''}` : ''}</section>
     <section class="sync-card"><header><h2>Song details <span>${meta.length}</span></h2>${meta.length ? '<button type="button" class="button" data-sync-all="meta">Apply all</button>' : ''}</header>
       <p class="muted">Name, duration, tempo and starting key read from Ableton. Ableton's spelling wins; TSP Work keeps Title Case.</p>

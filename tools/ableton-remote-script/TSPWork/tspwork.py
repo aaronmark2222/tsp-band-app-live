@@ -31,7 +31,7 @@ from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
 TLS_PORT = 47711
-VERSION = '1.10'
+VERSION = '1.10.1'
 DEBUG_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requests.log')
 # https listener for the live site in Safari. Certificate made for 127.0.0.1 /
 # localhost only, trusted once in this Mac's Keychain. Files sit next to this
@@ -393,7 +393,11 @@ class TSPWork(ControlSurface):
         if not os.path.exists(path):
             return {'ok': False, 'error': 'als_not_found', 'als_path': path}
         try:
+            import importlib
             from . import alsreader
+            # Live keeps imported modules cached; reload so an updated
+            # alsreader.py is used without restarting Live.
+            importlib.reload(alsreader)
             started = time.time()
             snapshot = alsreader.build_snapshot(path)
             self._run_on_main(self._status, 'TSPWork %s: read %d songs from the saved set in %.0fs'
