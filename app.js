@@ -2438,7 +2438,7 @@ const SYNC_MIXED_STEMS = {
   backing_vocals_anston: ['mx_bgv', 'BACKING VOCALS'], backing_percussion: ['mx_perc', 'PERCUSSION'], backing_sfx: ['mx_sfx', 'SFX']
 };
 const SYNC_FIELD_LABELS = { name: 'Name', duration_seconds: 'Duration', tempo: 'Tempo', keys: 'Key' };
-const sync = { snapshot: null, readAt: null, reading: false, applying: new Set(), snoozes: new Map(), snoozesLoaded: false, showSnoozed: false };
+const sync = { snapshot: null, readAt: null, reading: false, applying: new Set(), snoozes: new Map(), snoozesLoaded: false, showSnoozed: false, dismissed: new Set() };
 
 // Snooze: hide a task update until the clips on that song's track change.
 // The fingerprint is a hash of those clips from the .als (TSPWork 1.9+).
@@ -2661,9 +2661,10 @@ function renderSyncPage() {
     return `<li class="sync-row"><button type="button" class="sync-song" data-sync-jump="${escapeHtml(item.songId)}" title="Jump to this song in Ableton"><span class="song-id">${escapeHtml(item.songId)}</span><span>${escapeHtml(item.songName)}</span></button><button type="button" class="sync-task" data-sync-select="${escapeHtml(item.songId)}" data-task="${escapeHtml(item.taskKey)}" title="Show this in Ableton">${escapeHtml(item.label)}</button><span class="sync-change">${escapeHtml(item.from)} → <b>${escapeHtml(item.to)}</b></span><span class="sync-actions"><button type="button" class="button quiet sync-apply sync-snooze" data-sync-snooze="${escapeHtml(key)}" ${busy(key)} title="Hide until this track changes in Ableton">Snooze</button><button type="button" class="button sync-apply" data-sync-task="${escapeHtml(key)}" ${busy(key)}>${syncActionLabel(item)}</button></span></li>`;
   }).join('');
   const chordAll = syncChordMismatches();
-  const chordOpen = chordAll.filter((m) => !m.allowed);
+  // Dismissed = fixed in Ableton; hidden until the next read of the set.
+  const chordOpen = chordAll.filter((m) => !m.allowed && !sync.dismissed.has(`${m.songId}|${m.taskKey}`));
   const chordAllowed = chordAll.filter((m) => m.allowed);
-  const chordRow = (m) => `<li class="sync-row sync-chord-row${m.allowed ? ' sync-snoozed' : ''}"><button type="button" class="sync-song" data-sync-jump="${escapeHtml(m.songId)}" title="Jump to this song in Ableton"><span class="song-id">${escapeHtml(m.songId)}</span><span>${escapeHtml(m.songName)}</span></button><button type="button" class="sync-task" data-sync-select="${escapeHtml(m.songId)}" data-task="${escapeHtml(m.track)}" data-from-beat="${m.beat}" title="Show this bar on the ${SYNC_CHORD_TRACKS[m.track]} track in Ableton">Bar ${m.song_bar} <span class="muted">(${m.bar})</span></button><span class="sync-change">${syncChordDescription(m)}</span><button type="button" class="button quiet sync-apply" data-sync-chord="${escapeHtml(`${m.songId}|${m.taskKey}`)}" data-allow="${m.allowed ? '0' : '1'}" title="${m.allowed ? 'Show this again' : 'This difference is intended; stop showing it'}">${m.allowed ? 'Undo' : 'Allow'}</button></li>`;
+  const chordRow = (m) => `<li class="sync-row sync-chord-row${m.allowed ? ' sync-snoozed' : ''}"><button type="button" class="sync-song" data-sync-jump="${escapeHtml(m.songId)}" title="Jump to this song in Ableton"><span class="song-id">${escapeHtml(m.songId)}</span><span>${escapeHtml(m.songName)}</span></button><button type="button" class="sync-task" data-sync-select="${escapeHtml(m.songId)}" data-task="${escapeHtml(m.track)}" data-from-beat="${m.beat}" title="Show this bar on the ${SYNC_CHORD_TRACKS[m.track]} track in Ableton">Bar ${m.song_bar} <span class="muted">(${m.bar})</span></button><span class="sync-change">${syncChordDescription(m)}</span>${m.allowed ? '' : `<span class="sync-actions"><button type="button" class="button quiet sync-apply" data-sync-dismiss="${escapeHtml(`${m.songId}|${m.taskKey}`)}" title="Fixed it in Ableton: hide until the next Read Ableton set">Dismiss</button>`}<button type="button" class="button quiet sync-apply" data-sync-chord="${escapeHtml(`${m.songId}|${m.taskKey}`)}" data-allow="${m.allowed ? '0' : '1'}" title="${m.allowed ? 'Show this again' : 'This difference is intended; stop showing it'}">${m.allowed ? 'Undo' : 'Allow'}</button>${m.allowed ? '' : '</span>'}</li>`;
   const metaRows = meta.map((item) => {
     const key = `m:${item.songId}:${item.field}`;
     return `<li class="sync-row"><button type="button" class="sync-song" data-sync-jump="${escapeHtml(item.songId)}" title="Jump to this song in Ableton"><span class="song-id">${escapeHtml(item.songId)}</span><span>${escapeHtml(item.songName)}</span></button><span class="sync-field">${SYNC_FIELD_LABELS[item.field]}</span><span class="sync-change"><s>${escapeHtml(String(syncValueLabel(item.field, item.from)))}</s> → <b>${escapeHtml(String(syncValueLabel(item.field, item.to)))}</b></span><button type="button" class="button sync-apply" data-sync-meta="${escapeHtml(key)}" ${busy(key)}>Apply</button></li>`;
@@ -2674,7 +2675,7 @@ function renderSyncPage() {
       ${tasks.length ? `<ul class="sync-list">${taskRows}</ul>` : '<p class="sync-empty">Nothing to update.</p>'}
       ${snoozed.length ? `<button type="button" class="sync-snoozed-toggle" data-sync-toggle-snoozed aria-expanded="${sync.showSnoozed}">${sync.showSnoozed ? 'Hide' : 'Show'} ${snoozed.length} snoozed</button>${sync.showSnoozed ? `<ul class="sync-list">${snoozedRows}</ul>` : ''}` : ''}</section>
     <section class="sync-card"><header><h2>Chord mismatches <span>${chordOpen.length}</span></h2></header>
-      <p class="muted">Chords that differ between the Chords track and the Guitar + or Keyboard + track. Bar is the bar within the song; Ableton's bar is in brackets. Click it to see it in Ableton. Press Allow if the difference is intended.</p>
+      <p class="muted">Chords that differ between the Chords track and the Guitar + or Keyboard + track. Bar is the bar within the song; Ableton's bar is in brackets. Click it to see it in Ableton. Fixed it? Press Dismiss (it stays hidden until the next read). Intended? Press Allow.
       ${!sync.snapshot.songs || Object.values(sync.snapshot.songs).some((d) => d.chord_mismatches) ? (chordOpen.length ? `<ul class="sync-list">${chordOpen.map(chordRow).join('')}</ul>` : '<p class="sync-empty">Guitar and Keyboard chords match the Chords track.</p>') : '<p class="sync-empty">Press Read Ableton set again (TSPWork 1.10.1 or later is needed to check chords).</p>'}
       ${chordAllowed.length ? `<button type="button" class="sync-snoozed-toggle" data-sync-toggle-allowed aria-expanded="${!!sync.showAllowed}">${sync.showAllowed ? 'Hide' : 'Show'} ${chordAllowed.length} allowed</button>${sync.showAllowed ? `<ul class="sync-list">${chordAllowed.map(chordRow).join('')}</ul>` : ''}` : ''}</section>
     <section class="sync-card"><header><h2>Song details <span>${meta.length}</span></h2>${meta.length ? '<button type="button" class="button" data-sync-all="meta">Apply all</button>' : ''}</header>
@@ -2698,6 +2699,7 @@ async function readAbletonSet() {
     if (!result?.ok) throw new Error(result?.error === 'als_not_found' ? `Saved set not found at ${result.als_path}` : (result?.detail || result?.error || 'Could not read the set'));
     sync.snapshot = result.snapshot;
     sync.readAt = new Date();
+    sync.dismissed.clear();
     try { await loadSyncSnoozes(); } catch (error) { console.warn('Snoozes not loaded', error); }
   } catch (error) {
     fail(`Could not read the Ableton set: ${error.message || error}`, error);
@@ -2783,6 +2785,8 @@ $('#sync-content').addEventListener('click', (event) => {
   }
   const { tasks, meta } = sync.snapshot ? computeSyncDiff(sync.snapshot) : { tasks: [], meta: [] };
   if (event.target.closest('[data-sync-toggle-allowed]')) { sync.showAllowed = !sync.showAllowed; renderSyncPage(); return; }
+  const dismiss = event.target.closest('[data-sync-dismiss]');
+  if (dismiss) { sync.dismissed.add(dismiss.dataset.syncDismiss); renderSyncPage(); return; }
   const chordButton = event.target.closest('[data-sync-chord]');
   if (chordButton) { const [songId, taskKey] = chordButton.dataset.syncChord.split('|'); setChordAllowed(songId, taskKey, chordButton.dataset.allow === '1'); return; }
   if (event.target.closest('[data-sync-toggle-snoozed]')) { sync.showSnoozed = !sync.showSnoozed; renderSyncPage(); return; }
