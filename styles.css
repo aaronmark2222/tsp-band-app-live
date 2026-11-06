@@ -970,3 +970,5 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 @media (max-width: 800px) { .review-bar { left: 8px; right: 8px; width: auto; transform: none; flex-direction: column; align-items: stretch; gap: 8px; bottom: 10px; } .review-what { max-width: none; } .review-controls { flex-wrap: wrap; } }
 /* keep the Sync tab exactly as tall as the text tabs */
 .sync-tab::after { content: "\200b"; }
+/* The avatar letter and name in the top bar did nothing; keep the bar compact. */
+#member-badge, #member-name { display: none !important; }
