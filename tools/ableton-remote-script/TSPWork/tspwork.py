@@ -29,7 +29,7 @@ import Live
 from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
-VERSION = '1.3'
+VERSION = '1.4'
 ALLOWED_ORIGINS = (
     'https://aaronmark2222.github.io',
     'http://localhost:8000',
@@ -125,7 +125,7 @@ class TSPWork(ControlSurface):
         self._thread.start()
         self.schedule_message(1, self._tick)
         self.log_message('TSPWork %s: listening on 127.0.0.1:%d' % (VERSION, PORT))
-        self.show_message('TSPWork: connected to TSP Work on this Mac')
+        self.show_message('TSPWork %s: connected to TSP Work on this Mac' % VERSION)
 
     # ------------------------------------------------------------ Live hooks
     def disconnect(self):
@@ -261,7 +261,11 @@ class TSPWork(ControlSurface):
             song.current_song_time = start
         song.loop_start = start
         song.loop_length = end - start
-        self.application().view.show_view('Arranger')
+        view = self.application().view
+        view.show_view('Arranger')
+        # The Up/Down keys must reach the Arrangement, so give it focus here
+        # (song-title jumps deliberately leave it unfocused so Live scrolls).
+        view.focus_view('Arranger')
         return {'ok': True, 'saved_loop': saved, 'track': track.name}
 
     def _cmd_visible_index(self, task_key):
@@ -272,6 +276,11 @@ class TSPWork(ControlSurface):
             if t == track:
                 return {'ok': True, 'index': i, 'visible': len(visible)}
         return {'ok': False, 'error': 'track_not_visible'}
+
+    def _status(self, message):
+        self.log_message(message)
+        self.show_message(message)
+        return {'ok': True}
 
     def _cmd_restore_loop(self, saved):
         song = self.song()
@@ -308,7 +317,9 @@ class TSPWork(ControlSurface):
         outcome = self._osascript(SELECT_AND_ZOOM % {'down': int(pos['index'])})
         time.sleep(0.1)
         self._run_on_main(self._cmd_restore_loop, prep['saved_loop'])
-        result = {'ok': outcome == 'ok', 'track': prep['track']}
+        message = 'TSPWork %s: %s on %s (Up, then Down x%d)' % (VERSION, outcome, prep['track'], int(pos['index']))
+        self._run_on_main(self._status, message)
+        result = {'ok': outcome == 'ok', 'track': prep['track'], 'downs': int(pos['index'])}
         if outcome != 'ok':
             result['error'] = outcome
         return result
