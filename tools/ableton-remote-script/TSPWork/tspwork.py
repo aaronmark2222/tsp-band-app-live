@@ -29,7 +29,7 @@ import Live
 from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
-VERSION = '1.2'
+VERSION = '1.3'
 ALLOWED_ORIGINS = (
     'https://aaronmark2222.github.io',
     'http://localhost:8000',
@@ -64,7 +64,8 @@ TASK_TRACKS = {
     'vox_anston': ('PARTS', 'Anston Vox Part'),
 }
 
-# Fixed AppleScript: no request data is ever inserted into it.
+# AppleScript template. Only one integer (the number of Down presses, computed
+# by this script from Live's own track list) is ever inserted into it.
 SELECT_AND_ZOOM = '''
 tell application "System Events"
     set liveProc to first application process whose bundle identifier is "com.ableton.live"
@@ -79,28 +80,24 @@ tell application "System Events"
         set selectItems to (menu items of editMenu whose name contains "Select Loop")
         if (count of selectItems) is 0 then return "no_select_loop"
         click item 1 of selectItems
-        delay 0.15
+    end tell
+    delay 0.15
+    -- Up collapses the all-track selection onto the top track (time range kept)
+    if not (frontmost of liveProc) then return "lost_focus"
+    key code 126
+    delay 0.08
+    repeat %(down)d times
+        if not (frontmost of liveProc) then return "lost_focus"
+        key code 125
+        delay 0.03
+    end repeat
+    delay 0.15
+    tell liveProc
         set viewMenu to menu 1 of menu bar item "View" of menu bar 1
         set zoomItems to (menu items of viewMenu whose name contains "Time Selection")
         if (count of zoomItems) is 0 then return "no_zoom_item"
         if not (enabled of item 1 of zoomItems) then return "zoom_disabled"
         click item 1 of zoomItems
-    end tell
-end tell
-return "ok"
-'''
-
-LOOP_SELECTION = '''
-tell application "System Events"
-    set liveProc to first application process whose bundle identifier is "com.ableton.live"
-    set frontmost of liveProc to true
-    delay 0.1
-    tell liveProc
-        set editMenu to menu 1 of menu bar item "Edit" of menu bar 1
-        set loopItems to (menu items of editMenu whose name contains "Loop Selection")
-        if (count of loopItems) is 0 then return "no_loop_selection_item"
-        if not (enabled of item 1 of loopItems) then return "loop_selection_disabled"
-        click item 1 of loopItems
     end tell
 end tell
 return "ok"
@@ -267,6 +264,15 @@ class TSPWork(ControlSurface):
         self.application().view.show_view('Arranger')
         return {'ok': True, 'saved_loop': saved, 'track': track.name}
 
+    def _cmd_visible_index(self, task_key):
+        group, prefix = TASK_TRACKS[task_key]
+        track = self._find_track(group, prefix)
+        visible = list(self.song().visible_tracks)
+        for i, t in enumerate(visible):
+            if t == track:
+                return {'ok': True, 'index': i, 'visible': len(visible)}
+        return {'ok': False, 'error': 'track_not_visible'}
+
     def _cmd_restore_loop(self, saved):
         song = self.song()
         loop_start, loop_length, loop_on = saved
@@ -294,77 +300,18 @@ class TSPWork(ControlSurface):
         prep = self._run_on_main(self._cmd_prepare_select, song_id, task_key)
         if not prep or not prep.get('ok'):
             return prep or {'ok': False, 'error': 'timeout'}
-        time.sleep(0.15)  # let Live redraw with the new loop brace
-        outcome = self._osascript(SELECT_AND_ZOOM)
+        time.sleep(0.2)  # let Live unfold groups and redraw the loop brace
+        pos = self._run_on_main(self._cmd_visible_index, task_key)
+        if not pos or not pos.get('ok'):
+            self._run_on_main(self._cmd_restore_loop, prep['saved_loop'])
+            return pos or {'ok': False, 'error': 'timeout'}
+        outcome = self._osascript(SELECT_AND_ZOOM % {'down': int(pos['index'])})
         time.sleep(0.1)
         self._run_on_main(self._cmd_restore_loop, prep['saved_loop'])
         result = {'ok': outcome == 'ok', 'track': prep['track']}
         if outcome != 'ok':
             result['error'] = outcome
         return result
-
-    # ------------------------------------------------------------ selection lab
-    # Temporary experiments to find a way to select ONE track's time range.
-    # They only move the playhead, select tracks, change the selection and
-    # borrow the loop brace (restored at the end). No set content is edited.
-    def _lab_prepare(self, song_id, task_key):
-        region = self._song_region(song_id)
-        group, prefix = TASK_TRACKS[task_key]
-        track = self._find_track(group, prefix)
-        if region is None or track is None:
-            return {'ok': False, 'error': 'song_or_track_not_found'}
-        song = self.song()
-        saved = (song.loop_start, song.loop_length, song.loop)
-        self._unfold_parents(track)
-        song.view.selected_track = track
-        self.application().view.show_view('Arranger')
-        song.current_song_time = region[0]
-        return {'ok': True, 'saved': saved, 'region': region, 'track': track.name}
-
-    def _lab_extend(self, method, steps):
-        view = self.application().view
-        for _ in range(steps):
-            if method == 'scroll':
-                view.scroll_view(3, 'Arranger', True)
-            else:
-                view.zoom_view(3, 'Arranger', True)
-        return {'ok': True}
-
-    def _lab_detail_clip(self, song_id, task_key):
-        region = self._song_region(song_id)
-        group, prefix = TASK_TRACKS[task_key]
-        track = self._find_track(group, prefix)
-        clips = [c for c in track.arrangement_clips if c.start_time < region[1] and c.end_time > region[0]]
-        if not clips:
-            return {'ok': False, 'error': 'no_clip_in_region'}
-        self.song().view.detail_clip = clips[0]
-        return {'ok': True, 'clip': clips[0].name, 'clip_start': clips[0].start_time}
-
-    def _lab_read_loop(self):
-        song = self.song()
-        return {'loop_start': song.loop_start, 'loop_length': song.loop_length}
-
-    def _lab(self, song_id, task_key, test):
-        prep = self._run_on_main(self._lab_prepare, song_id, task_key)
-        if not prep or not prep.get('ok'):
-            return prep
-        out = {'ok': True, 'test': test, 'track': prep['track'], 'song_start': prep['region'][0],
-               'song_length': prep['region'][1] - prep['region'][0]}
-        if test in ('scroll', 'zoom'):
-            self._run_on_main(self._lab_extend, test, 1)
-            time.sleep(0.15)
-            out['menu'] = self._osascript(LOOP_SELECTION)
-            time.sleep(0.15)
-            out['after_one_step'] = self._run_on_main(self._lab_read_loop)
-            self._run_on_main(self._lab_extend, test, 3)
-            time.sleep(0.15)
-            self._osascript(LOOP_SELECTION)
-            time.sleep(0.15)
-            out['after_four_steps'] = self._run_on_main(self._lab_read_loop)
-        elif test == 'clip':
-            out['detail_clip'] = self._run_on_main(self._lab_detail_clip, song_id, task_key)
-        self._run_on_main(self._cmd_restore_loop, prep['saved'])
-        return out
 
     # ------------------------------------------------------------ HTTP bridge
     def _serve(self):
@@ -437,12 +384,6 @@ class TSPWork(ControlSurface):
             try:
                 if path.startswith('/jump'):
                     result = self._run_on_main(self._cmd_jump, song_id)
-                elif path.startswith('/lab'):
-                    task_key = str(payload.get('task_key', ''))
-                    test = str(payload.get('test', ''))
-                    if task_key not in TASK_TRACKS or test not in ('scroll', 'zoom', 'clip'):
-                        return self._reply(conn, 400, {'ok': False, 'error': 'bad_lab_request'}, origin)
-                    result = self._lab(song_id, task_key, test)
                 elif path.startswith('/select'):
                     task_key = str(payload.get('task_key', ''))
                     if task_key not in TASK_TRACKS:
