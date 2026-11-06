@@ -30,7 +30,13 @@ import Live
 from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
-VERSION = '1.7'
+TLS_PORT = 47711
+VERSION = '1.8'
+# https listener for the live site in Safari. Certificate made for 127.0.0.1 /
+# localhost only, trusted once in this Mac's Keychain. Files sit next to this
+# script (they are not in the repo).
+CERT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tspwork-localhost.crt')
+KEY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tspwork-localhost.key')
 ALLOWED_ORIGINS = (
     'https://aaronmark2222.github.io',
     'http://localhost:8000',
@@ -130,23 +136,42 @@ class TSPWork(ControlSurface):
         self._jobs = queue.Queue()
         self._busy = False
         self._stop = False
-        self._server = None
-        self._thread = threading.Thread(target=self._serve, name='TSPWorkBridge')
+        self._servers = []
+        self._tls = self._tls_context()
+        self._thread = threading.Thread(target=self._serve, args=(PORT, None), name='TSPWorkBridge')
         self._thread.daemon = True
         self._thread.start()
+        if self._tls is not None:
+            t2 = threading.Thread(target=self._serve, args=(TLS_PORT, self._tls), name='TSPWorkBridgeTLS')
+            t2.daemon = True
+            t2.start()
         self.schedule_message(1, self._tick)
-        self.log_message('TSPWork %s: listening on 127.0.0.1:%d' % (VERSION, PORT))
+        self.log_message('TSPWork %s: listening on 127.0.0.1:%d (http)%s' % (
+            VERSION, PORT, ' and :%d (https)' % TLS_PORT if self._tls else ', no https certificate'))
         self.show_message('TSPWork %s: connected to TSP Work on this Mac' % VERSION)
 
     # ------------------------------------------------------------ Live hooks
     def disconnect(self):
         self._stop = True
-        try:
-            if self._server:
-                self._server.close()
-        except Exception:
-            pass
+        for srv in self._servers:
+            try:
+                srv.close()
+            except Exception:
+                pass
         ControlSurface.disconnect(self)
+
+    def _tls_context(self):
+        if not (os.path.exists(CERT_FILE) and os.path.exists(KEY_FILE)):
+            return None
+        try:
+            import ssl
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+            ctx.load_cert_chain(CERT_FILE, KEY_FILE)
+            return ctx
+        except Exception as err:
+            self.log_message('TSPWork https disabled: %r' % (err,))
+            return None
 
     def _tick(self):
         # Runs on Live's main thread about every 100 ms (same loop AbleSet uses).
@@ -229,7 +254,7 @@ class TSPWork(ControlSurface):
             saved = os.path.getmtime(path)
         except Exception:
             pass
-        return {'ok': True, 'version': VERSION, 'songs': count, 'playing': self.song().is_playing,
+        return {'ok': True, 'version': VERSION, 'https': self._tls is not None, 'songs': count, 'playing': self.song().is_playing,
                 'als_path': path, 'als_saved_at': saved}
 
     def _cmd_jump(self, song_id):
@@ -363,16 +388,16 @@ class TSPWork(ControlSurface):
             return {'ok': False, 'error': 'als_read_failed', 'detail': str(err)[:300]}
 
     # ------------------------------------------------------------ HTTP bridge
-    def _serve(self):
+    def _serve(self, port, tls):
         try:
             srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            srv.bind(('127.0.0.1', PORT))
+            srv.bind(('127.0.0.1', port))
             srv.listen(8)
             srv.settimeout(1.0)
-            self._server = srv
+            self._servers.append(srv)
         except Exception as err:
-            self.log_message('TSPWork could not open port %d: %r' % (PORT, err))
+            self.log_message('TSPWork could not open port %d: %r' % (port, err))
             return
         while not self._stop:
             try:
@@ -383,13 +408,23 @@ class TSPWork(ControlSurface):
                 if self._stop:
                     break
                 continue
-            worker = threading.Thread(target=self._handle, args=(conn,))
+            worker = threading.Thread(target=self._handle, args=(conn, tls))
             worker.daemon = True
             worker.start()
 
-    def _handle(self, conn):
+    def _handle(self, conn, tls=None):
         try:
             conn.settimeout(5)
+            if tls is not None:
+                try:
+                    conn = tls.wrap_socket(conn, server_side=True)
+                except Exception:
+                    # Untrusted certificate probes and plain-http hits land here.
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                    return
             data = b''
             while b'\r\n\r\n' not in data and len(data) < 16384:
                 chunk = conn.recv(4096)

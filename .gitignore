@@ -1,2 +1,4 @@
 __pycache__/
 *.pyc
+tools/ableton-remote-script/TSPWork/*.key
+tools/ableton-remote-script/TSPWork/*.crt

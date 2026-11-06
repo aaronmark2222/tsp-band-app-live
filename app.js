@@ -2140,8 +2140,10 @@ db.auth.getSession().then(async ({ data, error }) => {
 // listens on 127.0.0.1, so this only ever works on the Mac running Ableton.
 // Clicking a song title jumps to its marker; clicking a work title selects the
 // song region in that task's track and zooms. Nothing here edits the Live set.
-const ABLETON_BRIDGE_URL = 'http://127.0.0.1:47710';
-const abletonBridge = { connected: false, timer: null, busy: false, started: false };
+// https (47711) is tried first: Safari won't let the live https site talk to
+// plain http. The http port (47710) stays for Chrome and the local test copy.
+const ABLETON_BRIDGE_URLS = ['https://127.0.0.1:47711', 'http://127.0.0.1:47710'];
+const abletonBridge = { connected: false, timer: null, busy: false, started: false, base: null };
 
 function abletonBridgeEligible() {
   const isMac = /Mac/.test(navigator.platform || navigator.userAgent || '') && (navigator.maxTouchPoints || 0) < 2;
@@ -2149,10 +2151,33 @@ function abletonBridgeEligible() {
 }
 
 async function abletonRequest(path, body, timeoutMs) {
+  if (!body && !abletonBridge.base) {
+    // Status probe with no known address yet: try each until one answers.
+    let lastError;
+    for (const base of ABLETON_BRIDGE_URLS) {
+      try {
+        const result = await abletonFetch(base, path, body, timeoutMs);
+        abletonBridge.base = base;
+        return result;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError;
+  }
+  try {
+    return await abletonFetch(abletonBridge.base || ABLETON_BRIDGE_URLS[0], path, body, timeoutMs);
+  } catch (error) {
+    if (!body) abletonBridge.base = null;
+    throw error;
+  }
+}
+
+async function abletonFetch(base, path, body, timeoutMs) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs || (body ? 9000 : 1500));
   try {
-    const response = await fetch(`${ABLETON_BRIDGE_URL}${path}`, {
+    const response = await fetch(`${base}${path}`, {
       method: body ? 'POST' : 'GET',
       headers: body ? { 'Content-Type': 'text/plain' } : undefined,
       body: body ? JSON.stringify(body) : undefined,
