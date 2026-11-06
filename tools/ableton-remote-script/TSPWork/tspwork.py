@@ -31,7 +31,8 @@ from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
 TLS_PORT = 47711
-VERSION = '1.8'
+VERSION = '1.8.1'
+DEBUG_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requests.log')
 # https listener for the live site in Safari. Certificate made for 127.0.0.1 /
 # localhost only, trusted once in this Mac's Keychain. Files sit next to this
 # script (they are not in the repo).
@@ -159,6 +160,16 @@ class TSPWork(ControlSurface):
             except Exception:
                 pass
         ControlSurface.disconnect(self)
+
+    def _debug(self, line):
+        # Small rolling request log next to the script, for connection troubleshooting.
+        try:
+            if os.path.exists(DEBUG_LOG) and os.path.getsize(DEBUG_LOG) > 200000:
+                os.rename(DEBUG_LOG, DEBUG_LOG + '.old')
+            with open(DEBUG_LOG, 'a') as fh:
+                fh.write('%s %s\n' % (time.strftime('%H:%M:%S'), line))
+        except Exception:
+            pass
 
     def _tls_context(self):
         if not (os.path.exists(CERT_FILE) and os.path.exists(KEY_FILE)):
@@ -418,8 +429,9 @@ class TSPWork(ControlSurface):
             if tls is not None:
                 try:
                     conn = tls.wrap_socket(conn, server_side=True)
-                except Exception:
+                except Exception as err:
                     # Untrusted certificate probes and plain-http hits land here.
+                    self._debug('tls handshake failed: %r' % (err,))
                     try:
                         conn.close()
                     except Exception:
@@ -447,6 +459,9 @@ class TSPWork(ControlSurface):
                 body += chunk
             origin = headers.get('origin', '')
             allowed = origin in ALLOWED_ORIGINS
+            self._debug('%s %s %s origin=%s allowed=%s ua=%s' % (
+                'https' if tls is not None else 'http', method, path, origin or '-', allowed,
+                headers.get('user-agent', '-')[:80]))
             if method == 'OPTIONS':
                 return self._reply(conn, 204, None, origin if allowed else None)
             if not allowed:
