@@ -29,7 +29,7 @@ import Live
 from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
-VERSION = '1.5'
+VERSION = '1.6'
 ALLOWED_ORIGINS = (
     'https://aaronmark2222.github.io',
     'http://localhost:8000',
@@ -262,25 +262,18 @@ class TSPWork(ControlSurface):
         # The Up/Down keys must reach the Arrangement, so give it focus here
         # (song-title jumps deliberately leave it unfocused so Live scrolls).
         view.focus_view('Arranger')
-        return {'ok': True, 'saved_loop': saved, 'track': track.name}
+        return {'ok': True, 'saved_loop': saved, 'track': track.name, 'start': start}
 
-    def _cmd_visible_index(self, task_key):
+    def _cmd_finish(self, task_key, start):
+        # After zooming: clear the time selection by placing the playhead at the
+        # song start, and leave the task's track highlighted (selected).
         group, prefix = TASK_TRACKS[task_key]
         track = self._find_track(group, prefix)
-        visible = list(self.song().visible_tracks)
-        for i, t in enumerate(visible):
-            if t == track:
-                return {'ok': True, 'index': i, 'visible': len(visible)}
-        return {'ok': False, 'error': 'track_not_visible'}
-
-    def _cmd_move_selection(self, downs):
-        # Same as the Up/Down arrow keys in the Arrangement: Up collapses the
-        # all-track selection onto the top track, each Down moves it one track.
-        view = self.application().view
-        view.focus_view('Arranger')
-        view.scroll_view(0, 'Arranger', False)
-        for _ in range(downs):
-            view.scroll_view(1, 'Arranger', False)
+        song = self.song()
+        if not song.is_playing:
+            song.current_song_time = start
+        if track is not None:
+            song.view.selected_track = track
         return {'ok': True}
 
     def _status(self, message):
@@ -316,21 +309,16 @@ class TSPWork(ControlSurface):
         if not prep or not prep.get('ok'):
             return prep or {'ok': False, 'error': 'timeout'}
         time.sleep(0.2)  # let Live unfold groups and redraw the loop brace
-        pos = self._run_on_main(self._cmd_visible_index, task_key)
-        if not pos or not pos.get('ok'):
-            self._run_on_main(self._cmd_restore_loop, prep['saved_loop'])
-            return pos or {'ok': False, 'error': 'timeout'}
-        downs = int(pos['index'])
         outcome = self._osascript(SELECT_LOOP)
         if outcome == 'ok':
-            time.sleep(0.4)  # let Live finish making the selection
-            self._run_on_main(self._cmd_move_selection, downs)
-            time.sleep(0.2)
+            time.sleep(0.3)  # let Live finish making the selection
             outcome = self._osascript(ZOOM_SELECTION)
-        time.sleep(0.1)
-        message = 'TSPWork %s: %s on %s (scroll Up, then Down x%d)' % (VERSION, outcome, prep['track'], downs)
+        time.sleep(0.2)
+        self._run_on_main(self._cmd_restore_loop, prep['saved_loop'])
+        self._run_on_main(self._cmd_finish, task_key, prep['start'])
+        message = 'TSPWork %s: %s, zoomed to %s on %s' % (VERSION, outcome, song_id, prep['track'])
         self._run_on_main(self._status, message)
-        result = {'ok': outcome == 'ok', 'track': prep['track'], 'downs': downs}
+        result = {'ok': outcome == 'ok', 'track': prep['track']}
         if outcome != 'ok':
             result['error'] = outcome
         return result
