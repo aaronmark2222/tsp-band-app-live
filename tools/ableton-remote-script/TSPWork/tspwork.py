@@ -29,7 +29,7 @@ import Live
 from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
-VERSION = '1.4'
+VERSION = '1.5'
 ALLOWED_ORIGINS = (
     'https://aaronmark2222.github.io',
     'http://localhost:8000',
@@ -64,9 +64,8 @@ TASK_TRACKS = {
     'vox_anston': ('PARTS', 'Anston Vox Part'),
 }
 
-# AppleScript template. Only one integer (the number of Down presses, computed
-# by this script from Live's own track list) is ever inserted into it.
-SELECT_AND_ZOOM = '''
+# Fixed AppleScripts: no request data is ever inserted into them.
+SELECT_LOOP = '''
 tell application "System Events"
     set liveProc to first application process whose bundle identifier is "com.ableton.live"
     set frontmost of liveProc to true
@@ -81,17 +80,14 @@ tell application "System Events"
         if (count of selectItems) is 0 then return "no_select_loop"
         click item 1 of selectItems
     end tell
-    delay 0.15
-    -- Up collapses the all-track selection onto the top track (time range kept)
+end tell
+return "ok"
+'''
+
+ZOOM_SELECTION = '''
+tell application "System Events"
+    set liveProc to first application process whose bundle identifier is "com.ableton.live"
     if not (frontmost of liveProc) then return "lost_focus"
-    key code 126
-    delay 0.08
-    repeat %(down)d times
-        if not (frontmost of liveProc) then return "lost_focus"
-        key code 125
-        delay 0.03
-    end repeat
-    delay 0.15
     tell liveProc
         set viewMenu to menu 1 of menu bar item "View" of menu bar 1
         set zoomItems to (menu items of viewMenu whose name contains "Time Selection")
@@ -277,6 +273,16 @@ class TSPWork(ControlSurface):
                 return {'ok': True, 'index': i, 'visible': len(visible)}
         return {'ok': False, 'error': 'track_not_visible'}
 
+    def _cmd_move_selection(self, downs):
+        # Same as the Up/Down arrow keys in the Arrangement: Up collapses the
+        # all-track selection onto the top track, each Down moves it one track.
+        view = self.application().view
+        view.focus_view('Arranger')
+        view.scroll_view(0, 'Arranger', False)
+        for _ in range(downs):
+            view.scroll_view(1, 'Arranger', False)
+        return {'ok': True}
+
     def _status(self, message):
         self.log_message(message)
         self.show_message(message)
@@ -314,12 +320,17 @@ class TSPWork(ControlSurface):
         if not pos or not pos.get('ok'):
             self._run_on_main(self._cmd_restore_loop, prep['saved_loop'])
             return pos or {'ok': False, 'error': 'timeout'}
-        outcome = self._osascript(SELECT_AND_ZOOM % {'down': int(pos['index'])})
+        downs = int(pos['index'])
+        outcome = self._osascript(SELECT_LOOP)
+        if outcome == 'ok':
+            time.sleep(0.4)  # let Live finish making the selection
+            self._run_on_main(self._cmd_move_selection, downs)
+            time.sleep(0.2)
+            outcome = self._osascript(ZOOM_SELECTION)
         time.sleep(0.1)
-        self._run_on_main(self._cmd_restore_loop, prep['saved_loop'])
-        message = 'TSPWork %s: %s on %s (Up, then Down x%d)' % (VERSION, outcome, prep['track'], int(pos['index']))
+        message = 'TSPWork %s: %s on %s (scroll Up, then Down x%d)' % (VERSION, outcome, prep['track'], downs)
         self._run_on_main(self._status, message)
-        result = {'ok': outcome == 'ok', 'track': prep['track'], 'downs': int(pos['index'])}
+        result = {'ok': outcome == 'ok', 'track': prep['track'], 'downs': downs}
         if outcome != 'ok':
             result['error'] = outcome
         return result
