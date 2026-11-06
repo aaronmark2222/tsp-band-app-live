@@ -77,6 +77,7 @@
             <button class="tab" data-view="setlists">Setlists</button>
             <button class="tab" data-view="gigs">Gigs</button>
             <button class="tab" data-view="dashboard">Dashboard</button>
+            <button id="sync-tab" class="tab hidden" data-view="sync">Ableton Sync</button>
           </nav>
           <div class="account"><span id="member-badge" class="avatar">A</span><span id="member-name">Member</span><button id="member-access-open" class="text-button hidden" type="button">Member access</button><button id="sign-out" class="text-button">Sign out</button></div>
         </header>
@@ -203,6 +204,12 @@
             <div class="gig-form-actions"><button class="button primary" type="submit">Save gig</button><button id="cancel-gig-edit" class="button quiet" type="button">Cancel</button></div>
           </form>
           <div id="gig-list" class="gig-list"></div>
+        </section>
+
+        <section id="sync-view" class="view hidden">
+          <div class="hero-row"><div><p class="eyebrow">ABLETON MASTER PROJECT</p><h1>Ableton Sync</h1><p class="muted">Reads your saved Ableton set and suggests updates for TSP Work. Save in Ableton (⌘S) first. Click a task to see it in Ableton, then confirm it here.</p></div><button id="sync-read" class="button primary" type="button">Read Ableton set</button></div>
+          <p id="sync-status" class="sync-status muted"></p>
+          <div id="sync-content" class="sync-content"></div>
         </section>
 
         <section id="dashboard-view" class="view hidden">

@@ -916,3 +916,27 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .ableton-connected .task-detail .task-label:hover,
 .ableton-connected .dashboard-task-row > span:first-child:hover,
 .ableton-connected .dashboard-member-task-row > span:first-child:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+/* Ableton Sync page */
+.sync-status { margin: -8px 0 22px; font-size: 13px; }
+.sync-content { display: grid; gap: 18px; }
+.sync-card { background: var(--panel); border: 1px solid var(--line); border-radius: 15px; padding: 18px 20px; }
+.sync-card header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.sync-card h2 { font-size: 19px; letter-spacing: -.02em; margin: 0; }
+.sync-card h2 span { color: var(--muted); font: 400 13px var(--mono); margin-left: 6px; }
+.sync-card > p.muted { margin: 6px 0 12px; font-size: 13px; }
+.sync-list, .sync-notes { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.sync-row { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1.4fr) auto; align-items: center; gap: 12px; padding: 9px 10px; background: #1c281f; border: 1px solid #2b392e; border-radius: 10px; font-size: 13px; }
+.sync-song, .sync-task { border: 0; background: transparent; color: var(--ink); text-align: left; padding: 0; display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+.sync-song span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sync-song .song-id { color: var(--lime); font: 12px var(--mono); }
+.sync-task { color: var(--lime); text-decoration: underline; text-underline-offset: 3px; }
+.sync-song:hover span:last-child, .sync-task:hover { color: #d2f994; }
+.sync-field { color: var(--muted); }
+.sync-change { color: #b7c6ad; overflow-wrap: anywhere; }
+.sync-change b { color: var(--ink); font-weight: 600; }
+.sync-apply { padding: 6px 12px; font-size: 12px; }
+.sync-apply:disabled { opacity: .5; cursor: progress; }
+.sync-notes li { color: #c6d0c4; font-size: 13px; padding: 7px 10px; border-left: 2px solid var(--line); }
+.sync-empty { color: var(--muted); font-size: 13px; margin: 0; }
+@media (max-width: 800px) { .sync-row { grid-template-columns: 1fr auto; } .sync-change { grid-column: 1 / -1; } }

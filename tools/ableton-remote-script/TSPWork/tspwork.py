@@ -10,6 +10,7 @@ Safety rules (agreed with Aaron, 6 Nov 2026):
     UI scripting (never a raw "z" keystroke), and only when Live is in front.
 """
 import json
+import os
 import re
 import socket
 import threading
@@ -29,13 +30,27 @@ import Live
 from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
-VERSION = '1.6'
+VERSION = '1.7'
 ALLOWED_ORIGINS = (
     'https://aaronmark2222.github.io',
     'http://localhost:8000',
     'http://127.0.0.1:8000',
 )
 SONG_ID_RE = re.compile(r'^[A-Z][A-Za-z]*[0-9]+$')
+DEFAULT_ALS = os.path.expanduser(
+    '~/Desktop/TSP LIVE MASTER PROJECT Project/TSP LIVE MASTER PROJECT.als')
+CONFIG_FILE = os.path.expanduser('~/.tspwork.json')  # optional {"als_path": "..."}
+
+
+def als_path():
+    try:
+        with open(CONFIG_FILE) as fh:
+            path = json.load(fh).get('als_path')
+            if path:
+                return os.path.expanduser(path)
+    except Exception:
+        pass
+    return DEFAULT_ALS
 
 # task key -> (parent group name or None, track name prefix)
 TASK_TRACKS = {
@@ -208,7 +223,14 @@ class TSPWork(ControlSurface):
         count = 0
         if region_track is not None:
             count = sum(1 for c in region_track.arrangement_clips if SONG_ID_RE.match(c.name or ''))
-        return {'ok': True, 'version': VERSION, 'songs': count, 'playing': self.song().is_playing}
+        path = als_path()
+        saved = None
+        try:
+            saved = os.path.getmtime(path)
+        except Exception:
+            pass
+        return {'ok': True, 'version': VERSION, 'songs': count, 'playing': self.song().is_playing,
+                'als_path': path, 'als_saved_at': saved}
 
     def _cmd_jump(self, song_id):
         region = self._song_region(song_id)
@@ -323,6 +345,23 @@ class TSPWork(ControlSurface):
             result['error'] = outcome
         return result
 
+    # ------------------------------------------------------------ .als reading
+    def _snapshot(self):
+        # Reads the SAVED .als file (read-only) in this background thread.
+        path = als_path()
+        if not os.path.exists(path):
+            return {'ok': False, 'error': 'als_not_found', 'als_path': path}
+        try:
+            from . import alsreader
+            started = time.time()
+            snapshot = alsreader.build_snapshot(path)
+            self._run_on_main(self._status, 'TSPWork %s: read %d songs from the saved set in %.0fs'
+                              % (VERSION, len(snapshot['songs']), time.time() - started))
+            return {'ok': True, 'snapshot': snapshot}
+        except Exception as err:
+            self.log_message('TSPWork snapshot error: %r' % (err,))
+            return {'ok': False, 'error': 'als_read_failed', 'detail': str(err)[:300]}
+
     # ------------------------------------------------------------ HTTP bridge
     def _serve(self):
         try:
@@ -386,13 +425,15 @@ class TSPWork(ControlSurface):
             except Exception:
                 return self._reply(conn, 400, {'ok': False, 'error': 'bad_json'}, origin)
             song_id = str(payload.get('song_id', ''))
-            if not SONG_ID_RE.match(song_id):
+            if not path.startswith('/snapshot') and not SONG_ID_RE.match(song_id):
                 return self._reply(conn, 400, {'ok': False, 'error': 'bad_song_id'}, origin)
             if self._busy:
                 return self._reply(conn, 409, {'ok': False, 'error': 'busy'}, origin)
             self._busy = True
             try:
-                if path.startswith('/jump'):
+                if path.startswith('/snapshot'):
+                    result = self._snapshot()
+                elif path.startswith('/jump'):
                     result = self._run_on_main(self._cmd_jump, song_id)
                 elif path.startswith('/select'):
                     task_key = str(payload.get('task_key', ''))

@@ -88,6 +88,7 @@ function showWorkspace() {
   $('#workspace').classList.remove('hidden');
   $('#member-access-open').classList.toggle('hidden', !state.member.is_admin);
   $('#new-song-open').classList.toggle('hidden', !state.member.is_admin);
+  $('#sync-tab').classList.toggle('hidden', !state.member.is_admin);
   $('#new-song-open').onclick = openNewSongDialog;
   $('#member-name').textContent = state.member.name;
   $('#member-badge').textContent = state.member.name.slice(0, 1).toUpperCase();
@@ -1655,6 +1656,8 @@ function setView(view) {
   $('#setlists-view').classList.toggle('hidden', view !== 'setlists');
   $('#gigs-view').classList.toggle('hidden', view !== 'gigs');
   $('#dashboard-view').classList.toggle('hidden', view !== 'dashboard');
+  $('#sync-view').classList.toggle('hidden', view !== 'sync');
+  if (view === 'sync') renderSyncPage();
   if (view === 'setlists') renderActiveSetlist();
   if (view === 'gigs') renderGigs();
   if (view === 'dashboard') renderDashboard();
@@ -2145,9 +2148,9 @@ function abletonBridgeEligible() {
   return !!state.member?.is_admin && isMac;
 }
 
-async function abletonRequest(path, body) {
+async function abletonRequest(path, body, timeoutMs) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), body ? 9000 : 1500);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs || (body ? 9000 : 1500));
   try {
     const response = await fetch(`${ABLETON_BRIDGE_URL}${path}`, {
       method: body ? 'POST' : 'GET',
@@ -2175,13 +2178,16 @@ function setAbletonConnected(connected) {
     $('#sign-out')?.before(chip);
   }
   chip.classList.toggle('hidden', !connected);
+  if (!connected) abletonBridge.status = null;
 }
 
 async function probeAbletonBridge() {
   if (!abletonBridgeEligible()) return setAbletonConnected(false);
   try {
     const status = await abletonRequest('/status');
+    abletonBridge.status = status?.ok ? status : null;
     setAbletonConnected(!!status?.ok);
+    if (state.view === 'sync') renderSyncStatus();
   } catch {
     setAbletonConnected(false);
   }
@@ -2243,3 +2249,266 @@ document.addEventListener('click', (event) => {
     sendAbletonCommand('/jump', { song_id: title.dataset.songId });
   }
 }, true);
+
+
+// ---------------------------------------------------------------------------
+// Ableton Sync page (admin only). TSPWork reads the SAVED .als and returns a
+// snapshot; the rules below (ported from tsp_ableton_sync.py) turn it into
+// suggested task updates and song-detail changes that the admin confirms.
+const SYNC_AUTO_TASKS = {
+  sections: ['sections', 'Completed'], chords: ['chords', 'Completed'], lyrics: ['lyrics', 'Completed'],
+  drums: ['drums', 'Completed'], guitar: ['guitar', 'Completed'], keyboard: ['keyboard', 'Completed'],
+  prompts: ['prompts', 'Completed'], song_cue: ['song_cue', 'Completed'], backup_que: ['backup_que', 'Completed'],
+  guitar_tone_midi: ['tone', 'Finished']
+};
+const SYNC_MIXED_STEMS = {
+  backing_music: ['mx_music', 'MUSIC'], backing_vocals_dale: ['mx_bgv', 'BACKING VOCALS'],
+  backing_vocals_anston: ['mx_bgv', 'BACKING VOCALS'], backing_percussion: ['mx_perc', 'PERCUSSION'], backing_sfx: ['mx_sfx', 'SFX']
+};
+const SYNC_FIELD_LABELS = { name: 'Name', duration_seconds: 'Duration', tempo: 'Tempo', keys: 'Key' };
+const sync = { snapshot: null, readAt: null, reading: false, applying: new Set() };
+
+function syncLetters(value) { return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+
+function syncAppCase(locator, appName) {
+  const known = new Map((String(appName || '').match(/[\w'’-]+/g) || []).map((word) => [word.toLowerCase(), word]));
+  return String(locator).trim().replace(/[\w'’-]+/g, (word) => known.get(word.toLowerCase())
+    || word.split('-').map((part) => part.slice(0, 1).toUpperCase() + part.slice(1).toLowerCase()).join('-'));
+}
+
+function syncNormSegments(segments) {
+  const keep = ['bpm', 'transition_to_next', 'change_start_bar', 'change_end_bar', 'change_start_beat', 'change_end_beat'];
+  return JSON.stringify((segments || []).map((point) => Object.fromEntries(keep.filter((key) => point[key] !== null && point[key] !== undefined).map((key) => [key, point[key]]))));
+}
+
+function syncTempoLabel(segments) {
+  return (segments || []).map((point) => {
+    if (!point.transition_to_next) return String(point.bpm);
+    const kind = point.transition_to_next === 'instant' ? 'jump' : 'ramp';
+    const bars = point.change_start_bar === point.change_end_bar ? `${point.change_start_bar}` : `${point.change_start_bar}–${point.change_end_bar}`;
+    return `${point.bpm} (${kind} bar ${bars})`;
+  }).join(' → ');
+}
+
+function syncValueLabel(field, value) {
+  if (field === 'duration_seconds') return secondsLabel(value);
+  if (field === 'tempo') return syncTempoLabel(value);
+  if (field === 'keys') return (value || []).join(', ') || '—';
+  return value ?? '—';
+}
+
+function computeSyncDiff(snapshot) {
+  const tasks = [];
+  const meta = [];
+  const notices = [];
+  const allowed = new Map(state.taskTypes.map((type) => [type.key, new Set(type.allowed_statuses)]));
+  const labels = new Map(state.taskTypes.map((type) => [type.key, type.label]));
+  const status = new Map();
+  for (const row of state.tasks) {
+    if (!status.has(row.song_id)) status.set(row.song_id, new Map());
+    status.get(row.song_id).set(row.task_key, row.status);
+  }
+  for (const song of state.songs) {
+    if (!snapshot.songs[song.id]) notices.push(`${song.id} ${song.name} is in TSP Work but has no SONG ID clip in Ableton.`);
+  }
+  for (const [songId, data] of Object.entries(snapshot.songs)) {
+    const song = state.songs.find((item) => item.id === songId);
+    if (!song) { notices.push(`${songId} (${data.locator || 'no locator'}) is in Ableton but not in TSP Work. Add it in Songs first.`); continue; }
+    const st = status.get(songId) || new Map();
+    const evidence = data.evidence || {};
+    for (const [taskKey, [evidenceKey, target]] of Object.entries(SYNC_AUTO_TASKS)) {
+      const current = st.get(taskKey);
+      if (!current || current === 'No' || !allowed.get(taskKey)?.has(target)) continue;
+      const doneLike = target === 'Finished' ? ['Completed', 'Finished'] : ['Completed'];
+      if (evidence[evidenceKey] && !doneLike.includes(current)) {
+        tasks.push({ songId, songName: song.name, taskKey, label: labels.get(taskKey) || taskKey, from: current, to: target });
+      } else if (!evidence[evidenceKey] && current === 'Completed' && taskKey !== 'guitar_tone_midi') {
+        notices.push(`${songId} ${song.name}: ${labels.get(taskKey) || taskKey} is Completed in TSP Work, but Ableton has no matching clips.`);
+      }
+    }
+    const needed = Object.keys(SYNC_MIXED_STEMS).filter((key) => st.has(key) && st.get(key) !== 'No');
+    const stemsOk = needed.length > 0 && needed.every((key) => evidence[SYNC_MIXED_STEMS[key][0]]);
+    if (song.backing_track_manual !== 'Mixed' && stemsOk) {
+      tasks.push({ songId, songName: song.name, taskKey: 'backing_track_manual', label: 'Backing Track', from: song.backing_track_manual || 'Auto', to: 'Mixed' });
+    } else if (song.backing_track_manual === 'Mixed' && !stemsOk) {
+      const missing = [...new Set(needed.filter((key) => !evidence[SYNC_MIXED_STEMS[key][0]]).map((key) => SYNC_MIXED_STEMS[key][1]))];
+      notices.push(`${songId} ${song.name} is Mixed in TSP Work, but MIXED BACKING has no ${missing.join(', ')} stem for it.`);
+    }
+    if (data.locator && syncLetters(data.locator) !== syncLetters(song.name)) {
+      meta.push({ songId, songName: song.name, field: 'name', from: song.name, to: syncAppCase(data.locator, song.name), update: { name: syncAppCase(data.locator, song.name) } });
+    }
+    if (song.duration_seconds !== data.duration_seconds) {
+      meta.push({ songId, songName: song.name, field: 'duration_seconds', from: song.duration_seconds, to: data.duration_seconds, update: { duration_seconds: data.duration_seconds } });
+    }
+    const tempoChanged = syncNormSegments(song.tempo_segments) !== syncNormSegments(data.tempo_segments)
+      || song.tempo_start !== data.tempo_start || (song.tempo_end ?? null) !== (data.tempo_end ?? null) || song.tempo_change !== data.tempo_change;
+    if (tempoChanged) {
+      meta.push({ songId, songName: song.name, field: 'tempo', from: song.tempo_segments, to: data.tempo_segments,
+        update: { tempo_segments: data.tempo_segments, tempo_start: data.tempo_start, tempo_end: data.tempo_end, tempo_change: data.tempo_change } });
+    }
+    const keys = [...(song.keys || [])];
+    if (data.start_key && !keys.includes(data.start_key)) {
+      const next = [data.start_key, ...keys.slice(1)];
+      meta.push({ songId, songName: song.name, field: 'keys', from: keys, to: next, update: { keys: next } });
+    } else if (!data.start_key && evidence.chords) {
+      notices.push(`${songId} ${song.name}: no [Key:] marker found on the Chords track.`);
+    }
+  }
+  return { tasks, meta, notices };
+}
+
+function syncActionLabel(item) {
+  if (item.to === 'Mixed') return 'Set Mixed';
+  if (item.to === 'Finished') return 'Mark Finished';
+  return 'Complete';
+}
+
+function renderSyncStatus() {
+  const box = $('#sync-status');
+  if (!box) return;
+  const status = abletonBridge.status;
+  const parts = [];
+  if (!abletonBridge.connected || !status) {
+    parts.push('Ableton is not connected. Open TSP Work on the Mac running Ableton, with TSPWork chosen as a Control Surface.');
+  } else {
+    parts.push(`Connected to Ableton (TSPWork ${escapeHtml(status.version || '')}).`);
+    if (status.als_saved_at) parts.push(`Set last saved ${new Date(status.als_saved_at * 1000).toLocaleString()}.`);
+  }
+  if (sync.readAt) parts.push(`Last read ${sync.readAt.toLocaleTimeString()}.`);
+  box.innerHTML = parts.join(' ');
+  $('#sync-read').disabled = sync.reading;
+  $('#sync-read').textContent = sync.reading ? 'Reading the set…' : 'Read Ableton set';
+}
+
+function renderSyncPage() {
+  renderSyncStatus();
+  const content = $('#sync-content');
+  if (!sync.snapshot) {
+    content.innerHTML = '<div class="empty-state">Press <b>Read Ableton set</b> to compare your saved Ableton set with TSP Work. Reading takes up to a minute; avoid doing it during a show.</div>';
+    return;
+  }
+  const { tasks, meta, notices } = computeSyncDiff(sync.snapshot);
+  const warnings = sync.snapshot.warnings || [];
+  const busy = (key) => sync.applying.has(key) ? 'disabled' : '';
+  const taskRows = tasks.map((item) => {
+    const key = `t:${item.songId}:${item.taskKey}`;
+    return `<li class="sync-row"><button type="button" class="sync-song" data-sync-jump="${escapeHtml(item.songId)}" title="Jump to this song in Ableton"><span class="song-id">${escapeHtml(item.songId)}</span><span>${escapeHtml(item.songName)}</span></button><button type="button" class="sync-task" data-sync-select="${escapeHtml(item.songId)}" data-task="${escapeHtml(item.taskKey)}" title="Show this in Ableton">${escapeHtml(item.label)}</button><span class="sync-change">${escapeHtml(item.from)} → <b>${escapeHtml(item.to)}</b></span><button type="button" class="button sync-apply" data-sync-task="${escapeHtml(key)}" ${busy(key)}>${syncActionLabel(item)}</button></li>`;
+  }).join('');
+  const metaRows = meta.map((item) => {
+    const key = `m:${item.songId}:${item.field}`;
+    return `<li class="sync-row"><button type="button" class="sync-song" data-sync-jump="${escapeHtml(item.songId)}" title="Jump to this song in Ableton"><span class="song-id">${escapeHtml(item.songId)}</span><span>${escapeHtml(item.songName)}</span></button><span class="sync-field">${SYNC_FIELD_LABELS[item.field]}</span><span class="sync-change"><s>${escapeHtml(String(syncValueLabel(item.field, item.from)))}</s> → <b>${escapeHtml(String(syncValueLabel(item.field, item.to)))}</b></span><button type="button" class="button sync-apply" data-sync-meta="${escapeHtml(key)}" ${busy(key)}>Apply</button></li>`;
+  }).join('');
+  content.innerHTML = `
+    <section class="sync-card"><header><h2>Task updates <span>${tasks.length}</span></h2>${tasks.length ? '<button type="button" class="button" data-sync-all="tasks">Complete all</button>' : ''}</header>
+      <p class="muted">Work Ableton shows as done. Click the task to see it in Ableton, then confirm.</p>
+      ${tasks.length ? `<ul class="sync-list">${taskRows}</ul>` : '<p class="sync-empty">Nothing to update.</p>'}</section>
+    <section class="sync-card"><header><h2>Song details <span>${meta.length}</span></h2>${meta.length ? '<button type="button" class="button" data-sync-all="meta">Apply all</button>' : ''}</header>
+      <p class="muted">Name, duration, tempo and starting key read from Ableton. Ableton's spelling wins; TSP Work keeps Title Case.</p>
+      ${meta.length ? `<ul class="sync-list">${metaRows}</ul>` : '<p class="sync-empty">Everything matches.</p>'}</section>
+    <section class="sync-card"><header><h2>Ableton housekeeping <span>${warnings.length}</span></h2></header>
+      <p class="muted">Things to tidy in the Ableton set. Nothing here changes TSP Work.</p>
+      ${warnings.length ? `<ul class="sync-notes">${warnings.map((w) => `<li>${escapeHtml(w.msg)}</li>`).join('')}</ul>` : '<p class="sync-empty">No issues found.</p>'}</section>
+    <section class="sync-card"><header><h2>Check in TSP Work <span>${notices.length}</span></h2></header>
+      <p class="muted">TSP Work and Ableton disagree, but the sync never lowers a status. Review these by hand.</p>
+      ${notices.length ? `<ul class="sync-notes">${notices.map((n) => `<li>${escapeHtml(n)}</li>`).join('')}</ul>` : '<p class="sync-empty">Nothing to check.</p>'}</section>`;
+}
+
+async function readAbletonSet() {
+  if (!abletonBridge.connected) { await probeAbletonBridge(); }
+  if (!abletonBridge.connected) { renderSyncStatus(); showNotice('Ableton is not connected.', true); return; }
+  sync.reading = true;
+  renderSyncStatus();
+  try {
+    const result = await abletonRequest('/snapshot', {}, 240000);
+    if (!result?.ok) throw new Error(result?.error === 'als_not_found' ? `Saved set not found at ${result.als_path}` : (result?.detail || result?.error || 'Could not read the set'));
+    sync.snapshot = result.snapshot;
+    sync.readAt = new Date();
+  } catch (error) {
+    fail(`Could not read the Ableton set: ${error.message || error}`, error);
+  } finally {
+    sync.reading = false;
+    renderSyncPage();
+  }
+}
+
+async function applySyncTask(item) {
+  if (item.taskKey === 'backing_track_manual') {
+    const { data, error } = await db.from('songs').update({ backing_track_manual: 'Mixed' }).eq('id', item.songId).select('id');
+    if (error) throw error;
+    if (!data?.length) throw new Error(`TSP Work did not update ${item.songId}.`);
+    const song = state.songs.find((row) => row.id === item.songId);
+    if (song) song.backing_track_manual = 'Mixed';
+  } else {
+    const { data, error } = await db.from('song_tasks').update({ status: item.to }).eq('song_id', item.songId).eq('task_key', item.taskKey).select('song_id');
+    if (error) throw error;
+    if (!data?.length) throw new Error(`TSP Work did not update ${item.songId} ${item.label}.`);
+    const row = state.tasks.find((task) => task.song_id === item.songId && task.task_key === item.taskKey);
+    if (row) row.status = item.to;
+  }
+}
+
+async function applySyncMeta(item) {
+  const { data, error } = await db.from('songs').update(item.update).eq('id', item.songId).select('id');
+  if (error) throw error;
+  if (!data?.length) throw new Error(`TSP Work did not update ${item.songId}.`);
+  const song = state.songs.find((row) => row.id === item.songId);
+  if (song) Object.assign(song, item.update);
+}
+
+async function recordSyncRun(taskItems, metaItems) {
+  const snapshot = sync.snapshot;
+  await db.from('ableton_sync_runs').insert({
+    als_path: snapshot?.als_path, als_modified_at: snapshot?.als_modified_at, als_size: snapshot?.als_size,
+    song_count: Object.keys(snapshot?.songs || {}).length, task_updates: taskItems.length, metadata_updates: metaItems.length,
+    warnings: snapshot?.warnings || [],
+    changes: { tasks: taskItems.map(({ songId, taskKey, from, to }) => ({ songId, taskKey, from, to })), metadata: metaItems.map(({ songId, field }) => ({ songId, field })) }
+  });
+}
+
+async function runSyncApply(taskItems, metaItems) {
+  const keys = [...taskItems.map((i) => `t:${i.songId}:${i.taskKey}`), ...metaItems.map((i) => `m:${i.songId}:${i.field}`)];
+  keys.forEach((key) => sync.applying.add(key));
+  renderSyncPage();
+  const doneTasks = [];
+  const doneMeta = [];
+  try {
+    for (const item of taskItems) { await applySyncTask(item); doneTasks.push(item); }
+    for (const item of metaItems) { await applySyncMeta(item); doneMeta.push(item); }
+  } catch (error) {
+    fail(`Update stopped: ${error.message || error}`, error);
+  } finally {
+    keys.forEach((key) => sync.applying.delete(key));
+    if (doneTasks.length || doneMeta.length) {
+      try { await recordSyncRun(doneTasks, doneMeta); } catch (error) { console.warn('Sync run not recorded', error); }
+      try { await loadReadiness(); } catch (error) { console.warn(error); }
+      renderSongs();
+      const count = doneTasks.length + doneMeta.length;
+      showNotice(`Updated ${count} ${count === 1 ? 'item' : 'items'} in TSP Work.`);
+    }
+    renderSyncPage();
+  }
+}
+
+$('#sync-read').addEventListener('click', readAbletonSet);
+$('#sync-content').addEventListener('click', (event) => {
+  const jump = event.target.closest('[data-sync-jump]');
+  if (jump) { sendAbletonCommand('/jump', { song_id: jump.dataset.syncJump }); return; }
+  const select = event.target.closest('[data-sync-select]');
+  if (select) {
+    const taskKey = select.dataset.task === 'backing_track_manual' ? 'backing_music' : select.dataset.task;
+    sendAbletonCommand('/select', { song_id: select.dataset.syncSelect, task_key: taskKey });
+    return;
+  }
+  const { tasks, meta } = sync.snapshot ? computeSyncDiff(sync.snapshot) : { tasks: [], meta: [] };
+  const taskButton = event.target.closest('[data-sync-task]');
+  if (taskButton) { runSyncApply(tasks.filter((i) => `t:${i.songId}:${i.taskKey}` === taskButton.dataset.syncTask), []); return; }
+  const metaButton = event.target.closest('[data-sync-meta]');
+  if (metaButton) { runSyncApply([], meta.filter((i) => `m:${i.songId}:${i.field}` === metaButton.dataset.syncMeta)); return; }
+  const all = event.target.closest('[data-sync-all]');
+  if (all) {
+    const isTasks = all.dataset.syncAll === 'tasks';
+    const count = isTasks ? tasks.length : meta.length;
+    if (!window.confirm(`${isTasks ? 'Complete' : 'Apply'} all ${count} ${isTasks ? 'task updates' : 'song detail changes'}?`)) return;
+    runSyncApply(isTasks ? tasks : [], isTasks ? [] : meta);
+  }
+});
