@@ -6,6 +6,7 @@ key), evidence of finished work per track, and housekeeping warnings.
 """
 import datetime as dt
 import gzip
+import hashlib
 import math
 import os
 import re
@@ -66,6 +67,8 @@ def _clips(track_el):
                 'name': _val(c, 'Name', '') or '',
                 'disabled': _val(c, 'Disabled', 'false') == 'true',
                 'notes': notes,
+                'file': (_val(c, 'SampleRef/FileRef/Path', '') or _val(c, 'SampleRef/FileRef/RelativePath', '') or '')
+                        if c.tag == 'AudioClip' else '',
             })
     out.sort(key=lambda c: (c['start'], c['end']))
     return out
@@ -266,6 +269,15 @@ def _coverage(clips, s, e):
 CHORD_RE = re.compile(r'^(Key:|[A-G][#b]?[A-Za-z0-9#b/+\-]*)$')
 
 
+def _fingerprint(clips, s, e):
+    """Short hash of every clip touching [s, e): changes when a clip on that
+    track is added, removed, moved, trimmed, renamed, (de)activated or replaced."""
+    parts = ['%.3f|%.3f|%s|%s|%s|%s' % (max(s, c['start']) - s, min(e, c['end']) - s, c['name'],
+                                        c.get('file', ''), c.get('notes'), c['disabled'])
+             for c in clips if c['end'] > s and c['start'] < e]
+    return hashlib.sha1('\n'.join(parts).encode('utf-8')).hexdigest()[:16]
+
+
 def _annotations(name):
     """Player notes in a clip name: (instructions) and [non-chord labels]."""
     notes = set(m.strip().lower() for m in re.findall(r'\(([^)]*)\)', name) if m.strip())
@@ -377,6 +389,7 @@ def build_snapshot(als_path):
         for k in ('mx_bgv', 'mx_music', 'mx_perc', 'mx_sfx'):
             # a stem must cover most of the song; tails of the previous song don't count
             ev[k] = _coverage(clips[k], a, b) >= 0.5
+        fp = {k: _fingerprint(clips[k], a, b) for k in clips if k != 'song_id'}
         odd = [p['bpm'] for p in tmap if p['bpm'] != int(p['bpm'])]
         if odd:
             warnings.append({'kind': 'fractional_bpm', 'msg': f'{s["id"]} ({loc}) uses a non-whole tempo: {", ".join(str(x) for x in odd)} BPM. Check the tempo automation if that is not intended.'})
@@ -391,6 +404,7 @@ def build_snapshot(als_path):
             'tempo_change': 'none' if len(tmap) == 1 else ('ramp' if tmap[0]['transition_to_next'] == 'gradual' else 'jump'),
             'start_key': key,
             'evidence': ev,
+            'fingerprints': fp,
         }
     return {
         'als_path': os.path.abspath(als_path),

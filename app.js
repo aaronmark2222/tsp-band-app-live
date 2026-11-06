@@ -2291,7 +2291,46 @@ const SYNC_MIXED_STEMS = {
   backing_vocals_anston: ['mx_bgv', 'BACKING VOCALS'], backing_percussion: ['mx_perc', 'PERCUSSION'], backing_sfx: ['mx_sfx', 'SFX']
 };
 const SYNC_FIELD_LABELS = { name: 'Name', duration_seconds: 'Duration', tempo: 'Tempo', keys: 'Key' };
-const sync = { snapshot: null, readAt: null, reading: false, applying: new Set() };
+const sync = { snapshot: null, readAt: null, reading: false, applying: new Set(), snoozes: new Map(), snoozesLoaded: false, showSnoozed: false };
+
+// Snooze: hide a task update until the clips on that song's track change.
+// The fingerprint is a hash of those clips from the .als (TSPWork 1.9+).
+function syncFingerprint(songId, taskKey) {
+  const fp = sync.snapshot?.songs?.[songId]?.fingerprints;
+  if (!fp) return null;
+  if (taskKey === 'backing_track_manual') return ['mx_music', 'mx_bgv', 'mx_perc', 'mx_sfx'].map((key) => fp[key] || '').join('.');
+  const evidenceKey = SYNC_AUTO_TASKS[taskKey]?.[0];
+  return evidenceKey ? fp[evidenceKey] || null : null;
+}
+
+async function loadSyncSnoozes() {
+  const { data, error } = await db.from('ableton_sync_snoozes').select('song_id, task_key, fingerprint');
+  if (error) throw error;
+  sync.snoozes = new Map((data || []).map((row) => [`${row.song_id}:${row.task_key}`, row.fingerprint]));
+  sync.snoozesLoaded = true;
+}
+
+function syncIsSnoozed(item) {
+  const saved = sync.snoozes.get(`${item.songId}:${item.taskKey}`);
+  return !!saved && saved === syncFingerprint(item.songId, item.taskKey);
+}
+
+async function snoozeSyncTask(item) {
+  const fingerprint = syncFingerprint(item.songId, item.taskKey);
+  if (!fingerprint) { showNotice('Update TSPWork in Ableton to 1.9 to use Snooze.', true); return; }
+  const { error } = await db.from('ableton_sync_snoozes').upsert({ song_id: item.songId, task_key: item.taskKey, fingerprint, snoozed_at: new Date().toISOString() });
+  if (error) { fail(`Could not snooze: ${error.message}`, error); return; }
+  sync.snoozes.set(`${item.songId}:${item.taskKey}`, fingerprint);
+  showNotice(`Snoozed ${item.songId} ${item.label}. It comes back when that track changes in Ableton.`);
+  renderSyncPage();
+}
+
+async function unsnoozeSyncTask(songId, taskKey) {
+  const { error } = await db.from('ableton_sync_snoozes').delete().eq('song_id', songId).eq('task_key', taskKey);
+  if (error) { fail(`Could not unsnooze: ${error.message}`, error); return; }
+  sync.snoozes.delete(`${songId}:${taskKey}`);
+  renderSyncPage();
+}
 
 function syncLetters(value) { return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
 
@@ -2379,7 +2418,8 @@ function computeSyncDiff(snapshot) {
       notices.push(`${songId} ${song.name}: no [Key:] marker found on the Chords track.`);
     }
   }
-  return { tasks, meta, notices };
+  const snoozed = tasks.filter(syncIsSnoozed);
+  return { tasks: tasks.filter((item) => !syncIsSnoozed(item)), meta, notices, snoozed };
 }
 
 function syncActionLabel(item) {
@@ -2412,12 +2452,13 @@ function renderSyncPage() {
     content.innerHTML = '<div class="empty-state">Press <b>Read Ableton set</b> to compare your saved Ableton set with TSP Work. Reading takes up to a minute; avoid doing it during a show.</div>';
     return;
   }
-  const { tasks, meta, notices } = computeSyncDiff(sync.snapshot);
+  const { tasks, meta, notices, snoozed } = computeSyncDiff(sync.snapshot);
   const warnings = sync.snapshot.warnings || [];
   const busy = (key) => sync.applying.has(key) ? 'disabled' : '';
+  const snoozedRows = snoozed.map((item) => `<li class="sync-row sync-snoozed"><button type="button" class="sync-song" data-sync-jump="${escapeHtml(item.songId)}" title="Jump to this song in Ableton"><span class="song-id">${escapeHtml(item.songId)}</span><span>${escapeHtml(item.songName)}</span></button><button type="button" class="sync-task" data-sync-select="${escapeHtml(item.songId)}" data-task="${escapeHtml(item.taskKey)}" title="Show this in Ableton">${escapeHtml(item.label)}</button><span class="sync-change">${escapeHtml(item.from)} → ${escapeHtml(item.to)}</span><button type="button" class="button quiet sync-apply" data-sync-unsnooze="${escapeHtml(`${item.songId}:${item.taskKey}`)}">Unsnooze</button></li>`).join('');
   const taskRows = tasks.map((item) => {
     const key = `t:${item.songId}:${item.taskKey}`;
-    return `<li class="sync-row"><button type="button" class="sync-song" data-sync-jump="${escapeHtml(item.songId)}" title="Jump to this song in Ableton"><span class="song-id">${escapeHtml(item.songId)}</span><span>${escapeHtml(item.songName)}</span></button><button type="button" class="sync-task" data-sync-select="${escapeHtml(item.songId)}" data-task="${escapeHtml(item.taskKey)}" title="Show this in Ableton">${escapeHtml(item.label)}</button><span class="sync-change">${escapeHtml(item.from)} → <b>${escapeHtml(item.to)}</b></span><button type="button" class="button sync-apply" data-sync-task="${escapeHtml(key)}" ${busy(key)}>${syncActionLabel(item)}</button></li>`;
+    return `<li class="sync-row"><button type="button" class="sync-song" data-sync-jump="${escapeHtml(item.songId)}" title="Jump to this song in Ableton"><span class="song-id">${escapeHtml(item.songId)}</span><span>${escapeHtml(item.songName)}</span></button><button type="button" class="sync-task" data-sync-select="${escapeHtml(item.songId)}" data-task="${escapeHtml(item.taskKey)}" title="Show this in Ableton">${escapeHtml(item.label)}</button><span class="sync-change">${escapeHtml(item.from)} → <b>${escapeHtml(item.to)}</b></span><span class="sync-actions"><button type="button" class="button quiet sync-apply sync-snooze" data-sync-snooze="${escapeHtml(key)}" ${busy(key)} title="Hide until this track changes in Ableton">Snooze</button><button type="button" class="button sync-apply" data-sync-task="${escapeHtml(key)}" ${busy(key)}>${syncActionLabel(item)}</button></span></li>`;
   }).join('');
   const metaRows = meta.map((item) => {
     const key = `m:${item.songId}:${item.field}`;
@@ -2426,7 +2467,8 @@ function renderSyncPage() {
   content.innerHTML = `
     <section class="sync-card"><header><h2>Task updates <span>${tasks.length}</span></h2>${tasks.length ? '<button type="button" class="button" data-sync-all="tasks">Complete all</button>' : ''}</header>
       <p class="muted">Work Ableton shows as done. Click the task to see it in Ableton, then confirm.</p>
-      ${tasks.length ? `<ul class="sync-list">${taskRows}</ul>` : '<p class="sync-empty">Nothing to update.</p>'}</section>
+      ${tasks.length ? `<ul class="sync-list">${taskRows}</ul>` : '<p class="sync-empty">Nothing to update.</p>'}
+      ${snoozed.length ? `<button type="button" class="sync-snoozed-toggle" data-sync-toggle-snoozed aria-expanded="${sync.showSnoozed}">${sync.showSnoozed ? 'Hide' : 'Show'} ${snoozed.length} snoozed</button>${sync.showSnoozed ? `<ul class="sync-list">${snoozedRows}</ul>` : ''}` : ''}</section>
     <section class="sync-card"><header><h2>Song details <span>${meta.length}</span></h2>${meta.length ? '<button type="button" class="button" data-sync-all="meta">Apply all</button>' : ''}</header>
       <p class="muted">Name, duration, tempo and starting key read from Ableton. Ableton's spelling wins; TSP Work keeps Title Case.</p>
       ${meta.length ? `<ul class="sync-list">${metaRows}</ul>` : '<p class="sync-empty">Everything matches.</p>'}</section>
@@ -2448,6 +2490,7 @@ async function readAbletonSet() {
     if (!result?.ok) throw new Error(result?.error === 'als_not_found' ? `Saved set not found at ${result.als_path}` : (result?.detail || result?.error || 'Could not read the set'));
     sync.snapshot = result.snapshot;
     sync.readAt = new Date();
+    try { await loadSyncSnoozes(); } catch (error) { console.warn('Snoozes not loaded', error); }
   } catch (error) {
     fail(`Could not read the Ableton set: ${error.message || error}`, error);
   } finally {
@@ -2525,6 +2568,11 @@ $('#sync-content').addEventListener('click', (event) => {
     return;
   }
   const { tasks, meta } = sync.snapshot ? computeSyncDiff(sync.snapshot) : { tasks: [], meta: [] };
+  if (event.target.closest('[data-sync-toggle-snoozed]')) { sync.showSnoozed = !sync.showSnoozed; renderSyncPage(); return; }
+  const unsnooze = event.target.closest('[data-sync-unsnooze]');
+  if (unsnooze) { const [songId, taskKey] = unsnooze.dataset.syncUnsnooze.split(':'); unsnoozeSyncTask(songId, taskKey); return; }
+  const snooze = event.target.closest('[data-sync-snooze]');
+  if (snooze) { const item = tasks.find((i) => `t:${i.songId}:${i.taskKey}` === snooze.dataset.syncSnooze); if (item) snoozeSyncTask(item); return; }
   const taskButton = event.target.closest('[data-sync-task]');
   if (taskButton) { runSyncApply(tasks.filter((i) => `t:${i.songId}:${i.taskKey}` === taskButton.dataset.syncTask), []); return; }
   const metaButton = event.target.closest('[data-sync-meta]');
