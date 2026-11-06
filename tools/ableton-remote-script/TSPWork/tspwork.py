@@ -29,7 +29,7 @@ import Live
 from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
-VERSION = '1.1'
+VERSION = '1.2'
 ALLOWED_ORIGINS = (
     'https://aaronmark2222.github.io',
     'http://localhost:8000',
@@ -85,6 +85,22 @@ tell application "System Events"
         if (count of zoomItems) is 0 then return "no_zoom_item"
         if not (enabled of item 1 of zoomItems) then return "zoom_disabled"
         click item 1 of zoomItems
+    end tell
+end tell
+return "ok"
+'''
+
+LOOP_SELECTION = '''
+tell application "System Events"
+    set liveProc to first application process whose bundle identifier is "com.ableton.live"
+    set frontmost of liveProc to true
+    delay 0.1
+    tell liveProc
+        set editMenu to menu 1 of menu bar item "Edit" of menu bar 1
+        set loopItems to (menu items of editMenu whose name contains "Loop Selection")
+        if (count of loopItems) is 0 then return "no_loop_selection_item"
+        if not (enabled of item 1 of loopItems) then return "loop_selection_disabled"
+        click item 1 of loopItems
     end tell
 end tell
 return "ok"
@@ -170,6 +186,20 @@ class TSPWork(ControlSurface):
                 parent = parent.group_track
         return None
 
+    def _unfold_parents(self, track):
+        # A track inside a folded group can't be selected; open its groups.
+        opened = []
+        parent = track.group_track
+        while parent is not None:
+            try:
+                if parent.is_foldable and parent.fold_state:
+                    parent.fold_state = 0
+                    opened.append(parent.name)
+            except Exception:
+                pass
+            parent = parent.group_track
+        return opened
+
     def _song_region(self, song_id):
         track = self._find_track(None, 'SONG ID')
         if track is None:
@@ -228,6 +258,7 @@ class TSPWork(ControlSurface):
         song = self.song()
         saved = (song.loop_start, song.loop_length, song.loop)
         start, end = region
+        self._unfold_parents(track)
         song.view.selected_track = track
         if not song.is_playing:
             song.current_song_time = start
@@ -271,6 +302,69 @@ class TSPWork(ControlSurface):
         if outcome != 'ok':
             result['error'] = outcome
         return result
+
+    # ------------------------------------------------------------ selection lab
+    # Temporary experiments to find a way to select ONE track's time range.
+    # They only move the playhead, select tracks, change the selection and
+    # borrow the loop brace (restored at the end). No set content is edited.
+    def _lab_prepare(self, song_id, task_key):
+        region = self._song_region(song_id)
+        group, prefix = TASK_TRACKS[task_key]
+        track = self._find_track(group, prefix)
+        if region is None or track is None:
+            return {'ok': False, 'error': 'song_or_track_not_found'}
+        song = self.song()
+        saved = (song.loop_start, song.loop_length, song.loop)
+        self._unfold_parents(track)
+        song.view.selected_track = track
+        self.application().view.show_view('Arranger')
+        song.current_song_time = region[0]
+        return {'ok': True, 'saved': saved, 'region': region, 'track': track.name}
+
+    def _lab_extend(self, method, steps):
+        view = self.application().view
+        for _ in range(steps):
+            if method == 'scroll':
+                view.scroll_view(3, 'Arranger', True)
+            else:
+                view.zoom_view(3, 'Arranger', True)
+        return {'ok': True}
+
+    def _lab_detail_clip(self, song_id, task_key):
+        region = self._song_region(song_id)
+        group, prefix = TASK_TRACKS[task_key]
+        track = self._find_track(group, prefix)
+        clips = [c for c in track.arrangement_clips if c.start_time < region[1] and c.end_time > region[0]]
+        if not clips:
+            return {'ok': False, 'error': 'no_clip_in_region'}
+        self.song().view.detail_clip = clips[0]
+        return {'ok': True, 'clip': clips[0].name, 'clip_start': clips[0].start_time}
+
+    def _lab_read_loop(self):
+        song = self.song()
+        return {'loop_start': song.loop_start, 'loop_length': song.loop_length}
+
+    def _lab(self, song_id, task_key, test):
+        prep = self._run_on_main(self._lab_prepare, song_id, task_key)
+        if not prep or not prep.get('ok'):
+            return prep
+        out = {'ok': True, 'test': test, 'track': prep['track'], 'song_start': prep['region'][0],
+               'song_length': prep['region'][1] - prep['region'][0]}
+        if test in ('scroll', 'zoom'):
+            self._run_on_main(self._lab_extend, test, 1)
+            time.sleep(0.15)
+            out['menu'] = self._osascript(LOOP_SELECTION)
+            time.sleep(0.15)
+            out['after_one_step'] = self._run_on_main(self._lab_read_loop)
+            self._run_on_main(self._lab_extend, test, 3)
+            time.sleep(0.15)
+            self._osascript(LOOP_SELECTION)
+            time.sleep(0.15)
+            out['after_four_steps'] = self._run_on_main(self._lab_read_loop)
+        elif test == 'clip':
+            out['detail_clip'] = self._run_on_main(self._lab_detail_clip, song_id, task_key)
+        self._run_on_main(self._cmd_restore_loop, prep['saved'])
+        return out
 
     # ------------------------------------------------------------ HTTP bridge
     def _serve(self):
@@ -343,6 +437,12 @@ class TSPWork(ControlSurface):
             try:
                 if path.startswith('/jump'):
                     result = self._run_on_main(self._cmd_jump, song_id)
+                elif path.startswith('/lab'):
+                    task_key = str(payload.get('task_key', ''))
+                    test = str(payload.get('test', ''))
+                    if task_key not in TASK_TRACKS or test not in ('scroll', 'zoom', 'clip'):
+                        return self._reply(conn, 400, {'ok': False, 'error': 'bad_lab_request'}, origin)
+                    result = self._lab(song_id, task_key, test)
                 elif path.startswith('/select'):
                     task_key = str(payload.get('task_key', ''))
                     if task_key not in TASK_TRACKS:

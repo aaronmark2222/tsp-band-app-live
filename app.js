@@ -2238,7 +2238,8 @@ document.addEventListener('click', (event) => {
     return;
   }
   const title = event.target.closest('.song-summary-toggle, .dashboard-open-song');
-  if (title?.dataset.songId && !(title.dataset.view === 'setlists' && state.setlistEditMode)) {
+  const collapsing = title?.getAttribute('aria-expanded') === 'true';
+  if (title?.dataset.songId && !collapsing && !(title.dataset.view === 'setlists' && state.setlistEditMode)) {
     sendAbletonCommand('/jump', { song_id: title.dataset.songId });
   }
 }, true);
