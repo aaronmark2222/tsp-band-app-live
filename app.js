@@ -2300,7 +2300,60 @@ function syncFingerprint(songId, taskKey) {
   if (!fp) return null;
   if (taskKey === 'backing_track_manual') return ['mx_music', 'mx_bgv', 'mx_perc', 'mx_sfx'].map((key) => fp[key] || '').join('.');
   const evidenceKey = SYNC_AUTO_TASKS[taskKey]?.[0];
-  return evidenceKey ? fp[evidenceKey] || null : null;
+  if (!evidenceKey || !fp[evidenceKey]) return null;
+  // Guitar/Keyboard Notes also come back when the Chords track changes.
+  return ['guitar', 'keyboard'].includes(evidenceKey) ? `${fp[evidenceKey]}.${fp.chords || ''}` : fp[evidenceKey];
+}
+
+// Chord mismatches: the Chords track vs the Guitar + / Keyboard + tracks,
+// compared as chord sequences by TSPWork (1.10+). "Allow" marks one as intended;
+// it stays hidden while that exact difference is still there.
+const SYNC_CHORD_TRACKS = { guitar: 'Guitar', keyboard: 'Keyboard' };
+
+function syncHash(text) {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i += 1) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
+
+function syncChordMismatches() {
+  const out = [];
+  for (const [songId, data] of Object.entries(sync.snapshot?.songs || {})) {
+    const song = state.songs.find((item) => item.id === songId);
+    if (!song) continue;
+    const seen = new Map();
+    for (const m of data.chord_mismatches || []) {
+      const base = `chords:${m.track}:${syncHash(`${m.kind}|${m.chords}|${m.player}`)}`;
+      const n = (seen.get(base) || 0) + 1;
+      seen.set(base, n);
+      const taskKey = n > 1 ? `${base}#${n}` : base;
+      out.push({ ...m, songId, songName: song.name, taskKey, allowed: sync.snoozes.get(`${songId}:${taskKey}`) === 'allowed' });
+    }
+  }
+  return out;
+}
+
+function syncChordText(value) {
+  const chords = String(value || '').split(' ').filter(Boolean);
+  if (!chords.length) return '—';
+  return chords.length > 12 ? `${chords.slice(0, 12).join(' ')} … (+${chords.length - 12})` : chords.join(' ');
+}
+
+function syncChordDescription(m) {
+  const who = SYNC_CHORD_TRACKS[m.track] || m.track;
+  if (m.kind === 'missing') return `Chords has <b>${escapeHtml(syncChordText(m.chords))}</b>; ${who} track doesn't`;
+  if (m.kind === 'extra') return `${who} track has <b>${escapeHtml(syncChordText(m.player))}</b>; Chords doesn't`;
+  return `Chords <b>${escapeHtml(syncChordText(m.chords))}</b> · ${who} <b>${escapeHtml(syncChordText(m.player))}</b>`;
+}
+
+async function setChordAllowed(songId, taskKey, allowed) {
+  const request = allowed
+    ? db.from('ableton_sync_snoozes').upsert({ song_id: songId, task_key: taskKey, fingerprint: 'allowed', snoozed_at: new Date().toISOString() })
+    : db.from('ableton_sync_snoozes').delete().eq('song_id', songId).eq('task_key', taskKey);
+  const { error } = await request;
+  if (error) { fail(`Could not save: ${error.message}`, error); return; }
+  if (allowed) sync.snoozes.set(`${songId}:${taskKey}`, 'allowed'); else sync.snoozes.delete(`${songId}:${taskKey}`);
+  renderSyncPage();
 }
 
 async function loadSyncSnoozes() {
@@ -2460,6 +2513,10 @@ function renderSyncPage() {
     const key = `t:${item.songId}:${item.taskKey}`;
     return `<li class="sync-row"><button type="button" class="sync-song" data-sync-jump="${escapeHtml(item.songId)}" title="Jump to this song in Ableton"><span class="song-id">${escapeHtml(item.songId)}</span><span>${escapeHtml(item.songName)}</span></button><button type="button" class="sync-task" data-sync-select="${escapeHtml(item.songId)}" data-task="${escapeHtml(item.taskKey)}" title="Show this in Ableton">${escapeHtml(item.label)}</button><span class="sync-change">${escapeHtml(item.from)} → <b>${escapeHtml(item.to)}</b></span><span class="sync-actions"><button type="button" class="button quiet sync-apply sync-snooze" data-sync-snooze="${escapeHtml(key)}" ${busy(key)} title="Hide until this track changes in Ableton">Snooze</button><button type="button" class="button sync-apply" data-sync-task="${escapeHtml(key)}" ${busy(key)}>${syncActionLabel(item)}</button></span></li>`;
   }).join('');
+  const chordAll = syncChordMismatches();
+  const chordOpen = chordAll.filter((m) => !m.allowed);
+  const chordAllowed = chordAll.filter((m) => m.allowed);
+  const chordRow = (m) => `<li class="sync-row sync-chord-row${m.allowed ? ' sync-snoozed' : ''}"><button type="button" class="sync-song" data-sync-jump="${escapeHtml(m.songId)}" title="Jump to this song in Ableton"><span class="song-id">${escapeHtml(m.songId)}</span><span>${escapeHtml(m.songName)}</span></button><button type="button" class="sync-task" data-sync-select="${escapeHtml(m.songId)}" data-task="${escapeHtml(m.track)}" data-from-beat="${m.beat}" title="Show this bar on the ${SYNC_CHORD_TRACKS[m.track]} track in Ableton">Bar ${m.song_bar} <span class="muted">(${m.bar})</span></button><span class="sync-change">${syncChordDescription(m)}</span><button type="button" class="button quiet sync-apply" data-sync-chord="${escapeHtml(`${m.songId}|${m.taskKey}`)}" data-allow="${m.allowed ? '0' : '1'}" title="${m.allowed ? 'Show this again' : 'This difference is intended; stop showing it'}">${m.allowed ? 'Undo' : 'Allow'}</button></li>`;
   const metaRows = meta.map((item) => {
     const key = `m:${item.songId}:${item.field}`;
     return `<li class="sync-row"><button type="button" class="sync-song" data-sync-jump="${escapeHtml(item.songId)}" title="Jump to this song in Ableton"><span class="song-id">${escapeHtml(item.songId)}</span><span>${escapeHtml(item.songName)}</span></button><span class="sync-field">${SYNC_FIELD_LABELS[item.field]}</span><span class="sync-change"><s>${escapeHtml(String(syncValueLabel(item.field, item.from)))}</s> → <b>${escapeHtml(String(syncValueLabel(item.field, item.to)))}</b></span><button type="button" class="button sync-apply" data-sync-meta="${escapeHtml(key)}" ${busy(key)}>Apply</button></li>`;
@@ -2469,6 +2526,10 @@ function renderSyncPage() {
       <p class="muted">Work Ableton shows as done. Click the task to see it in Ableton, then confirm.</p>
       ${tasks.length ? `<ul class="sync-list">${taskRows}</ul>` : '<p class="sync-empty">Nothing to update.</p>'}
       ${snoozed.length ? `<button type="button" class="sync-snoozed-toggle" data-sync-toggle-snoozed aria-expanded="${sync.showSnoozed}">${sync.showSnoozed ? 'Hide' : 'Show'} ${snoozed.length} snoozed</button>${sync.showSnoozed ? `<ul class="sync-list">${snoozedRows}</ul>` : ''}` : ''}</section>
+    <section class="sync-card"><header><h2>Chord mismatches <span>${chordOpen.length}</span></h2></header>
+      <p class="muted">Chords that differ between the Chords track and the Guitar + or Keyboard + track. Bar is the bar within the song; Ableton's bar is in brackets. Click it to see it in Ableton. Press Allow if the difference is intended.</p>
+      ${!sync.snapshot.songs || Object.values(sync.snapshot.songs).some((d) => d.chord_mismatches) ? (chordOpen.length ? `<ul class="sync-list">${chordOpen.map(chordRow).join('')}</ul>` : '<p class="sync-empty">Guitar and Keyboard chords match the Chords track.</p>') : '<p class="sync-empty">Update TSPWork in Ableton to 1.10 to check chords.</p>'}
+      ${chordAllowed.length ? `<button type="button" class="sync-snoozed-toggle" data-sync-toggle-allowed aria-expanded="${!!sync.showAllowed}">${sync.showAllowed ? 'Hide' : 'Show'} ${chordAllowed.length} allowed</button>${sync.showAllowed ? `<ul class="sync-list">${chordAllowed.map(chordRow).join('')}</ul>` : ''}` : ''}</section>
     <section class="sync-card"><header><h2>Song details <span>${meta.length}</span></h2>${meta.length ? '<button type="button" class="button" data-sync-all="meta">Apply all</button>' : ''}</header>
       <p class="muted">Name, duration, tempo and starting key read from Ableton. Ableton's spelling wins; TSP Work keeps Title Case.</p>
       ${meta.length ? `<ul class="sync-list">${metaRows}</ul>` : '<p class="sync-empty">Everything matches.</p>'}</section>
@@ -2564,10 +2625,19 @@ $('#sync-content').addEventListener('click', (event) => {
   const select = event.target.closest('[data-sync-select]');
   if (select) {
     const taskKey = select.dataset.task === 'backing_track_manual' ? 'backing_music' : select.dataset.task;
-    sendAbletonCommand('/select', { song_id: select.dataset.syncSelect, task_key: taskKey });
+    const body = { song_id: select.dataset.syncSelect, task_key: taskKey };
+    if (select.dataset.fromBeat) {
+      // Show about 8 bars from the mismatch (a little before it, for context).
+      const beat = Number(select.dataset.fromBeat);
+      Object.assign(body, { from_beat: beat - 4, to_beat: beat + 28 });
+    }
+    sendAbletonCommand('/select', body);
     return;
   }
   const { tasks, meta } = sync.snapshot ? computeSyncDiff(sync.snapshot) : { tasks: [], meta: [] };
+  if (event.target.closest('[data-sync-toggle-allowed]')) { sync.showAllowed = !sync.showAllowed; renderSyncPage(); return; }
+  const chordButton = event.target.closest('[data-sync-chord]');
+  if (chordButton) { const [songId, taskKey] = chordButton.dataset.syncChord.split('|'); setChordAllowed(songId, taskKey, chordButton.dataset.allow === '1'); return; }
   if (event.target.closest('[data-sync-toggle-snoozed]')) { sync.showSnoozed = !sync.showSnoozed; renderSyncPage(); return; }
   const unsnooze = event.target.closest('[data-sync-unsnooze]');
   if (unsnooze) { const [songId, taskKey] = unsnooze.dataset.syncUnsnooze.split(':'); unsnoozeSyncTask(songId, taskKey); return; }

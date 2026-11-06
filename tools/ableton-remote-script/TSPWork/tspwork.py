@@ -31,7 +31,7 @@ from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
 TLS_PORT = 47711
-VERSION = '1.9'
+VERSION = '1.10'
 DEBUG_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requests.log')
 # https listener for the live site in Safari. Certificate made for 127.0.0.1 /
 # localhost only, trusted once in this Mac's Keychain. Files sit next to this
@@ -298,7 +298,7 @@ class TSPWork(ControlSurface):
         except Exception:
             pass
 
-    def _cmd_prepare_select(self, song_id, task_key):
+    def _cmd_prepare_select(self, song_id, task_key, rng=None):
         region = self._song_region(song_id)
         if region is None:
             return {'ok': False, 'error': 'song_not_found'}
@@ -309,6 +309,11 @@ class TSPWork(ControlSurface):
         song = self.song()
         saved = (song.loop_start, song.loop_length, song.loop)
         start, end = region
+        if rng:
+            # Zoom to part of the song (e.g. a chord mismatch), kept inside it.
+            a, b = max(start, rng[0]), min(end, rng[1])
+            if b - a > 0.5:
+                start, end = a, b
         self._unfold_parents(track)
         song.view.selected_track = track
         if not song.is_playing:
@@ -362,8 +367,8 @@ class TSPWork(ControlSurface):
             return 'osascript_error: %s' % err[:200]
         return (out.stdout or '').strip()
 
-    def _select(self, song_id, task_key):
-        prep = self._run_on_main(self._cmd_prepare_select, song_id, task_key)
+    def _select(self, song_id, task_key, rng=None):
+        prep = self._run_on_main(self._cmd_prepare_select, song_id, task_key, rng)
         if not prep or not prep.get('ok'):
             return prep or {'ok': False, 'error': 'timeout'}
         time.sleep(0.2)  # let Live unfold groups and redraw the loop brace
@@ -489,7 +494,13 @@ class TSPWork(ControlSurface):
                     task_key = str(payload.get('task_key', ''))
                     if task_key not in TASK_TRACKS:
                         return self._reply(conn, 400, {'ok': False, 'error': 'unknown_task'}, origin)
-                    result = self._select(song_id, task_key)
+                    rng = None
+                    try:
+                        if payload.get('from_beat') is not None and payload.get('to_beat') is not None:
+                            rng = (float(payload['from_beat']), float(payload['to_beat']))
+                    except (TypeError, ValueError):
+                        rng = None
+                    result = self._select(song_id, task_key, rng)
                 else:
                     return self._reply(conn, 404, {'ok': False, 'error': 'not_found'}, origin)
             finally:

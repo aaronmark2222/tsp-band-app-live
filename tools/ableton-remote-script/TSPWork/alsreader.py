@@ -5,6 +5,7 @@ it, and returns per-song metadata (locator name, duration, tempo map, starting
 key), evidence of finished work per track, and housekeeping warnings.
 """
 import datetime as dt
+import difflib
 import gzip
 import hashlib
 import math
@@ -288,6 +289,51 @@ def _annotations(name):
     return notes
 
 
+_CHORD_ONE = r'[A-G][#b]?(?:maj|min|m|dim|aug|sus|add|M|\+|°|ø)?[0-9]*(?:(?:sus|add|maj|b|#)?[0-9]+)*(?:/[A-G][#b]?)?'
+CHORD_TOKEN_RE = re.compile(r'^(?:Key:|%s(?:-%s)*)-?$' % (_CHORD_ONE, _CHORD_ONE))
+
+
+def _chord_seq(name):
+    """Chord symbols of a clip name in order, without annotations, lyrics or
+    the trailing '-' hold marks: '[Gm] Turn [C] on [Dm-]' -> 'Gm C Dm'."""
+    out = []
+    for tok in re.findall(r'\[([^\]]*)\]', name):
+        tok = tok.strip()
+        if CHORD_TOKEN_RE.match(tok):
+            out.append(tok.rstrip('-'))
+    return ' '.join(out)
+
+
+def _chord_tokens(clips):
+    """Every chord of a track in playing order, with the clip it sits in."""
+    out = []
+    for c in clips:
+        for group in _chord_seq(c['name']).split():
+            for chord in group.split('-'):
+                if chord:
+                    out.append((chord, c['start']))
+    return out
+
+
+def _chord_mismatches(chord_clips, player_clips, track_key, s, tl):
+    """Where a player track's chord sequence differs from the Chords track.
+    Compared as a sequence, so clips split or cut differently don't count;
+    only added, missing or different chords do."""
+    a = _chord_tokens(chord_clips)
+    b = _chord_tokens(player_clips)
+    sm = difflib.SequenceMatcher(None, [t[0] for t in a], [t[0] for t in b], autojunk=False)
+    out = []
+    for op, i1, i2, j1, j2 in sm.get_opcodes():
+        if op == 'equal':
+            continue
+        pos = a[i1][1] if i1 < i2 else (b[j1][1] if j1 < j2 else s)
+        kind = {'replace': 'differs', 'delete': 'missing', 'insert': 'extra'}[op]
+        out.append({'track': track_key, 'kind': kind, 'beat': _num(pos), 'bar': tl.bar_of(pos, 0),
+                    'song_bar': tl.bar_of(pos, s),
+                    'chords': ' '.join(t[0] for t in a[i1:i2]), 'player': ' '.join(t[0] for t in b[j1:j2])})
+    return out
+
+
 def _custom_notes(player_clips, chord_clips):
     chord_notes = {}
     for c in chord_clips:
@@ -390,6 +436,9 @@ def build_snapshot(als_path):
             # a stem must cover most of the song; tails of the previous song don't count
             ev[k] = _coverage(clips[k], a, b) >= 0.5
         fp = {k: _fingerprint(clips[k], a, b) for k in clips if k != 'song_id'}
+        mism = []
+        for pk in ('guitar', 'keyboard'):
+            mism += _chord_mismatches(ch, _in(clips[pk], a, b), pk, a, tl)
         odd = [p['bpm'] for p in tmap if p['bpm'] != int(p['bpm'])]
         if odd:
             warnings.append({'kind': 'fractional_bpm', 'msg': f'{s["id"]} ({loc}) uses a non-whole tempo: {", ".join(str(x) for x in odd)} BPM. Check the tempo automation if that is not intended.'})
@@ -405,6 +454,7 @@ def build_snapshot(als_path):
             'start_key': key,
             'evidence': ev,
             'fingerprints': fp,
+            'chord_mismatches': mism,
         }
     return {
         'als_path': os.path.abspath(als_path),
