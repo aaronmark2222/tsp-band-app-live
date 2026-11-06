@@ -31,7 +31,7 @@ from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
 TLS_PORT = 47711
-VERSION = '1.11'
+VERSION = '1.12'
 DEBUG_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requests.log')
 # https listener for the live site in Safari. Certificate made for 127.0.0.1 /
 # localhost only, trusted once in this Mac's Keychain. Files sit next to this
@@ -336,11 +336,16 @@ class TSPWork(ControlSurface):
             cue.jump()  # same as clicking the locator (how AbleSet jumps)
         else:
             song.current_song_time = start
+        # Song review: the bar's prev/next step through the song's sections.
+        sections = self._find_track(None, 'SECTIONS')
+        if sections is not None:
+            self._review = {'song_id': song_id, 'task_key': 'song', 'tracks': [sections], 'region': tuple(region)}
         # Nudge Follow so the view scrolls to the new position.
         if song.view.follow_song:
             song.view.follow_song = False
             self.schedule_message(1, self._follow_on)
-        return {'ok': True, 'start_beat': start, 'locator': cue is not None}
+        return {'ok': True, 'start_beat': start, 'locator': cue is not None,
+                'review': self._review_state() if self._review else None}
 
     def _follow_on(self):
         try:

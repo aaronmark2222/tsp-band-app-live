@@ -2288,7 +2288,7 @@ const review = { state: null, timer: null, label: '', sending: false };
 function reviewTaskLabel(songId, taskKey) {
   const song = state.songs.find((item) => item.id === songId);
   const type = state.taskTypes.find((item) => item.key === taskKey);
-  const label = taskKey === 'mixed_backing' ? 'Mixed Backing' : (type?.label || taskKey);
+  const label = taskKey === 'song' ? 'Song' : taskKey === 'mixed_backing' ? 'Mixed Backing' : (type?.label || taskKey);
   return { song, label };
 }
 
@@ -2308,16 +2308,18 @@ function renderReviewBar() {
   const task = state.tasks.find((item) => item.song_id === rv.song_id && item.task_key === rv.task_key);
   const type = state.taskTypes.find((item) => item.key === rv.task_key);
   const canComplete = task && type && task.status !== 'Completed' && task.status !== 'No' && (type.allowed_statuses || []).includes('Completed');
-  const clipText = rv.clips ? `Clip ${rv.clip || '–'} / ${rv.clips}` : 'No clips on this track';
+  const songMode = rv.task_key === 'song';
+  const unit = songMode ? 'Section' : 'Clip';
+  const clipText = rv.clips ? `${unit} ${rv.clip || '–'} / ${rv.clips}` : (songMode ? 'No sections marked' : 'No clips on this track');
   const lyricsText = review.lyrics ? ` · Lyrics: ${escapeHtml(review.lyrics)}` : '';
   bar.innerHTML = `<div class="review-what"><span class="song-id">${escapeHtml(rv.song_id)}</span> <b>${escapeHtml(label)}</b><span class="muted"> · ${escapeHtml(song?.name || '')}</span><small>${clipText}${task ? ` · ${escapeHtml(task.status)}` : ''}${lyricsText}</small></div>
     <div class="review-controls">
-      <button type="button" data-review="prev" title="Previous clip on this track">⏮</button>
+      <button type="button" data-review="prev" title="Previous ${unit.toLowerCase()}">⏮</button>
       <button type="button" data-review="back2" title="Back 2 bars">−2 bars</button>
       <button type="button" class="review-play" data-review="toggle" title="Play / stop (Space)">${rv.playing ? '⏸' : '▶'}</button>
-      <button type="button" data-review="next" title="Next clip on this track">⏭</button>
-      <button type="button" data-review="loop" class="${rv.loop ? 'on' : ''}" aria-pressed="${!!rv.loop}" title="Loop the clip under the playhead">Loop clip</button>
-      <button type="button" data-review="solo" class="${rv.solo ? 'on' : ''}" aria-pressed="${!!rv.solo}" title="Solo this track while reviewing">Solo</button>
+      <button type="button" data-review="next" title="Next ${unit.toLowerCase()}">⏭</button>
+      <button type="button" data-review="loop" class="${rv.loop ? 'on' : ''}" aria-pressed="${!!rv.loop}" title="Loop the ${unit.toLowerCase()} under the playhead">Loop ${unit.toLowerCase()}</button>
+      ${songMode ? '' : `<button type="button" data-review="solo" class="${rv.solo ? 'on' : ''}" aria-pressed="${!!rv.solo}" title="Solo this track while reviewing">Solo</button>`}
       ${canComplete ? '<button type="button" class="review-complete" data-review-complete title="Mark this task Completed in TSP Work">Complete</button>' : ''}
       <button type="button" data-review="end" class="review-end" title="End review: un-solo and restore the loop">End</button>
     </div>`;
@@ -2385,13 +2387,22 @@ document.addEventListener('click', (event) => {
   if (event.target.closest('#review-bar [data-review-complete]')) reviewComplete();
 });
 
-// Space in TSP Work plays/stops Ableton while a review is open (not while typing).
+// Space in TSP Work plays/stops Ableton whenever Ableton is connected (not
+// while typing). Captured so a focused button (e.g. the song title you just
+// clicked) isn't pressed again by the Space key.
+function spaceForAbleton(event) {
+  if (!abletonBridge.connected || event.code !== 'Space' || event.metaKey || event.ctrlKey || event.altKey) return false;
+  return !event.target.closest?.('input, textarea, select, [contenteditable="true"]');
+}
 document.addEventListener('keydown', (event) => {
-  if (!review.state?.active || event.code !== 'Space' || event.metaKey || event.ctrlKey || event.altKey) return;
-  if (event.target.closest('input, textarea, select, [contenteditable="true"], button')) return;
+  if (!spaceForAbleton(event)) return;
   event.preventDefault();
-  reviewAction('toggle');
-});
+  event.stopPropagation();
+  if (!event.repeat) reviewAction('toggle');
+}, true);
+document.addEventListener('keyup', (event) => {
+  if (spaceForAbleton(event)) { event.preventDefault(); event.stopPropagation(); }
+}, true);
 
 
 // Use a logo file for the Sync tab if one has been added to assets/.
