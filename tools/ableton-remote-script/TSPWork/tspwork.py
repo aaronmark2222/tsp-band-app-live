@@ -110,6 +110,7 @@ class TSPWork(ControlSurface):
         self._thread = threading.Thread(target=self._serve, name='TSPWorkBridge')
         self._thread.daemon = True
         self._thread.start()
+        self.schedule_message(1, self._tick)
         self.log_message('TSPWork %s: listening on 127.0.0.1:%d' % (VERSION, PORT))
         self.show_message('TSPWork: connected to TSP Work on this Mac')
 
@@ -123,9 +124,16 @@ class TSPWork(ControlSurface):
             pass
         ControlSurface.disconnect(self)
 
-    def update_display(self):
-        ControlSurface.update_display(self)
-        # Runs on Live's main thread about every 100 ms.
+    def _tick(self):
+        # Runs on Live's main thread about every 100 ms (same loop AbleSet uses).
+        if self._stop:
+            return
+        try:
+            self._drain()
+        finally:
+            self.schedule_message(1, self._tick)
+
+    def _drain(self):
         for _ in range(4):
             try:
                 job = self._jobs.get_nowait()
