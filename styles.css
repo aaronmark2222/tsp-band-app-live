@@ -945,8 +945,15 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .sync-snoozed-toggle + .sync-list { margin-top: 8px; }
 .sync-row.sync-snoozed { opacity: .7; }
 .sync-tab { display: inline-flex; align-items: center; gap: 6px; }
-.sync-mark { flex: none; color: var(--lime); }
-.sync-title { display: flex; align-items: center; gap: 10px; }
+.sync-mark { flex: none; }
+/* Logo slot: assets/ableton-sync-logo.svg (or .png with a transparent
+   background), tinted with the tab's text colour. Until that file exists the
+   tab shows the built-in sync mark instead. */
+.sync-logo { display: none; flex: none; width: 26px; height: 13px; background-color: currentColor;
+  -webkit-mask: var(--sync-logo-url) center / contain no-repeat; mask: var(--sync-logo-url) center / contain no-repeat; }
+.has-sync-logo .sync-logo { display: inline-block; }
+.has-sync-logo .sync-mark { display: none; }
+@media (max-width: 800px) { .sync-tab .sync-label { display: none; } .sync-tab { padding-left: 12px; padding-right: 12px; } }
 .review-bar { width: max-content; position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: 16px; max-width: calc(100vw - 24px); padding: 10px 12px 10px 16px; background: #141c16; border: 1px solid #3a4d3d; border-radius: 14px; box-shadow: 0 12px 40px rgba(0,0,0,.45); font-size: 13px; }
 .review-what { display: grid; gap: 2px; min-width: 0; max-width: 280px; }
 .review-what > span.muted { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

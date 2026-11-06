@@ -89,6 +89,7 @@ function showWorkspace() {
   $('#member-access-open').classList.toggle('hidden', !state.member.is_admin);
   $('#new-song-open').classList.toggle('hidden', !state.member.is_admin);
   $('#sync-tab').classList.toggle('hidden', !state.member.is_admin);
+  loadSyncLogo();
   $('#new-song-open').onclick = openNewSongDialog;
   $('#member-name').textContent = state.member.name;
   $('#member-badge').textContent = state.member.name.slice(0, 1).toUpperCase();
@@ -2392,6 +2393,24 @@ document.addEventListener('keydown', (event) => {
   reviewAction('toggle');
 });
 
+
+// Use a logo file for the Sync tab if one has been added to assets/.
+function loadSyncLogo() {
+  if (loadSyncLogo.done) return;
+  loadSyncLogo.done = true;
+  const tryNext = (names) => {
+    if (!names.length) return;
+    const url = `assets/${names[0]}`;
+    const img = new Image();
+    img.onload = () => {
+      document.documentElement.style.setProperty('--sync-logo-url', `url("${url}")`);
+      document.body.classList.add('has-sync-logo');
+    };
+    img.onerror = () => tryNext(names.slice(1));
+    img.src = url;
+  };
+  tryNext(['ableton-sync-logo.svg', 'ableton-sync-logo.png']);
+}
 
 // ---------------------------------------------------------------------------
 // Ableton Sync page (admin only). TSPWork reads the SAVED .als and returns a

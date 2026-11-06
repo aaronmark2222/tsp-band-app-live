@@ -32,6 +32,7 @@ jobs:
           mkdir -p _site/assets
           cp index.html app.js styles.css apple-touch-icon.png _site/
           cp assets/the-string-project-logo.png _site/assets/
+          cp assets/ableton-sync-logo.* _site/assets/ 2>/dev/null || true
           touch _site/.nojekyll
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v4
