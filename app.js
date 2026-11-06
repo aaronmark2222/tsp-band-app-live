@@ -2243,7 +2243,8 @@ async function sendAbletonCommand(path, body) {
   abletonBridge.busy = true;
   try {
     const result = await abletonRequest(path, body);
-    if (result?.ok) return;
+    if (result?.review) showReviewBar(result.review, result);
+    if (result?.ok) return result;
     const error = String(result?.error || '');
     if (error === 'accessibility_needed') {
       showNotice('TSP Work needs Accessibility access for Ableton Live to select and zoom (System Settings › Privacy & Security › Accessibility). Your loop brace was left unchanged.', true);
@@ -2265,15 +2266,131 @@ document.addEventListener('click', (event) => {
     const select = workLabel.parentElement?.querySelector('.status-select');
     if (!select?.dataset.song || !select.dataset.task) return;
     event.preventDefault(); // keep the label from opening the status menu
-    sendAbletonCommand('/select', { song_id: select.dataset.song, task_key: select.dataset.task });
+    sendAbletonCommand('/select', { song_id: select.dataset.song, task_key: select.dataset.task, review: true });
     return;
   }
   const title = event.target.closest('.song-summary-toggle, .dashboard-open-song');
   const collapsing = title?.getAttribute('aria-expanded') === 'true';
   if (title?.dataset.songId && !collapsing && !(title.dataset.view === 'setlists' && state.setlistEditMode)) {
+    hideReviewBar(); // TSPWork ends the review (and un-solos) on a song jump
     sendAbletonCommand('/jump', { song_id: title.dataset.songId });
   }
 }, true);
+
+// ---------------------------------------------------------------------------
+// Review bar: appears after clicking a work title while Ableton is connected.
+// The playhead sits on the task track's first clip in the song (Space plays);
+// listening tasks are soloed until the review ends; text tasks open AbleSet's
+// floating window on the matching lyrics track.
+const review = { state: null, timer: null, label: '', sending: false };
+
+function reviewTaskLabel(songId, taskKey) {
+  const song = state.songs.find((item) => item.id === songId);
+  const type = state.taskTypes.find((item) => item.key === taskKey);
+  const label = taskKey === 'mixed_backing' ? 'Mixed Backing' : (type?.label || taskKey);
+  return { song, label };
+}
+
+function renderReviewBar() {
+  let bar = $('#review-bar');
+  const rv = review.state;
+  if (!rv?.active) { bar?.remove(); return; }
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'review-bar';
+    bar.className = 'review-bar';
+    bar.setAttribute('role', 'toolbar');
+    bar.setAttribute('aria-label', 'Review in Ableton');
+    document.body.append(bar);
+  }
+  const { song, label } = reviewTaskLabel(rv.song_id, rv.task_key);
+  const task = state.tasks.find((item) => item.song_id === rv.song_id && item.task_key === rv.task_key);
+  const type = state.taskTypes.find((item) => item.key === rv.task_key);
+  const canComplete = task && type && task.status !== 'Completed' && task.status !== 'No' && (type.allowed_statuses || []).includes('Completed');
+  const clipText = rv.clips ? `Clip ${rv.clip || '–'} / ${rv.clips}` : 'No clips on this track';
+  const lyricsText = review.lyrics ? ` · Lyrics: ${escapeHtml(review.lyrics)}` : '';
+  bar.innerHTML = `<div class="review-what"><span class="song-id">${escapeHtml(rv.song_id)}</span> <b>${escapeHtml(label)}</b><span class="muted"> · ${escapeHtml(song?.name || '')}</span><small>${clipText}${task ? ` · ${escapeHtml(task.status)}` : ''}${lyricsText}</small></div>
+    <div class="review-controls">
+      <button type="button" data-review="prev" title="Previous clip on this track">⏮</button>
+      <button type="button" data-review="back2" title="Back 2 bars">−2 bars</button>
+      <button type="button" class="review-play" data-review="toggle" title="Play / stop (Space)">${rv.playing ? '⏸' : '▶'}</button>
+      <button type="button" data-review="next" title="Next clip on this track">⏭</button>
+      <button type="button" data-review="loop" class="${rv.loop ? 'on' : ''}" aria-pressed="${!!rv.loop}" title="Loop the clip under the playhead">Loop clip</button>
+      <button type="button" data-review="solo" class="${rv.solo ? 'on' : ''}" aria-pressed="${!!rv.solo}" title="Solo this track while reviewing">Solo</button>
+      ${canComplete ? '<button type="button" class="review-complete" data-review-complete title="Mark this task Completed in TSP Work">Complete</button>' : ''}
+      <button type="button" data-review="end" class="review-end" title="End review: un-solo and restore the loop">End</button>
+    </div>`;
+}
+
+function showReviewBar(reviewState, result) {
+  review.state = reviewState;
+  review.lyrics = result?.lyrics || null;
+  renderReviewBar();
+  clearInterval(review.timer);
+  if (reviewState?.active) review.timer = setInterval(pollReview, 1000);
+}
+
+function hideReviewBar() {
+  clearInterval(review.timer);
+  review.timer = null;
+  review.state = null;
+  renderReviewBar();
+}
+
+async function pollReview() {
+  if (document.hidden || review.sending || !abletonBridge.connected) return;
+  try {
+    const result = await abletonRequest('/transport', { action: 'state' }, 1500);
+    if (!result?.ok || !result.active) { hideReviewBar(); return; }
+    const changed = ['playing', 'clip', 'solo', 'loop', 'clips'].some((key) => result[key] !== review.state?.[key]);
+    review.state = result;
+    if (changed) renderReviewBar();
+  } catch { /* the badge probe reports lost connections */ }
+}
+
+async function reviewAction(action) {
+  if (review.sending) return;
+  review.sending = true;
+  try {
+    const result = await abletonRequest('/transport', { action }, 4000);
+    if (!result?.ok) { showNotice(ABLETON_ERRORS[result?.error] || `Ableton: ${result?.error || 'no response'}`, true); return; }
+    if (action === 'end' || !result.active) hideReviewBar(); else { review.state = result; renderReviewBar(); }
+  } catch {
+    showNotice('Lost the connection to Ableton. Is the TSPWork control surface on?', true);
+  } finally {
+    review.sending = false;
+  }
+}
+
+async function reviewComplete() {
+  const rv = review.state;
+  if (!rv) return;
+  const { error } = await db.from('song_tasks').update({ status: 'Completed' }).eq('song_id', rv.song_id).eq('task_key', rv.task_key);
+  if (error) { fail(`Could not update ${rv.song_id}.`, error); return; }
+  const task = state.tasks.find((item) => item.song_id === rv.song_id && item.task_key === rv.task_key);
+  if (task) task.status = 'Completed';
+  showNotice(`${rv.song_id} ${reviewTaskLabel(rv.song_id, rv.task_key).label} marked Completed.`);
+  renderReviewBar();
+  await loadReadiness();
+  renderSongs();
+  if (state.view === 'setlists') await renderActiveSetlist();
+  if (state.view === 'dashboard') await renderDashboard();
+  if (state.view === 'sync') renderSyncPage();
+}
+
+document.addEventListener('click', (event) => {
+  const button = event.target.closest('#review-bar [data-review]');
+  if (button) { reviewAction(button.dataset.review); return; }
+  if (event.target.closest('#review-bar [data-review-complete]')) reviewComplete();
+});
+
+// Space in TSP Work plays/stops Ableton while a review is open (not while typing).
+document.addEventListener('keydown', (event) => {
+  if (!review.state?.active || event.code !== 'Space' || event.metaKey || event.ctrlKey || event.altKey) return;
+  if (event.target.closest('input, textarea, select, [contenteditable="true"], button')) return;
+  event.preventDefault();
+  reviewAction('toggle');
+});
 
 
 // ---------------------------------------------------------------------------
@@ -2624,8 +2741,8 @@ $('#sync-content').addEventListener('click', (event) => {
   if (jump) { sendAbletonCommand('/jump', { song_id: jump.dataset.syncJump }); return; }
   const select = event.target.closest('[data-sync-select]');
   if (select) {
-    const taskKey = select.dataset.task === 'backing_track_manual' ? 'backing_music' : select.dataset.task;
-    const body = { song_id: select.dataset.syncSelect, task_key: taskKey };
+    const taskKey = select.dataset.task === 'backing_track_manual' ? 'mixed_backing' : select.dataset.task;
+    const body = { song_id: select.dataset.syncSelect, task_key: taskKey, review: true };
     if (select.dataset.fromBeat) {
       // Show about 8 bars from the mismatch (a little before it, for context).
       const beat = Number(select.dataset.fromBeat);

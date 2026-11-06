@@ -944,3 +944,20 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .sync-snoozed-toggle { margin-top: 10px; border: 0; background: transparent; color: var(--muted); font-size: 12px; padding: 0; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .sync-snoozed-toggle + .sync-list { margin-top: 8px; }
 .sync-row.sync-snoozed { opacity: .7; }
+.sync-tab { display: inline-flex; align-items: center; gap: 6px; }
+.sync-mark { flex: none; color: var(--lime); }
+.sync-title { display: flex; align-items: center; gap: 10px; }
+.review-bar { width: max-content; position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: 16px; max-width: calc(100vw - 24px); padding: 10px 12px 10px 16px; background: #141c16; border: 1px solid #3a4d3d; border-radius: 14px; box-shadow: 0 12px 40px rgba(0,0,0,.45); font-size: 13px; }
+.review-what { display: grid; gap: 2px; min-width: 0; max-width: 280px; }
+.review-what > span.muted { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.review-what b { font-weight: 600; }
+.review-what .song-id { color: var(--lime); font: 12px var(--mono); }
+.review-what small { color: var(--muted); font: 11px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.review-controls { display: flex; gap: 6px; flex-wrap: nowrap; }
+.review-controls button { white-space: nowrap; min-width: 38px; height: 34px; padding: 0 10px; border-radius: 9px; border: 1px solid #3a4d3d; background: #213025; color: var(--ink); font-size: 13px; cursor: pointer; }
+.review-controls button:hover { background: #2b3e30; }
+.review-controls button.on { background: var(--lime); border-color: var(--lime); color: #142012; font-weight: 600; }
+.review-controls .review-play { min-width: 48px; font-size: 15px; }
+.review-controls .review-complete { border-color: #f39a26; color: #f39a26; }
+.review-controls .review-end { color: var(--muted); }
+@media (max-width: 800px) { .review-bar { left: 8px; right: 8px; width: auto; transform: none; flex-direction: column; align-items: stretch; gap: 8px; bottom: 10px; } .review-what { max-width: none; } .review-controls { flex-wrap: wrap; } }
