@@ -570,6 +570,7 @@ class ExportJob(object):
                 raise RuntimeError('cancelled')
             base = safe_name('%s - %s' % (self.song_id, label))
             st['current'] = label
+            file_started = time.time()
             for f in os.listdir(folder):
                 if f.startswith(base + '.'):
                     os.remove(os.path.join(folder, f))
@@ -584,7 +585,7 @@ class ExportJob(object):
             if out != 'ok':
                 raise RuntimeError(out)
             name = self._wait_for_file(folder, base, before)
-            st['done'].append({'label': label, 'file': name})
+            st['done'].append({'label': label, 'file': name, 'seconds': round(time.time() - file_started, 1)})
             self._queue_upload(label, os.path.join(folder, name))
         st['current'] = None
         # Files from an earlier export that this run no longer makes (e.g. a
@@ -671,17 +672,24 @@ class ExportJob(object):
                 if self.cancelled:
                     st['results'].append({'song_id': song['song_id'], 'state': 'cancelled', 'files': 0})
                     continue
+                song_started = time.time()
                 self._select_song(song)
                 st.update({'song_index': index, 'song_id': self.song_id, 'error': None,
-                           'done': [], 'skipped': [], 'total': 0, 'current': None, 'folder': None})
+                           'done': [], 'skipped': [], 'total': 0, 'current': None, 'folder': None,
+                           'song_started_at': song_started})
                 try:
                     self._export_song()
                     st['results'].append({'song_id': self.song_id, 'state': 'done', 'files': len(st['done']),
-                                          'skipped': list(st['skipped'])})
+                                          'skipped': list(st['skipped']),
+                                          # timing, logged by the app for time-left estimates
+                                          'started_at': song_started, 'finished_at': time.time(),
+                                          'seconds': round(time.time() - song_started, 1),
+                                          'file_seconds': [[d['label'], d.get('seconds')] for d in st['done']]})
                 except Exception as err:
                     st['error'] = str(err)[:300]
                     st['results'].append({'song_id': self.song_id, 'state': 'error', 'files': len(st['done']),
-                                          'error': st['error']})
+                                          'error': st['error'], 'started_at': song_started, 'finished_at': time.time(),
+                                          'seconds': round(time.time() - song_started, 1)})
                     osascript(CLOSE_DIALOGS, timeout=20)  # don't leave Export/Save open
             failed = [r for r in st['results'] if r['state'] != 'done']
             st['state'] = 'error' if failed else 'done'

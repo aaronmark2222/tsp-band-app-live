@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-07** · App version marker `?v=20261107-ableset4` · TSPWork remote script **1.16** (alsreader md5 `0ff2bbb0…`, exporter md5 `81e445da…`, tspwork md5 `b1b17e56…`) · Supabase ledger head `20261107150411_song_lyrics_tone` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
+_Last updated: **2026-11-07** · App version marker `?v=20261107-exptime` · TSPWork remote script **1.16** (alsreader md5 `0ff2bbb0…`, exporter md5 `d5fc7891…`, tspwork md5 `b1b17e56…`) · Supabase ledger head `20261107174948_practice_export_log` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -142,6 +142,7 @@ Aaron is the owner and the only person who runs Ableton Sync and exports. He mos
 | `practice_tracks` | 10 | **legacy**: early manual-upload index. The bucket listing is now the truth; kept for history |
 | `song_lyrics` | 62 | per song from the last Read set: `tracks` (+LYRICS lines `{t,e,text,c}`), `sections` (`{t,name,c}`), `tempo` (`[[sec,bpm]]`), `bars` (`[[sec,num,den]]`), `tone` (`{t,bar,n,v,d}`), duration_seconds, als_modified_at |
 | `app_meta` | 1 | key/value; `practice_track_colors` (element → hex from the set) |
+| `practice_export_log` | 0 | one row per exported song: export_seconds, files, song_seconds, per-file seconds; feeds the export time-left estimate |
 
 Song ID families now: E 15, EM 11, I 9, HM 9, H 7, EHM 5, K 3, KM 2, EHKM 1.
 
@@ -209,7 +210,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
   - Backing tasks map to the BACKING TRACKS groups (Dale and Anston under BACKING VOCALS), "Mixed" to MIXED BACKING, parts to the PARTS tracks.
 - **Practice audio export panel:**
   - Song checklist (columns, uploaded songs in green, Select all, "+ Setlist…" adds a setlist's songs), export folder field, upload checkbox, Start/Cancel.
-  - Progress bar weighted by song length and file count, with an ETA; "Uploaded N files (MB)" plus Cloudflare storage used out of 10 GB.
+  - Progress bar weighted by song length and file count. Time left comes from past export timings in `practice_export_log` (seconds per file per second of song); until there is history it uses this run's own pace; "Uploaded N files (MB)" plus Cloudflare storage used out of 10 GB.
   - Start fetches 24 h presigned links via `practice-audio` `upload_batch`, then `POST /export {songs, export_root, uploads}`, then polls `/export/state`.
 
 ### 6.3 Practice page (all members)
@@ -449,4 +450,5 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 ---
 
 ## 17. Changelog of this plan
+- **2026-11-07 (late):** Export timing: the exporter reports per-song and per-file seconds, the app logs them to `practice_export_log`, and the time-left estimate uses them.
 - **2026-11-07:** Created. Consolidated everything since the start: the tracker, Ableton Sync, TSPWork 1.16, the overnight export, the Practice page, AbleSet lyrics and guitar tones. The repo was synced with the live Supabase ledger (10 migration files renamed to their live versions; 3 missing migrations added; migrations README). Edge Functions and Mac scripts were verified identical to the repo.

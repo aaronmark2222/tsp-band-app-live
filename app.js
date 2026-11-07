@@ -2931,7 +2931,7 @@ function renderExportPanel() {
     const headNow = job.state === 'uploading' ? 'All songs exported; finishing the last uploads…' : head;
     const prog = running ? exportProgress(job) : null;
     const bar = prog ? `<div class="export-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(prog.pct)}"><span style="width:${prog.pct.toFixed(1)}%"></span></div>
-      <p class="muted export-eta">${prog.pct.toFixed(0)}% done${prog.eta ? ` · about ${prog.eta} left` : ''}</p>` : '';
+      <p class="muted export-eta">${prog.pct.toFixed(0)}% done${prog.eta ? ` · about ${prog.eta} left` : ''}${prog.basis === 'history' ? ` <small>(timed from ${exportJob.logCount} earlier song${exportJob.logCount === 1 ? '' : 's'})</small>` : ''}</p>` : '';
     const storage = exportJob.storageBytes != null ? ` · Cloudflare storage: <b>${(exportJob.storageBytes / 1e9).toFixed(2)} GB</b> of 10 GB` : '';
     status = `<div class="export-status ${job.state}"><p><b>${headNow}</b></p>${bar}${upLine.replace('.</p>', `${storage}.</p>`)}${job.folder && running ? `<p class="muted">Folder: ${escapeHtml(job.folder)}</p>` : ''}${mix}${running && job.skipped?.length ? `<p class="muted">Skipped: ${escapeHtml(job.skipped.join(', '))}</p>` : ''}${songLine}${running ? `<ul class="export-files">${files}${now}</ul>` : ''}</div>`;
   }
@@ -2962,12 +2962,35 @@ function renderExportPanel() {
 // Progress weighs every file by its song's length: done songs count their
 // files, the current song its finished files, and songs still to come the
 // average number of files per song so far (about 11 at the start).
+// Time left: from how long earlier exports took (practice_export_log, one
+// row per song), as seconds of export per file per second of song. Falls back
+// to this run's own pace until there is history.
 function exportProgress(job) {
   const queue = job.queue || [job.song_id];
   const dur = (id) => state.songs.find((song) => song.id === id)?.duration_seconds || 240;
   const results = job.results || [];
   const doneSongs = results.filter((r) => r.files > 0);
-  const avgFiles = doneSongs.length ? doneSongs.reduce((sum, r) => sum + r.files, 0) / doneSongs.length : 11;
+  const avgFiles = doneSongs.length ? doneSongs.reduce((sum, r) => sum + r.files, 0) / doneSongs.length : (exportJob.avgFiles || 11);
+  const now = Date.now() / 1000;
+  const rate = exportJob.rate;
+  if (rate && job.state !== 'uploading') {
+    let doneSec = 0;
+    let totalSec = 0;
+    queue.forEach((id, i) => {
+      const r = results.find((item) => item.song_id === id);
+      if (r) { const s = r.seconds ?? r.files * dur(id) * rate; doneSec += s; totalSec += s; return; }
+      if (i === job.song_index && job.song_started_at) {
+        const expected = (job.total || avgFiles) * dur(id) * rate;
+        const elapsed = Math.max(0, now - job.song_started_at);
+        doneSec += Math.min(elapsed, expected * 0.97);
+        totalSec += Math.max(expected, elapsed / 0.97);
+        return;
+      }
+      totalSec += avgFiles * dur(id) * rate;
+    });
+    const left = Math.max(0, totalSec - doneSec);
+    return { pct: totalSec ? Math.min(100, (doneSec / totalSec) * 100) : 0, eta: exportFmtSeconds(left), basis: 'history' };
+  }
   let done = 0;
   let total = 0;
   queue.forEach((id, i) => {
@@ -2981,14 +3004,50 @@ function exportProgress(job) {
   });
   const pct = total ? Math.min(100, (done / total) * 100) : 0;
   let eta = '';
-  const elapsed = Date.now() / 1000 - (job.started_at || Date.now() / 1000);
-  if (pct > 2 && elapsed > 60) {
-    const left = elapsed * (100 - pct) / pct;
-    const h = Math.floor(left / 3600);
-    const m = Math.round((left % 3600) / 60);
-    eta = h ? `${h} h ${m} min` : `${m} min`;
+  const elapsed = now - (job.started_at || now);
+  if (pct > 2 && elapsed > 60) eta = exportFmtSeconds(elapsed * (100 - pct) / pct);
+  return { pct: job.state === 'uploading' ? 100 : pct, eta, basis: 'pace' };
+}
+function exportFmtSeconds(left) {
+  const h = Math.floor(left / 3600);
+  const m = Math.max(1, Math.round((left % 3600) / 60));
+  return h ? `${h} h ${m} min` : `${m} min`;
+}
+// Past export timings -> rate (s of export per file per s of song).
+async function exportLoadRate() {
+  const { data, error } = await db.from('practice_export_log').select('files, export_seconds, song_seconds')
+    .eq('state', 'done').gt('files', 0).order('finished_at', { ascending: false }).limit(40);
+  if (error || !data?.length) { exportJob.rate = 0; return; }
+  let work = 0;
+  let secs = 0;
+  let files = 0;
+  for (const row of data) {
+    if (!row.song_seconds) continue;
+    work += row.files * row.song_seconds;
+    secs += Number(row.export_seconds);
+    files += row.files;
   }
-  return { pct: job.state === 'uploading' ? 100 : pct, eta };
+  if (work > 0) exportJob.rate = secs / work;
+  if (data.length) exportJob.avgFiles = files / data.length;
+  exportJob.logCount = data.length;
+}
+// Save each finished song's timing once (TSPWork 1.16 with timing).
+async function exportLogResults(job) {
+  exportJob.logged ||= new Set();
+  const fresh = (job?.results || []).filter((r) => r.started_at && r.seconds != null && (r.state === 'done' || r.state === 'error'))
+    .filter((r) => !exportJob.logged.has(`${r.song_id}|${r.started_at}`));
+  const keys = fresh.map((r) => `${r.song_id}|${r.started_at}`);
+  const rows = fresh.map((r) => ({
+      song_id: r.song_id, state: r.state, files: r.files || 0, export_seconds: r.seconds,
+      song_seconds: state.songs.find((song) => song.id === r.song_id)?.duration_seconds ?? null,
+      file_seconds: r.file_seconds || [],
+      started_at: new Date(r.started_at * 1000).toISOString(), finished_at: new Date(r.finished_at * 1000).toISOString()
+    }));
+  if (!rows.length) return;
+  keys.forEach((key) => exportJob.logged.add(key));
+  const { error } = await db.from('practice_export_log').upsert(rows, { onConflict: 'song_id,started_at', ignoreDuplicates: true });
+  if (error) { console.warn('Export timing not saved', error); keys.forEach((key) => exportJob.logged.delete(key)); return; }
+  exportLoadRate();
 }
 
 async function exportRefreshStorage() {
@@ -3012,6 +3071,8 @@ async function pollExport() {
     const result = await abletonRequest('/export/state', {}, 3000);
     exportJob.state = result?.job || exportJob.state;
   } catch { /* Live may be busy rendering; try again */ }
+  if (exportJob.state?.results?.length) exportLogResults(exportJob.state);
+  if (exportJob.rate == null && !exportJob.rateLoading) { exportJob.rateLoading = true; exportLoadRate().finally(() => { exportJob.rateLoading = false; }); }
   renderExportPanel();
   if (!exportJob.state || !['starting', 'running', 'uploading'].includes(exportJob.state.state)) {
     clearInterval(exportJob.timer);
