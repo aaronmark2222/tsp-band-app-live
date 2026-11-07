@@ -92,8 +92,23 @@ def _clip_notes(c, cstart, cend):
     return out
 
 
-def _clips(track_el):
-    """Arrangement clips of a track (not session or freeze clips)."""
+# Clip parts that change what it sounds like (not its name, colour or view).
+SOUND_PARTS = ('Loop', 'Disabled', 'SampleRef', 'WarpMarkers', 'IsWarped', 'WarpMode', 'PitchCoarse',
+               'PitchFine', 'SampleVolume', 'Fades', 'Envelopes', 'Notes', 'StartMarker', 'EndMarker')
+
+
+def _clip_sound_hash(c):
+    h = hashlib.sha1()
+    for tag in SOUND_PARTS:
+        node = c.find(tag)
+        if node is not None:
+            h.update(ET.tostring(node))
+    return h.hexdigest()[:12]
+
+
+def _clips(track_el, sound=True):
+    """Arrangement clips of a track (not session or freeze clips). sound=False
+    skips the sound hash (lyrics/marker tracks: thousands of clips, no audio)."""
     seq = track_el.find('DeviceChain/MainSequencer')
     out = []
     if seq is None:
@@ -121,6 +136,7 @@ def _clips(track_el):
                 'midi': midi,
                 'file': (_val(c, 'SampleRef/FileRef/Path', '') or _val(c, 'SampleRef/FileRef/RelativePath', '') or '')
                         if c.tag == 'AudioClip' else '',
+                'h': _clip_sound_hash(c) if sound else '',
             })
     out.sort(key=lambda c: (c['start'], c['end']))
     return out
@@ -155,12 +171,15 @@ def read_als(path):
             stack.pop()
             depth = len(stack)
             if depth == 3 and stack[2] == 'Tracks' and el.tag.endswith('Track'):
+                tname = _val(el, 'Name/EffectiveName', '') or ''
+                sound = not ('+LYRICS' in tname.upper() or tname.strip().upper().startswith(('SECTIONS', 'SONG ID', 'GUITAR TONE')))
                 tracks.append({
                     'id': el.get('Id'), 'type': el.tag,
                     'name': _val(el, 'Name/EffectiveName', ''),
                     'group': _val(el, 'TrackGroupId', '-1'),
                     'color': _val(el, 'Color', None),
-                    'clips': _clips(el),
+                    'mix': '|'.join(str(_val(el, 'DeviceChain/Mixer/%s/Manual' % k, '')) for k in ('Volume', 'Pan')),
+                    'clips': _clips(el, sound),
                 })
                 el.clear()
             elif depth == 2 and el.tag in ('MainTrack', 'MasterTrack'):
@@ -503,6 +522,73 @@ def _hex(index):
         return None
 
 
+# Practice-audio element -> tracks it is rendered from (mirrors exporter.py).
+AUDIO_SOURCES = {
+    'Stem - Bass': [('STEMS', 'BASS')], 'Stem - Drums': [('STEMS', 'DRUMS')],
+    'Stem - Other': [('STEMS', 'OTHER')], 'Stem - Vocals': [('STEMS', 'VOCALS')],
+    'Part - Bass': [('PARTS', 'Bass Part'), ('LIVE CHANNELS', 'BASS Live')],
+    'Part - Keyboard': [('PARTS', 'Keyboard Part'), ('LIVE CHANNELS', 'KEYBOARD Live')],
+    'Part - Guitar': [('PARTS', 'Guitar Part'), ('LIVE CHANNELS', 'GUITAR Live')],
+    'Part - Violin': [('PARTS', 'Violin Part'), ('LIVE CHANNELS', 'VIOLIN Live')],
+    'Part - Percussion': [('PARTS', 'Percussion Part'), ('LIVE CHANNELS', 'PERCUSSION Live')],
+    'Part - Drums': [('PARTS', 'Drums Part'), ('PARTS', 'Drums Midi Part'), ('LIVE CHANNELS', 'DRUMS Live')],
+    'Part - Dale Vox': [('PARTS', 'Dale Vox Part'), ('LIVE CHANNELS', 'DALE VOX Live')],
+    'Part - Anston Vox': [('PARTS', 'Anston Vox Part'), ('LIVE CHANNELS', 'ANSTON VOX Live')],
+    'Backing': [('*', 'MIXED BACKING'), ('*', 'BACKING TRACKS')],
+    'CPC': [('*', 'CPC')],
+}
+
+
+def _audio_fingerprints(tracks, a, b):
+    """Per song: a short hash per practice-audio element of the clips (what
+    they sound like, where they sit) and mixer settings of the tracks it is
+    rendered from. A different hash later = the uploaded file is out of date."""
+    by_id = {t['id']: t for t in tracks}
+    kids = {}
+    for t in tracks:
+        kids.setdefault(t['group'], []).append(t)
+
+    def under(group_track):
+        out, todo = [], [group_track]
+        while todo:
+            g = todo.pop()
+            out.append(g)
+            todo.extend(kids.get(g['id'], []))
+        return out
+
+    def find(parent, name):
+        for t in tracks:
+            if t['name'].strip() != name:
+                continue
+            par = by_id.get(t['group'])
+            if parent == '*' or (par is not None and par['name'].strip() == parent):
+                return t
+        return None
+
+    out = {}
+    for element, sources in AUDIO_SOURCES.items():
+        chosen = []
+        for parent, name in sources:
+            t = find(parent, name)
+            if t is not None:
+                chosen.extend(under(t) if parent == '*' else [t])
+        if element == 'CPC':
+            chosen = [t for t in chosen if t['name'].strip() != 'Backup Que']
+        h = hashlib.sha1()
+        content = False
+        for t in sorted(chosen, key=lambda t: (t['name'], t['id'])):
+            inside = [c for c in t['clips'] if c['end'] > a and c['start'] < b]
+            if any(not c['disabled'] for c in inside):
+                content = True
+            h.update(('%s|%s\n' % (t['name'], t.get('mix', ''))).encode('utf-8'))
+            for c in inside:
+                h.update(('%.3f|%.3f|%s|%s\n' % (max(a, c['start']) - a, min(b, c['end']) - a, c['disabled'], c.get('h', ''))).encode('utf-8'))
+        out[element] = h.hexdigest()[:12] if content else None
+    parts = [out[k] or '-' for k in sorted(out)]
+    out['Mixdown'] = hashlib.sha1('|'.join(parts).encode('utf-8')).hexdigest()[:12] if any(v for v in out.values()) else None
+    return out
+
+
 def _track_colors(tracks):
     by_id = {t['id']: t for t in tracks}
     out = {}
@@ -665,6 +751,7 @@ def build_snapshot(als_path):
             'lyrics': _lyrics_for(lyric_tracks, clips['sections'], a, b, tl),
             'bars': bars,
             'tone': tone,
+            'audio_fp': _audio_fingerprints(tracks, a, b),
         }
     return {
         'als_path': os.path.abspath(als_path),

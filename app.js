@@ -2798,6 +2798,8 @@ async function readAbletonSet() {
       try { sync.lyricsSaved = await saveSongLyrics(sync.snapshot); } catch (error) { sync.lyricsSaved = null; showNotice(`Lyrics were not saved for Practice: ${error.message}`, true); }
     }
     try { await loadSyncAudioLengths(); } catch (error) { console.warn('Audio lengths not loaded', error); }
+    // Practice audio: the set's current track fingerprints (yellow = changed since upload).
+    try { await audioStateAfterRead(sync.snapshot); } catch (error) { console.warn('Audio state not updated', error); }
     // Practice track colours follow the Ableton project.
     if (sync.snapshot.track_colors && Object.keys(sync.snapshot.track_colors).length) {
       const { error: colorError } = await db.from('app_meta').upsert({ key: 'practice_track_colors', value: sync.snapshot.track_colors, updated_at: new Date().toISOString() }, { onConflict: 'key' });
@@ -2908,6 +2910,11 @@ function renderExportPanel() {
     practiceLoadAvailable().catch((error) => console.warn('Upload list not loaded', error))
       .finally(() => { exportJob.loadingAvailable = false; if (practice.available) renderExportPanel(); });
   }
+  if (!exportJob.audioState && !exportJob.audioLoading) {
+    exportJob.audioLoading = true;
+    audioStateLoad().catch((error) => { console.warn('Audio state not loaded', error); exportJob.audioState = new Map(); exportJob.currentFp = {}; })
+      .finally(() => { exportJob.audioLoading = false; if (exportJob.audioState) renderExportPanel(); });
+  }
   const job = exportJob.state;
   const running = job && ['starting', 'running', 'uploading'].includes(job.state);
   const songs = state.songs; // same order as the database / Songs page
@@ -2956,15 +2963,17 @@ function renderExportPanel() {
         <option value="">+ Setlist…</option>${(state.setlists || []).map((list) => `<option value="${escapeHtml(list.id)}">${escapeHtml(list.name)}</option>`).join('')}
       </select>
       <button class="button quiet" type="button" data-export-none ${running || !count ? 'disabled' : ''}>Clear</button>
-      ${(() => { const up = [...exportJob.selected].filter((id) => practice.available?.has(id)).length; return `<button class="button quiet" type="button" data-export-unuploaded ${running || !up ? 'disabled' : ''} title="Uncheck the checked songs that are already on the band app">Uncheck uploaded${up ? ` (${up})` : ''}</button>`; })()}
+      <button class="button quiet" type="button" data-export-changed ${running || !exportChangedIds().length ? 'disabled' : ''} title="Add the songs that changed in Ableton since their upload">+ Changed${exportChangedIds().length ? ` (${exportChangedIds().length})` : ''}</button>
+      ${(() => { const up = [...exportJob.selected].filter((id) => practice.available?.has(id) && !audioChanges(id).length).length; return `<button class="button quiet" type="button" data-export-unuploaded ${running || !up ? 'disabled' : ''} title="Uncheck the checked songs that are already on the band app">Uncheck uploaded${up ? ` (${up})` : ''}</button>`; })()}
       <button id="export-start" class="button primary" type="button" ${running || !count || (!abletonBridge.connected && !running) ? 'disabled' : ''}>${running ? 'Exporting…' : `Export ${count ? `${count} song${count === 1 ? '' : 's'}` : 'songs'}`}</button>
       ${canStopAfter ? `<button id="export-stop-after" class="button ${job.stop_after_song ? 'primary' : 'quiet'}" type="button" ${stopSupported ? '' : 'disabled'} title="${stopSupported ? (job.stop_after_song ? 'Keep exporting the rest of the songs' : 'Finish the song being exported, then stop') : 'Needs TSPWork 1.17: in Live, set the TSPWork control surface to None and back to TSPWork'}">${job.stop_after_song ? `Keep going after ${escapeHtml(job.song_id)}` : 'Stop after this song'}</button>` : ''}
       ${running ? '<button id="export-cancel" class="button quiet" type="button" title="Stop right away (the current song is left unfinished) and put Ableton back">Cancel now</button>' : ''}
     </div>
-    <p class="muted export-legend"><span class="export-up">●</span> already on the band app${practice.available ? ` (${practice.available.size} songs)` : ''}</p>
+    <p class="muted export-legend"><span class="export-up">●</span> on the band app${practice.available ? ` (${practice.available.size} songs)` : ''} · <span class="export-changed">●</span> changed in Ableton since its upload${exportChangedIds().length ? ` (${exportChangedIds().length})` : ''}${exportJob.preparing ? ` · <b>${escapeHtml(exportJob.preparing)}</b>` : ''}</p>
     <ul class="export-pick">${songs.map((song) => {
       const up = practice.available?.get(song.id);
-      return `<li class="${up ? 'uploaded' : ''}"><label title="${up ? `${up.length} files on the band app` : 'Not uploaded yet'}"><input type="checkbox" data-export-song="${escapeHtml(song.id)}" ${exportJob.selected.has(song.id) ? 'checked' : ''} ${running ? 'disabled' : ''}><span class="song-id">${escapeHtml(song.id)}</span> <span class="export-name">${escapeHtml(song.name)}</span>${up ? ' <span class="export-up">●</span>' : ''}</label></li>`;
+      const changes = up ? audioChanges(song.id) : [];
+      return `<li class="${up ? (changes.length ? 'changed' : 'uploaded') : ''}"><label title="${up ? (changes.length ? `Changed in Ableton since it was uploaded: ${escapeHtml(changes.join(', '))}` : `${up.length} files on the band app`) : 'Not uploaded yet'}"><input type="checkbox" data-export-song="${escapeHtml(song.id)}" ${exportJob.selected.has(song.id) ? 'checked' : ''} ${running ? 'disabled' : ''}><span class="song-id">${escapeHtml(song.id)}</span> <span class="export-name">${escapeHtml(song.name)}</span>${up ? ' <span class="export-up">●</span>' : ''}</label></li>`;
     }).join('')}</ul>`;
   // Only redraw what changed: during an export the progress below updates
   // every 2 s, but the buttons and the list stay put so clicks aren't lost.
@@ -2976,6 +2985,9 @@ function renderExportPanel() {
   const list = box.querySelector('.export-pick');
   if (list && listScroll && list.scrollTop !== listScroll) list.scrollTop = listScroll;
   if (Math.abs(window.scrollY - pageScroll) > 1) window.scrollTo(0, pageScroll);
+}
+function exportChangedIds() {
+  return state.songs.filter((song) => practice.available?.has(song.id) && audioChanges(song.id).length).map((song) => song.id);
 }
 function exportVersionAtLeast(want) {
   const have = String(abletonBridge.status?.version || abletonBridge.version || '0').split('.').map(Number);
@@ -3058,6 +3070,81 @@ async function exportLoadRate() {
   if (data.length) exportJob.avgFiles = files / data.length;
   exportJob.logCount = data.length;
 }
+// ---- Practice audio freshness --------------------------------------------
+// practice_audio_state: per uploaded file, the fingerprint of its Ableton
+// tracks at export. app_meta 'audio_fingerprints': the set as last read.
+// A difference = that song's upload is out of date (yellow in the checklist).
+async function audioStateLoad() {
+  const [{ data: rows, error }, { data: meta }] = await Promise.all([
+    db.from('practice_audio_state').select('song_id, element, fingerprint'),
+    db.from('app_meta').select('value').eq('key', 'audio_fingerprints').maybeSingle()
+  ]);
+  if (error) throw error;
+  const map = new Map();
+  for (const row of rows || []) {
+    if (!map.has(row.song_id)) map.set(row.song_id, {});
+    map.get(row.song_id)[row.element] = row.fingerprint;
+  }
+  exportJob.audioState = map;
+  exportJob.currentFp = meta?.value?.songs || {};
+}
+async function audioStateAfterRead(snapshot, { seed = true } = {}) {
+  const songs = {};
+  for (const [id, data] of Object.entries(snapshot?.songs || {})) if (data.audio_fp) songs[id] = data.audio_fp;
+  if (!Object.keys(songs).length) return; // TSPWork older than the fingerprint update
+  await db.from('app_meta').upsert({ key: 'audio_fingerprints', value: { songs, als_modified_at: snapshot.als_modified_at }, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+  if (!exportJob.audioState) await audioStateLoad(); else exportJob.currentFp = songs;
+  exportJob.currentFp = songs;
+  // Songs uploaded before fingerprints existed: take this read as their baseline.
+  if (seed) {
+    if (!practice.available) { try { await practiceLoadAvailable(); } catch { /* ignore */ } }
+    const rows = [];
+    for (const [id, files] of practice.available || []) {
+      if (exportJob.audioState.has(id) || !songs[id]) continue;
+      for (const file of files) {
+        const fp = songs[id][file.element];
+        if (fp) rows.push({ song_id: id, element: file.element, fingerprint: fp, als_modified_at: snapshot.als_modified_at });
+      }
+    }
+    if (rows.length) {
+      const { error } = await db.from('practice_audio_state').upsert(rows, { onConflict: 'song_id,element' });
+      if (!error) await audioStateLoad();
+    }
+  }
+}
+async function exportSaveAudioState(job) {
+  const base = exportJob.baseline;
+  if (!base) return;
+  exportJob.stateSaved ||= new Set();
+  for (const r of job?.results || []) {
+    const key = `${r.song_id}|${r.started_at}`;
+    if (r.state !== 'done' || !r.started_at || exportJob.stateSaved.has(key)) continue;
+    const fp = base.songs[r.song_id]?.audio_fp;
+    if (!fp) continue;
+    exportJob.stateSaved.add(key);
+    const elements = (r.file_seconds || []).map(([label]) => label);
+    const rows = elements.filter((el) => fp[el]).map((el) => ({ song_id: r.song_id, element: el, fingerprint: fp[el], exported_at: new Date((r.finished_at || Date.now() / 1000) * 1000).toISOString(), als_modified_at: base.als_modified_at }));
+    // Whole-song fingerprint too, so newly added parts count as a change.
+    if (fp.Mixdown && !elements.includes('Mixdown')) rows.push({ song_id: r.song_id, element: 'Mixdown', fingerprint: fp.Mixdown, als_modified_at: base.als_modified_at });
+    const del = await db.from('practice_audio_state').delete().eq('song_id', r.song_id);
+    const ins = rows.length ? await db.from('practice_audio_state').insert(rows) : { error: null };
+    if (del.error || ins.error) { exportJob.stateSaved.delete(key); console.warn('Audio state not saved', del.error || ins.error); continue; }
+    if (exportJob.audioState) exportJob.audioState.set(r.song_id, Object.fromEntries(rows.map((row) => [row.element, row.fingerprint])));
+  }
+}
+// What changed in the set since this song was uploaded ([] = up to date or unknown).
+function audioChanges(songId) {
+  const stored = exportJob.audioState?.get(songId);
+  const now = exportJob.currentFp?.[songId];
+  if (!stored || !now) return [];
+  const changed = Object.keys(stored).filter((el) => el !== 'Mixdown' && now[el] !== stored[el]);
+  if (!changed.length && stored.Mixdown && now.Mixdown && stored.Mixdown !== now.Mixdown) {
+    const added = Object.keys(now).filter((el) => el !== 'Mixdown' && now[el] && !(el in stored));
+    return added.length ? added.map((el) => `${el} (new)`) : ['Mixdown'];
+  }
+  return changed;
+}
+
 // Save each finished song's timing once (TSPWork 1.16 with timing).
 async function exportLogResults(job) {
   exportJob.logged ||= new Set();
@@ -3098,7 +3185,7 @@ async function pollExport() {
     const result = await abletonRequest('/export/state', {}, 3000);
     exportJob.state = result?.job || exportJob.state;
   } catch { /* Live may be busy rendering; try again */ }
-  if (exportJob.state?.results?.length) exportLogResults(exportJob.state);
+  if (exportJob.state?.results?.length) { exportLogResults(exportJob.state); exportSaveAudioState(exportJob.state); }
   if (exportJob.rate == null && !exportJob.rateLoading) { exportJob.rateLoading = true; exportLoadRate().finally(() => { exportJob.rateLoading = false; }); }
   renderExportPanel();
   if (!exportJob.state || !['starting', 'running', 'uploading'].includes(exportJob.state.state)) {
@@ -3119,6 +3206,19 @@ async function startExport() {
   const label = songs.length === 1 ? `${songs[0].id} ${songs[0].name}` : `${songs.length} songs`;
   if (!window.confirm(`Export practice audio for ${label}${prefs.upload ? ' and upload it to the band app' : ''}?\n\nFolder: ${prefs.root}\n\nAbleton will solo tracks and open its Export dialog many times (about a minute per file). Don't use the Mac until it finishes. You can cancel from here.`)) return;
   try {
+    // The fingerprints saved with each upload come from the saved set, read now.
+    exportJob.baseline = null;
+    exportJob.preparing = 'Reading the saved Ableton set…';
+    renderExportPanel();
+    try {
+      const snap = await abletonRequest('/snapshot', {}, 240000);
+      if (snap?.ok && snap.snapshot?.songs) {
+        exportJob.baseline = { songs: snap.snapshot.songs, als_modified_at: snap.snapshot.als_modified_at };
+        await audioStateAfterRead(snap.snapshot, { seed: false });
+      }
+    } catch (error) { console.warn('Set not read before export', error); }
+    exportJob.preparing = 'Preparing upload links…';
+    renderExportPanel();
     let uploads = {};
     if (prefs.upload) {
       // Signed upload links (valid 24 h) for every song in the run; TSPWork
@@ -3129,15 +3229,20 @@ async function startExport() {
     }
     const result = await abletonRequest('/export', { songs: songs.map(exportSongPayload), export_root: prefs.root, uploads }, 20000);
     if (!result?.ok) {
+      exportJob.preparing = null;
+      renderExportPanel();
       const why = { export_running: 'An export is already running.', export_folder_missing: `The folder isn't available: ${prefs.root}. Is the SSD connected?`, bad_export_folder: 'That folder path is not valid.' }[result?.error];
       showNotice(why || `Could not start the export: ${result?.error || 'no response'}`, true);
       return;
     }
+    exportJob.preparing = null;
     exportJob.state = result.job;
     renderExportPanel();
     clearInterval(exportJob.timer);
     exportJob.timer = setInterval(pollExport, 2000);
   } catch (error) {
+    exportJob.preparing = null;
+    renderExportPanel();
     showNotice(String(error?.message || '').startsWith('upload links') ? `Could not prepare uploads (${error.message}).` : 'Ableton did not answer. Is TSPWork 1.16 running?', true);
   }
 }
@@ -3165,8 +3270,9 @@ document.addEventListener('click', (event) => {
   if (event.target.closest('#export-start')) startExport();
   if (event.target.closest('[data-export-all]')) { state.songs.forEach((song) => exportJob.selected.add(song.id)); renderExportPanel(); }
   if (event.target.closest('[data-export-none]')) { exportJob.selected.clear(); renderExportPanel(); }
+  if (event.target.closest('[data-export-changed]')) { exportChangedIds().forEach((id) => exportJob.selected.add(id)); renderExportPanel(); }
   if (event.target.closest('[data-export-unuploaded]')) {
-    for (const id of [...exportJob.selected]) if (practice.available?.has(id)) exportJob.selected.delete(id);
+    for (const id of [...exportJob.selected]) if (practice.available?.has(id) && !audioChanges(id).length) exportJob.selected.delete(id);
     renderExportPanel();
   }
   if (event.target.closest('#export-cancel')) {

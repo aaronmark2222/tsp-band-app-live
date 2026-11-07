@@ -1213,3 +1213,6 @@ body { padding-top: env(safe-area-inset-top); }
 .ly-dot.on { background: #fff; }
 /* the plain Lyrics track reads as bigger, tighter lines */
 .ly-track-lyrics .ly-line { margin: .12em 0; font-size: 1.12em; }
+/* Uploaded, but the song's tracks changed in Ableton since: re-export. */
+.export-pick li.changed .export-name { color: #f2c94c; }
+.export-changed { color: #f2c94c; font-size: 10px; }

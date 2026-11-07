@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-07** · App version marker `?v=20261108-stopfix2` · TSPWork remote script **1.17** (alsreader md5 `0ff2bbb0…`, exporter md5 `e7c4c16b…`, tspwork md5 `223967ff…`) · Supabase ledger head `20261107174948_practice_export_log` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
+_Last updated: **2026-11-07** · App version marker `?v=20261108-fresh` · TSPWork remote script **1.17** (alsreader md5 `b356e5fa…`, exporter md5 `e7c4c16b…`, tspwork md5 `223967ff…`) · Supabase ledger head `20261107190244_practice_audio_state` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -142,6 +142,7 @@ Aaron is the owner and the only person who runs Ableton Sync and exports. He mos
 | `practice_tracks` | 10 | **legacy**: early manual-upload index. The bucket listing is now the truth; kept for history |
 | `song_lyrics` | 62 | per song from the last Read set: `tracks` (+LYRICS lines `{t,e,text,c}`), `sections` (`{t,name,c}`), `tempo` (`[[sec,bpm]]`), `bars` (`[[sec,num,den]]`), `tone` (`{t,bar,n,v,d}`), duration_seconds, als_modified_at |
 | `app_meta` | 1 | key/value; `practice_track_colors` (element → hex from the set) |
+| `practice_audio_state` | — | per uploaded file (song × element): fingerprint of its Ableton tracks when exported; compared with app_meta `audio_fingerprints` (the set as last read) → yellow "changed since upload" in the export checklist |
 | `practice_export_log` | 0 | one row per exported song: export_seconds, files, song_seconds, per-file seconds; feeds the export time-left estimate |
 
 Song ID families now: E 15, EM 11, I 9, HM 9, H 7, EHM 5, K 3, KM 2, EHKM 1.
@@ -209,9 +210,9 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
   - A review bar appears with clip transport, loop, solo and Complete. Space plays/stops Ableton (not on the Practice page).
   - Backing tasks map to the BACKING TRACKS groups (Dale and Anston under BACKING VOCALS), "Mixed" to MIXED BACKING, parts to the PARTS tracks.
 - **Practice audio export panel:**
-  - Song checklist (columns, uploaded songs in green, Select all, "+ Setlist…" adds a setlist's songs, Clear, "Uncheck uploaded" drops checked songs already in R2), export folder field, upload checkbox, Start/Cancel.
+  - Song checklist (columns, uploaded songs in green, **yellow = uploaded but its tracks changed in Ableton since** (tooltip lists which), "+ Changed" adds those, Select all, "+ Setlist…" adds a setlist's songs, Clear, "Uncheck uploaded" drops checked songs already in R2), export folder field, upload checkbox, Start/Cancel.
   - Progress bar weighted by song length and file count. Time left comes from past export timings in `practice_export_log` (seconds per file per second of song); until there is history it uses this run's own pace; "Uploaded N files (MB)" plus Cloudflare storage used out of 10 GB.
-  - Start fetches 24 h presigned links via `practice-audio` `upload_batch`, then `POST /export {songs, export_root, uploads}`, then polls `/export/state`.
+  - Start first reads the saved set (`/snapshot`) for the fingerprints to store with each uploaded song (so **save the set in Ableton before exporting**), then fetches 24 h presigned links via `practice-audio` `upload_batch`, then `POST /export {songs, export_root, uploads}`, then polls `/export/state`.
 
 ### 6.3 Practice page (all members)
 - **Song source:** All songs (repertoire), upcoming gigs, setlists, grouped without duplicates. Song picker in database order (uploaded songs in green) with ‹ › buttons.
@@ -317,6 +318,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
   - `locator`, `start_beat`, `end_beat`, `start_bar`, `duration_seconds` (integrated through the tempo map).
   - `tempo_segments` and summary, `start_key`, **`key_segments`** (`[Key:]` clips on the Chords track, consecutive repeats dropped, bar numbers from the song start).
   - `evidence` (booleans per task); `fingerprints` (sha1 of each track's clips in the song, used by Snooze); `chord_mismatches`.
+  - `audio_fp`: per practice element (Stems, Parts, Backing, CPC, Mixdown) a 12-char hash of the source tracks' clips in the song (sound-relevant clip XML: loop, sample, warp, gain, fades, envelopes, notes; plus position) and mixer volume/pan. Lyrics/SECTIONS/SONG ID/GUITAR TONE clips are not sound-hashed (speed).
   - `lyrics` = `{tracks, sections, tempo}`; `bars` (`[sec, num, den]` per bar; a new bar starts at each time-signature change, as in Ableton); `tone` (GUITAR TONE notes with seconds, bar, note, velocity, duration).
 - **Set-wide output:** `track_colors` (Live 70-colour palette index → hex for the practice elements), `warnings`, `als_modified_at`, `als_size`.
 - **Key cross-check:** Guitar/Keyboard/Lyrics `[Key:]` markers must match the Chords track (warning `key_mismatch`); a first marker not at bar 1 is warned (`key_late`).
@@ -450,6 +452,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 ---
 
 ## 17. Changelog of this plan
+- **2026-11-08:** Practice audio freshness: each upload remembers its tracks' fingerprints; a later Read set that differs turns the song yellow in the export checklist until it's re-exported. Songs uploaded before this got the first read after the change as their baseline.
 - **2026-11-08:** Exporter recovers when Live stops answering after a long render (EM6 failed this way): waits for Live, retries the Export dialog up to 3 times (150 s each, skipping the retry if the file appeared anyway), and retries a failed song once from scratch; a file must be stable for 4 s.
 - **2026-11-07 (late):** TSPWork 1.17: **Stop after this song** (the remaining songs are marked `stopped`, not errors); the export checklist keeps its scroll position.
 - **2026-11-07 (late):** Export timing: the exporter reports per-song and per-file seconds, the app logs them to `practice_export_log`, and the time-left estimate uses them.
