@@ -3336,7 +3336,9 @@ function practiceTick() {
       let peak = 0;
       for (let i = 0; i < practiceMeterData.length; i += 1) peak = Math.max(peak, Math.abs(practiceMeterData[i]));
       const dbfs = peak > 0 ? 20 * Math.log10(peak) : -60;
-      bar.style.width = `${Math.max(0, Math.min(100, (dbfs + 48) / 48 * 100))}%`;
+      // The fill always spans the whole meter (so green-yellow-red stays put);
+      // the level only decides how much of it shows.
+      bar.style.setProperty('--level', `${Math.max(0, Math.min(100, (dbfs + 48) / 48 * 100)).toFixed(1)}%`);
       bar.classList.toggle('hot', dbfs > -1);
     }
     if (pos >= practice.duration - 0.05) { practicePause(); practice.offset = 0; renderPracticeMultitrack(); return; }

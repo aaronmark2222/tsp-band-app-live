@@ -1015,7 +1015,7 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .ab-fader { width: min(240px, 34vw); accent-color: #b8b8b8; }
 .ab-db { font: 11px var(--mono); color: #cfcfcf; width: 40px; text-align: right; }
 .ab-meter { position: relative; flex: 1; min-width: 60px; max-width: 220px; height: 8px; background: #222; border: 1px solid #161616; border-radius: 1px; overflow: hidden; }
-.ab-meter span { position: absolute; inset: 0 auto 0 0; width: 0; background: linear-gradient(90deg, #39c26b 0, #39c26b 70%, #e7d443 85%, #f26a4b 100%); background-size: 220px 100%; }
+.ab-meter span { position: absolute; inset: 0; --level: 0%; background: linear-gradient(90deg, #39c26b 0, #39c26b 70%, #e7d443 85%, #f26a4b 100%); clip-path: inset(0 calc(100% - var(--level)) 0 0); }
 .ab-meter span.hot { box-shadow: inset -3px 0 0 #ff4b3a; }
 .ab-silent .ab-title { filter: saturate(.25) brightness(.7); }
 .ab-silent .ab-controls { opacity: .65; }
