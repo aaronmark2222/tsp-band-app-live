@@ -1074,3 +1074,8 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 #practice-song option.no-audio { color: #8a8a8a; }
 .ly-drift { margin: 0 0 8px; padding: 6px 9px; border-radius: 4px; background: #4a2f12; color: #ffcf8a; font-size: 12px; }
 .ly-br { display: block; height: 0; }
+.export-opts { margin-bottom: 10px; flex-wrap: wrap; }
+.export-folder { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); flex: 1; min-width: 280px; }
+.export-folder input { flex: 1; height: 34px; padding: 0 10px; color: var(--ink); background: #111a15; border: 1px solid var(--line); border-radius: 7px; font: 12px var(--mono); }
+.export-check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #c6d0c4; }
+#practice-downloads header .button { padding: 5px 10px; font-size: 12px; }

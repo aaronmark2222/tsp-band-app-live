@@ -1,6 +1,10 @@
 // practice-audio: short-lived signed links to the practice MP3s in Cloudflare R2.
-//   { action: 'urls', song_id }                    -> signed GET links (any linked member)
-//   { action: 'upload', song_id, element, bytes }  -> signed PUT link (admin only)
+// The bucket itself is the list of what exists (songs/<SONG ID>/<element-slug>.mp3).
+//   { action: 'list' }                             -> which songs have which files (members)
+//   { action: 'urls', song_id }                    -> signed GET links for a song (members)
+//   { action: 'upload', song_id, element, bytes }  -> signed PUT link (admin)
+//   { action: 'upload_batch', song_ids }           -> 24 h PUT + DELETE links per song and
+//                                                     element, for TSPWork's overnight export (admin)
 // R2 keys live only in this function's secrets (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID,
 // R2_SECRET_ACCESS_KEY); the browser never sees them.
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -9,6 +13,9 @@ const BUCKET = 'tsp-practice';
 const ALLOWED_ORIGINS = ['https://aaronmark2222.github.io', 'http://localhost:8000', 'http://127.0.0.1:8000'];
 const ELEMENT_RE = /^(?:(?:Stem|Part) - [A-Za-z][A-Za-z ]{0,29}|Backing|CPC|Mixdown)$/;
 const SONG_RE = /^[A-Z]{1,4}\d{1,3}$/;
+const ELEMENTS = ['Mixdown', 'Backing', 'CPC',
+  'Part - Bass', 'Part - Keyboard', 'Part - Guitar', 'Part - Violin', 'Part - Percussion', 'Part - Drums', 'Part - Dale Vox', 'Part - Anston Vox',
+  'Stem - Bass', 'Stem - Drums', 'Stem - Other', 'Stem - Vocals'];
 
 function cors(origin: string | null) {
   const allow = origin && ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
@@ -30,7 +37,7 @@ async function hmac(key: ArrayBuffer | Uint8Array, text: string) {
 const rfc3986 = (s: string) => encodeURIComponent(s).replace(/[!'()*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
 
 // AWS Signature V4 query-string presign (S3-compatible; R2 region is "auto").
-async function presign(method: 'GET' | 'PUT', key: string, expires: number, extra: Record<string, string> = {}) {
+async function presign(method: 'GET' | 'PUT' | 'DELETE', key: string | null, expires: number, extra: Record<string, string> = {}) {
   const account = Deno.env.get('R2_ACCOUNT_ID');
   const akid = Deno.env.get('R2_ACCESS_KEY_ID');
   const secret = Deno.env.get('R2_SECRET_ACCESS_KEY');
@@ -40,7 +47,7 @@ async function presign(method: 'GET' | 'PUT', key: string, expires: number, extr
   const amzDate = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
   const day = amzDate.slice(0, 8);
   const scope = `${day}/auto/s3/aws4_request`;
-  const path = '/' + [BUCKET, ...key.split('/')].map(rfc3986).join('/');
+  const path = '/' + (key === null ? [BUCKET] : [BUCKET, ...key.split('/')]).map(rfc3986).join('/');
   const params: Record<string, string> = {
     'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
     'X-Amz-Credential': `${akid}/${scope}`,
@@ -61,6 +68,35 @@ async function presign(method: 'GET' | 'PUT', key: string, expires: number, extr
 }
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+const BY_SLUG = new Map(ELEMENTS.map((e) => [slug(e), e]));
+
+// ListObjectsV2 through a presigned GET; returns [{key, size}].
+async function listObjects(prefix: string) {
+  const out: { key: string; size: number; modified: string }[] = [];
+  let token = '';
+  for (let page = 0; page < 20; page += 1) {
+    const params: Record<string, string> = { 'list-type': '2', prefix, 'max-keys': '1000' };
+    if (token) params['continuation-token'] = token;
+    const res = await fetch(await presign('GET', null, 300, params));
+    if (!res.ok) throw new Error(`r2_list_${res.status}`);
+    const xml = await res.text();
+    for (const m of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+      const key = /<Key>([^<]*)<\/Key>/.exec(m[1])?.[1] || '';
+      const size = Number(/<Size>(\d+)<\/Size>/.exec(m[1])?.[1] || 0);
+      const modified = /<LastModified>([^<]*)<\/LastModified>/.exec(m[1])?.[1] || '';
+      out.push({ key: key.replace(/&amp;/g, '&'), size, modified });
+    }
+    token = /<NextContinuationToken>([^<]*)<\/NextContinuationToken>/.exec(xml)?.[1] || '';
+    if (!token) break;
+  }
+  return out;
+}
+
+function parseKey(key: string) {
+  const m = /^songs\/([A-Z]{1,4}\d{1,3})\/([a-z0-9-]+)\.mp3$/.exec(key);
+  if (!m || !BY_SLUG.has(m[2])) return null;
+  return { songId: m[1], element: BY_SLUG.get(m[2])! };
+}
 
 Deno.serve(async (req) => {
   const headers = { ...cors(req.headers.get('origin')), 'Content-Type': 'application/json' };
@@ -74,19 +110,43 @@ Deno.serve(async (req) => {
     const { data: memberId } = await db.rpc('current_member_id');
     if (!memberId) return reply(403, { ok: false, error: 'not_a_member' });
     const body = await req.json().catch(() => ({}));
+
+    if (body.action === 'list') {
+      const songs: Record<string, { element: string; bytes: number; modified: string }[]> = {};
+      for (const obj of await listObjects('songs/')) {
+        const parsed = parseKey(obj.key);
+        if (!parsed) continue;
+        (songs[parsed.songId] ||= []).push({ element: parsed.element, bytes: obj.size, modified: obj.modified });
+      }
+      return reply(200, { ok: true, songs });
+    }
+
+    if (body.action === 'upload_batch') {
+      const { data: isAdmin } = await db.rpc('is_admin');
+      if (!isAdmin) return reply(403, { ok: false, error: 'admin_only' });
+      const ids = (Array.isArray(body.song_ids) ? body.song_ids : []).map(String).filter((id: string) => SONG_RE.test(id)).slice(0, 100);
+      const urls: Record<string, Record<string, { put: string; del: string }>> = {};
+      for (const id of ids) {
+        urls[id] = {};
+        for (const element of ELEMENTS) {
+          const key = `songs/${id}/${slug(element)}.mp3`;
+          urls[id][element] = { put: await presign('PUT', key, 86400), del: await presign('DELETE', key, 86400) };
+        }
+      }
+      return reply(200, { ok: true, urls });
+    }
+
     const songId = String(body.song_id || '');
     if (!SONG_RE.test(songId)) return reply(400, { ok: false, error: 'bad_song_id' });
 
     if (body.action === 'urls') {
-      // RLS on practice_tracks decides what this member may see.
-      const { data, error } = await db.from('practice_tracks').select('element, object_key, bytes, uploaded_at').eq('song_id', songId);
-      if (error) return reply(500, { ok: false, error: 'db_error' });
-      const tracks = await Promise.all((data || []).map(async (row) => ({
-        element: row.element, bytes: row.bytes, uploaded_at: row.uploaded_at,
-        url: await presign('GET', row.object_key, 3 * 3600),
+      const objects = (await listObjects(`songs/${songId}/`)).map((obj) => ({ ...obj, parsed: parseKey(obj.key) })).filter((obj) => obj.parsed);
+      const tracks = await Promise.all(objects.map(async (obj) => ({
+        element: obj.parsed!.element, bytes: obj.size, uploaded_at: obj.modified,
+        url: await presign('GET', obj.key, 3 * 3600),
         // Same file, but the browser saves it instead of playing it.
-        download: await presign('GET', row.object_key, 3 * 3600, {
-          'response-content-disposition': `attachment; filename="${songId} - ${row.element}.mp3"`,
+        download: await presign('GET', obj.key, 3 * 3600, {
+          'response-content-disposition': `attachment; filename="${songId} - ${obj.parsed!.element}.mp3"`,
         }),
       })));
       return reply(200, { ok: true, tracks });
@@ -96,7 +156,7 @@ Deno.serve(async (req) => {
       const { data: isAdmin } = await db.rpc('is_admin');
       if (!isAdmin) return reply(403, { ok: false, error: 'admin_only' });
       const element = String(body.element || '');
-      if (!ELEMENT_RE.test(element)) return reply(400, { ok: false, error: 'bad_element' });
+      if (!ELEMENT_RE.test(element) || !BY_SLUG.has(slug(element))) return reply(400, { ok: false, error: 'bad_element' });
       const bytes = Number(body.bytes || 0);
       if (!(bytes > 0 && bytes < 60 * 1024 * 1024)) return reply(400, { ok: false, error: 'bad_size' });
       const objectKey = `songs/${songId}/${slug(element)}.mp3`;
@@ -105,6 +165,6 @@ Deno.serve(async (req) => {
     return reply(400, { ok: false, error: 'unknown_action' });
   } catch (err) {
     const msg = String((err as Error)?.message || err);
-    return reply(msg === 'r2_not_configured' ? 503 : 500, { ok: false, error: msg === 'r2_not_configured' ? msg : 'server_error' });
+    return reply(msg === 'r2_not_configured' ? 503 : 500, { ok: false, error: msg === 'r2_not_configured' || msg.startsWith('r2_list') ? msg : 'server_error' });
   }
 });

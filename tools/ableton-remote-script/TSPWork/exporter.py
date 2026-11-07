@@ -24,6 +24,10 @@ import re
 import subprocess
 import threading
 import time
+try:
+    import queue
+except ImportError:  # pragma: no cover
+    import Queue as queue
 
 EXPORT_ROOT = os.path.expanduser('~/Music/TSP Exports')
 
@@ -236,14 +240,24 @@ def safe_name(text):
 
 
 class ExportJob(object):
-    def __init__(self, surface, songs):
+    def __init__(self, surface, songs, root=None, uploads=None):
         """songs: [{'song_id', 'song_name', 'vocals_complete', 'instrumental'}],
-        exported one after another in this order."""
+        exported one after another in this order, into `root` (default
+        ~/Music/TSP Exports). uploads: {song_id: {element: {'put', 'del'}}}
+        signed R2 links; each file is uploaded as soon as it is exported, in
+        a separate thread, while the next one renders."""
         self.s = surface
         self.songs = songs
+        self.root = root or EXPORT_ROOT
+        self.uploads = uploads or {}
+        self.upload_queue = queue.Queue()
+        self.upload_thread = None
+        self.caffeinate = None
         self.state = {'state': 'starting', 'song_id': songs[0]['song_id'], 'done': [], 'skipped': [],
                       'current': None, 'total': 0, 'error': None, 'folder': None,
                       'queue': [x['song_id'] for x in songs], 'song_index': 0, 'results': [],
+                      'root': root or EXPORT_ROOT, 'upload': bool(uploads),
+                      'uploaded': 0, 'upload_failed': [], 'upload_pending': 0, 'uploaded_bytes': 0,
                       'started_at': time.time()}
         self._saved = None
         self.cancelled = False
@@ -516,7 +530,7 @@ class ExportJob(object):
     def _export_song(self):
         st = self.state
         plan = self._main(self.plan)
-        folder = os.path.join(EXPORT_ROOT, safe_name('%s %s' % (self.song_id, self.song_name)))
+        folder = os.path.join(self.root, safe_name('%s %s' % (self.song_id, self.song_name)))
         os.makedirs(folder, exist_ok=True)
         st.update({'state': 'running', 'folder': folder, 'total': len(plan['elements']),
                    'elements': plan['elements'], 'mix': self.mix_notes, 'done': []})
@@ -546,10 +560,67 @@ class ExportJob(object):
                 raise RuntimeError(out)
             name = self._wait_for_file(folder, base, before)
             st['done'].append({'label': label, 'file': name})
+            self._queue_upload(label, os.path.join(folder, name))
         st['current'] = None
+        # Files from an earlier export that this run no longer makes (e.g. a
+        # stray part) are removed from the band app too.
+        links = self.uploads.get(self.song_id) or {}
+        made = set(el[0] for el in self.elements)
+        for label, link in links.items():
+            if label not in made and link.get('del'):
+                self.upload_queue.put(('delete', self.song_id, label, None, link['del']))
+                st['upload_pending'] += 1
+
+    # ------------------------------------------------------------ uploads (own thread)
+    def _queue_upload(self, label, path):
+        link = (self.uploads.get(self.song_id) or {}).get(label)
+        if not link or not link.get('put'):
+            return
+        self.state['upload_pending'] += 1
+        self.upload_queue.put(('put', self.song_id, label, path, link['put']))
+
+    def _upload_worker(self):
+        st = self.state
+        while True:
+            job = self.upload_queue.get()
+            if job is None:
+                return
+            kind, song_id, label, path, url = job
+            try:
+                if kind == 'put':
+                    cmd = ['/usr/bin/curl', '-sS', '-f', '--retry', '3', '--retry-delay', '5', '-X', 'PUT',
+                           '-H', 'Content-Type: audio/mpeg', '-T', path, url]
+                else:
+                    cmd = ['/usr/bin/curl', '-sS', '-f', '--retry', '2', '-X', 'DELETE', url]
+                out = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+                if out.returncode != 0:
+                    raise RuntimeError((out.stderr or 'curl %d' % out.returncode).strip()[:160])
+                if kind == 'put':
+                    st['uploaded'] += 1
+                    st['uploaded_bytes'] += os.path.getsize(path)
+            except Exception as err:
+                st['upload_failed'].append({'song_id': song_id, 'label': label, 'error': str(err)[:160]})
+            finally:
+                st['upload_pending'] = max(0, st['upload_pending'] - 1)
+
+    def _keep_awake(self, on):
+        # Stops the Mac idle-sleeping during an overnight run (screen may sleep).
+        try:
+            if on and self.caffeinate is None:
+                self.caffeinate = subprocess.Popen(['/usr/bin/caffeinate', '-i', '-w', str(os.getpid())])
+            elif not on and self.caffeinate is not None:
+                self.caffeinate.terminate()
+                self.caffeinate = None
+        except Exception:
+            self.caffeinate = None
 
     def run(self):
         st = self.state
+        self._keep_awake(True)
+        if self.uploads:
+            self.upload_thread = threading.Thread(target=self._upload_worker, name='TSPWorkUpload')
+            self.upload_thread.daemon = True
+            self.upload_thread.start()
         try:
             for index, song in enumerate(self.songs):
                 if self.cancelled:
@@ -580,5 +651,15 @@ class ExportJob(object):
             except Exception:
                 pass
             st['current'] = None
+            if self.upload_thread is not None:
+                # Ableton is done; let the last uploads finish.
+                final = st['state']
+                st['state'] = 'uploading'
+                self.upload_queue.put(None)
+                self.upload_thread.join(timeout=3600)
+                st['state'] = 'error' if (final == 'error' or st['upload_failed']) else 'done'
+                if st['upload_failed'] and not st.get('error'):
+                    st['error'] = '%d upload(s) failed' % len(st['upload_failed'])
+            self._keep_awake(False)
             st['finished_at'] = time.time()
             self.s._export_finished(self)

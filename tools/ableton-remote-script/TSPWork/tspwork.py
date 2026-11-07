@@ -31,7 +31,7 @@ from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
 TLS_PORT = 47711
-VERSION = '1.15'
+VERSION = '1.16'
 DEBUG_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requests.log')
 # https listener for the live site in Safari. Certificate made for 127.0.0.1 /
 # localhost only, trusted once in this Mac's Keychain. Files sit next to this
@@ -208,7 +208,7 @@ class TSPWork(ControlSurface):
         # (this runs on Live's main thread).
         try:
             job = self._export
-            if job and job.state['state'] in ('starting', 'running'):
+            if job and job.state['state'] in ('starting', 'running', 'uploading'):
                 job.cancelled = True
                 job.restore_state()
         except Exception:
@@ -566,10 +566,10 @@ class TSPWork(ControlSurface):
         if path.startswith('/export/state'):
             return {'ok': True, 'job': job.state if job else None}
         if path.startswith('/export/cancel'):
-            if job and job.state['state'] in ('starting', 'running'):
+            if job and job.state['state'] in ('starting', 'running', 'uploading'):
                 job.cancelled = True
             return {'ok': True, 'job': job.state if job else None}
-        if job and job.state['state'] in ('starting', 'running'):
+        if job and job.state['state'] in ('starting', 'running', 'uploading'):
             return {'ok': False, 'error': 'export_running', 'job': job.state}
         raw = payload.get('songs')
         if not isinstance(raw, list):
@@ -586,6 +586,16 @@ class TSPWork(ControlSurface):
                           'instrumental': bool(item.get('instrumental'))})
         if not songs:
             return {'ok': False, 'error': 'no_songs'}
+        root = str(payload.get('export_root') or '').strip()
+        if root:
+            root = os.path.expanduser(root)
+            if not os.path.isabs(root) or '..' in root.split('/'):
+                return {'ok': False, 'error': 'bad_export_folder'}
+            # The drive (e.g. /Volumes/AARON SSD) must be plugged in; the last
+            # folder level is created if needed.
+            if not os.path.isdir(os.path.dirname(root.rstrip('/'))):
+                return {'ok': False, 'error': 'export_folder_missing', 'folder': root}
+        uploads = payload.get('uploads') if isinstance(payload.get('uploads'), dict) else {}
         if self._busy:
             return {'ok': False, 'error': 'busy'}
         import importlib
@@ -593,7 +603,7 @@ class TSPWork(ControlSurface):
         importlib.reload(exporter)
         self._run_on_main(self._end_review)
         self._busy = True
-        self._export = exporter.ExportJob(self, songs)
+        self._export = exporter.ExportJob(self, songs, root or None, uploads)
         self._export.thread.start()
         return {'ok': True, 'job': self._export.state}
 
@@ -725,7 +735,7 @@ class TSPWork(ControlSurface):
 
     def _handle(self, conn, tls=None):
         try:
-            conn.settimeout(5)
+            conn.settimeout(15)
             if tls is not None:
                 try:
                     conn = tls.wrap_socket(conn, server_side=True)
@@ -751,7 +761,9 @@ class TSPWork(ControlSurface):
                 if ':' in line:
                     k, v = line.split(':', 1)
                     headers[k.strip().lower()] = v.strip()
-            length = min(int(headers.get('content-length', '0') or 0), 4096)
+            # /export carries a batch of signed upload links (~1 MB for every song).
+            limit = 4 * 1024 * 1024 if path.startswith('/export') else 4096
+            length = min(int(headers.get('content-length', '0') or 0), limit)
             while len(body) < length:
                 chunk = conn.recv(4096)
                 if not chunk:
@@ -766,7 +778,7 @@ class TSPWork(ControlSurface):
                 return self._reply(conn, 204, None, origin if allowed else None)
             if not allowed:
                 return self._reply(conn, 403, {'ok': False, 'error': 'origin_not_allowed'}, None)
-            if method == 'GET' and path.startswith('/status') and self._export and self._export.state['state'] in ('starting', 'running'):
+            if method == 'GET' and path.startswith('/status') and self._export and self._export.state['state'] in ('starting', 'running', 'uploading'):
                 # Live is busy rendering; answer without waiting for its main thread.
                 return self._reply(conn, 200, {'ok': True, 'version': VERSION, 'https': self._tls is not None,
                                                'exporting': self._export.state}, origin)

@@ -2703,34 +2703,14 @@ function renderSyncPage() {
 // Practice audio vs the set: a Mixdown whose length differs from the song in
 // the last read means the audio is out of date (lyrics would drift).
 async function loadSyncAudioLengths() {
-  const { data, error } = await db.from('practice_tracks').select('song_id, element, duration_seconds, uploaded_at').eq('element', 'Mixdown');
-  if (error) throw error;
-  sync.audioLengths = new Map((data || []).map((row) => [row.song_id, row]));
-  // Files uploaded before lengths were recorded: measure them once now.
-  for (const row of data || []) {
-    if (row.duration_seconds != null) continue;
-    try {
-      const { data: links } = await db.functions.invoke('practice-audio', { body: { action: 'urls', song_id: row.song_id } });
-      const mix = links?.tracks?.find((t) => t.element === 'Mixdown');
-      if (!mix) continue;
-      const duration = await audioUrlDuration(mix.url);
-      if (duration == null) continue;
-      row.duration_seconds = duration;
-      await db.from('practice_tracks').update({ duration_seconds: duration }).eq('song_id', row.song_id).eq('element', 'Mixdown');
-    } catch (err) { console.warn('Could not measure', row.song_id, err); }
+  // Mixdowns are 320 kbps CBR MP3s, so their length follows from their size.
+  const { data, error } = await db.functions.invoke('practice-audio', { body: { action: 'list' } });
+  if (error || !data?.ok) throw new Error(data?.error || error?.message || 'list failed');
+  sync.audioLengths = new Map();
+  for (const [songId, files] of Object.entries(data.songs || {})) {
+    const mix = files.find((f) => f.element === 'Mixdown');
+    if (mix?.bytes) sync.audioLengths.set(songId, { song_id: songId, duration_seconds: Math.round(mix.bytes * 8 / 320000 * 10) / 10 });
   }
-}
-
-function audioUrlDuration(url) {
-  return new Promise((resolve) => {
-    const audio = new Audio();
-    const done = (value) => { audio.removeAttribute('src'); resolve(value); };
-    audio.preload = 'metadata';
-    audio.onloadedmetadata = () => done(Number.isFinite(audio.duration) ? Math.round(audio.duration * 10) / 10 : null);
-    audio.onerror = () => done(null);
-    setTimeout(() => done(null), 15000);
-    audio.src = url;
-  });
 }
 
 function syncAudioMismatches() {
@@ -2844,6 +2824,14 @@ $('#sync-read').addEventListener('click', readAbletonSet);
 // Stems, Parts, Backing, CPC and a Mixdown. Ableton must be left alone while
 // it runs; every solo/mute/loop is put back afterwards.
 const exportJob = { selected: new Set(), state: null, timer: null };
+const EXPORT_PREFS_KEY = 'tsp-export-prefs-v1';
+const DEFAULT_EXPORT_ROOT = '/Volumes/AARON SSD/TSP/TSP Exports';
+function exportPrefs() {
+  try { return { root: DEFAULT_EXPORT_ROOT, upload: true, ...JSON.parse(localStorage.getItem(EXPORT_PREFS_KEY) || '{}') }; } catch { return { root: DEFAULT_EXPORT_ROOT, upload: true }; }
+}
+function saveExportPrefs(patch) {
+  try { localStorage.setItem(EXPORT_PREFS_KEY, JSON.stringify({ ...exportPrefs(), ...patch })); } catch { /* ignore */ }
+}
 
 function exportVocalsComplete(songId) {
   return ['vox_dale', 'vox_anston'].filter((key) => state.tasks.find((t) => t.song_id === songId && t.task_key === key)?.status === 'Completed');
@@ -2857,7 +2845,7 @@ function renderExportPanel() {
   const box = $('#export-panel');
   if (!box) return;
   const job = exportJob.state;
-  const running = job && ['starting', 'running'].includes(job.state);
+  const running = job && ['starting', 'running', 'uploading'].includes(job.state);
   const songs = state.songs; // same order as the database / Songs page
   const count = exportJob.selected.size;
   let status = '';
@@ -2876,10 +2864,17 @@ function renderExportPanel() {
       : job.state === 'error' ? (queue.length > 1 ? `Finished with problems: ${doneCount} of ${queue.length} songs exported.` : `Stopped on ${escapeHtml(job.song_id)}: ${escapeHtml(job.error || 'error')}`)
       : `Exporting ${escapeHtml(job.song_id)}${queue.length > 1 ? ` (song ${job.song_index + 1} of ${queue.length})` : ''}. Don't touch Ableton until it finishes.`;
     const mix = job.mix && running ? `<p class="muted">Mixdown uses ${job.mix.instrumental ? 'no vocals (instrumental)' : job.mix.vocal_parts_used ? 'the vocal parts' : 'the VOCALS stem for vocals'}${job.mix.stems_used?.length ? `; stems filling gaps: ${escapeHtml(job.mix.stems_used.join(', '))}` : ''}.</p>` : '';
-    status = `<div class="export-status ${job.state}"><p><b>${head}</b></p>${job.folder && running ? `<p class="muted">Folder: ${escapeHtml(job.folder)}</p>` : ''}${mix}${running && job.skipped?.length ? `<p class="muted">Skipped: ${escapeHtml(job.skipped.join(', '))}</p>` : ''}${songLine}${running ? `<ul class="export-files">${files}${now}</ul>` : ''}</div>`;
+    const upLine = job.upload ? `<p class="muted">Uploaded ${job.uploaded || 0} files (${((job.uploaded_bytes || 0) / 1048576).toFixed(0)} MB)${job.upload_pending ? `, ${job.upload_pending} waiting` : ''}${job.upload_failed?.length ? ` · <span class="error">${job.upload_failed.length} failed: ${escapeHtml(job.upload_failed.slice(0, 3).map((f) => `${f.song_id} ${f.label}`).join(', '))}</span>` : ''}.</p>` : '';
+    const headNow = job.state === 'uploading' ? 'All songs exported; finishing the last uploads…' : head;
+    status = `<div class="export-status ${job.state}"><p><b>${headNow}</b></p>${upLine}${job.folder && running ? `<p class="muted">Folder: ${escapeHtml(job.folder)}</p>` : ''}${mix}${running && job.skipped?.length ? `<p class="muted">Skipped: ${escapeHtml(job.skipped.join(', '))}</p>` : ''}${songLine}${running ? `<ul class="export-files">${files}${now}</ul>` : ''}</div>`;
   }
+  const prefs = exportPrefs();
   box.innerHTML = `<header><h2>Practice audio</h2></header>
-    <p class="muted">Exports Stems, Parts, Backing, CPC and a Mixdown per song as MP3s into Music › TSP Exports on this Mac. A few minutes per song; leave Ableton alone while it runs.</p>
+    <p class="muted">Exports Stems, Parts, Backing, CPC and a Mixdown per song as MP3s, and uploads each song to the Practice page while the next one renders. A few minutes per song: start it at night, leave the Mac plugged in with the lid open, and don't use it until it finishes.</p>
+    <div class="export-row export-opts">
+      <label class="export-folder">Folder <input id="export-root" type="text" value="${escapeHtml(prefs.root)}" ${running ? 'disabled' : ''} spellcheck="false"></label>
+      <label class="export-check"><input id="export-upload" type="checkbox" ${prefs.upload ? 'checked' : ''} ${running ? 'disabled' : ''}> Upload to the band app</label>
+    </div>
     <div class="export-row">
       <button class="button quiet" type="button" data-export-all ${running ? 'disabled' : ''}>Select all</button>
       <button class="button quiet" type="button" data-export-none ${running || !count ? 'disabled' : ''}>Clear</button>
@@ -2896,10 +2891,11 @@ async function pollExport() {
     exportJob.state = result?.job || exportJob.state;
   } catch { /* Live may be busy rendering; try again */ }
   renderExportPanel();
-  if (!exportJob.state || !['starting', 'running'].includes(exportJob.state.state)) {
+  if (!exportJob.state || !['starting', 'running', 'uploading'].includes(exportJob.state.state)) {
     clearInterval(exportJob.timer);
     exportJob.timer = null;
     const job = exportJob.state;
+    practice.available = null;
     if (job?.state === 'done') showNotice(`Export finished: ${(job.queue || []).length > 1 ? `${job.results.length} songs` : `${job.done.length} files for ${job.song_id}`}.`);
     if (job?.state === 'error') showNotice(`Export finished with problems: ${job.error}`, true);
   }
@@ -2908,21 +2904,36 @@ async function pollExport() {
 async function startExport() {
   const songs = state.songs.filter((song) => exportJob.selected.has(song.id));
   if (!songs.length) return;
+  const prefs = exportPrefs();
   const label = songs.length === 1 ? `${songs[0].id} ${songs[0].name}` : `${songs.length} songs`;
-  if (!window.confirm(`Export practice audio for ${label}?\n\nAbleton will solo tracks and open its Export dialog many times (about a minute per file). Don't use the Mac until it finishes. You can cancel from here.`)) return;
+  if (!window.confirm(`Export practice audio for ${label}${prefs.upload ? ' and upload it to the band app' : ''}?\n\nFolder: ${prefs.root}\n\nAbleton will solo tracks and open its Export dialog many times (about a minute per file). Don't use the Mac until it finishes. You can cancel from here.`)) return;
   try {
-    const result = await abletonRequest('/export', { songs: songs.map(exportSongPayload) }, 8000);
-    if (!result?.ok) { showNotice(result?.error === 'export_running' ? 'An export is already running.' : `Could not start the export: ${result?.error || 'no response'}`, true); return; }
+    let uploads = {};
+    if (prefs.upload) {
+      // Signed upload links (valid 24 h) for every song in the run; TSPWork
+      // uploads each file right after exporting it.
+      const { data, error } = await db.functions.invoke('practice-audio', { body: { action: 'upload_batch', song_ids: songs.map((song) => song.id) } });
+      if (error || !data?.ok) throw new Error(`upload links: ${data?.error || error?.message || 'failed'}`);
+      uploads = data.urls;
+    }
+    const result = await abletonRequest('/export', { songs: songs.map(exportSongPayload), export_root: prefs.root, uploads }, 20000);
+    if (!result?.ok) {
+      const why = { export_running: 'An export is already running.', export_folder_missing: `The folder isn't available: ${prefs.root}. Is the SSD connected?`, bad_export_folder: 'That folder path is not valid.' }[result?.error];
+      showNotice(why || `Could not start the export: ${result?.error || 'no response'}`, true);
+      return;
+    }
     exportJob.state = result.job;
     renderExportPanel();
     clearInterval(exportJob.timer);
     exportJob.timer = setInterval(pollExport, 2000);
-  } catch {
-    showNotice('Ableton did not answer. Is TSPWork 1.14 running?', true);
+  } catch (error) {
+    showNotice(String(error?.message || '').startsWith('upload links') ? `Could not prepare uploads (${error.message}).` : 'Ableton did not answer. Is TSPWork 1.16 running?', true);
   }
 }
 
 document.addEventListener('change', (event) => {
+  if (event.target.id === 'export-root') { saveExportPrefs({ root: event.target.value.trim() || DEFAULT_EXPORT_ROOT }); return; }
+  if (event.target.id === 'export-upload') { saveExportPrefs({ upload: event.target.checked }); return; }
   const box = event.target.closest?.('[data-export-song]');
   if (!box) return;
   if (box.checked) exportJob.selected.add(box.dataset.exportSong); else exportJob.selected.delete(box.dataset.exportSong);
@@ -3010,15 +3021,12 @@ function savePracticeTrackSetting(element, patch) {
   practice.memory = all;
 }
 
+// What's uploaded comes straight from the R2 bucket (files from the app's
+// upload and from TSPWork's overnight export alike).
 async function practiceLoadAvailable() {
-  const { data, error } = await db.from('practice_tracks').select('song_id, element, bytes');
-  if (error) throw error;
-  const map = new Map();
-  for (const row of data || []) {
-    if (!map.has(row.song_id)) map.set(row.song_id, []);
-    map.get(row.song_id).push(row);
-  }
-  practice.available = map;
+  const { data, error } = await db.functions.invoke('practice-audio', { body: { action: 'list' } });
+  if (error || !data?.ok) throw new Error(data?.error || error?.message || 'list failed');
+  practice.available = new Map(Object.entries(data.songs || {}));
 }
 
 // Which songs the Practice page offers: the whole repertoire, an upcoming
@@ -3093,6 +3101,7 @@ async function practiceOpenSong(songId) {
   practice.error = '';
   practice.lyrics = null;
   practice.lyricIndex = -2;
+  practice.lyricsUnsynced = false;
   practice.loadToken += 1;
   const select = $('#practice-song');
   if (select && select.value !== songId) select.value = songId;
@@ -3159,7 +3168,7 @@ function renderPracticePlayers() {
   }
   renderPracticeMultitrack();
   const files = practice.tracks.slice().sort((a, b) => (a.element === 'Mixdown' ? -1 : b.element === 'Mixdown' ? 1 : practiceRank(a.element) - practiceRank(b.element)));
-  dlBox.innerHTML = `<header><h2>Download</h2><span class="muted">Full-length MP3s for practising offline</span></header>
+  dlBox.innerHTML = `<header><h2>Download</h2><span class="muted">Full-length MP3s for practising offline</span><button type="button" class="button quiet" data-practice-dl-all title="Download every file of this song">Download all (${files.length})</button></header>
     <ul class="practice-dl-list">${files.map((t) => `<li><span class="practice-dl-dot" style="background:${PRACTICE_COLORS[t.element] || '#f39a26'}"></span><span>${escapeHtml(t.element)}</span><small class="muted">${t.bytes ? `${(t.bytes / 1048576).toFixed(1)} MB` : ''}</small><a class="button quiet" href="${escapeHtml(t.download || t.url)}" ${t.download ? '' : 'target="_blank" rel="noopener"'}>Download</a></li>`).join('')}</ul>`;
   practiceCheckLyricsLength();
 }
@@ -3359,6 +3368,25 @@ function practiceStepSong(delta) {
   if (next && next.id !== practice.songId) practiceOpenSong(next.id);
 }
 $('#practice-prev').addEventListener('click', () => practiceStepSong(-1));
+// Download all: one file after another (the browser may ask once to allow several downloads).
+$('#practice-downloads').addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-practice-dl-all]');
+  if (!button) return;
+  const links = [...$('#practice-downloads').querySelectorAll('.practice-dl-list a')].map((a) => a.href);
+  button.disabled = true;
+  for (let i = 0; i < links.length; i += 1) {
+    button.textContent = `Downloading ${i + 1} of ${links.length}…`;
+    const a = document.createElement('a');
+    a.href = links[i];
+    a.rel = 'noopener';
+    document.body.append(a);
+    a.click();
+    a.remove();
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+  button.disabled = false;
+  button.textContent = `Download all (${links.length})`;
+});
 $('#practice-next').addEventListener('click', () => practiceStepSong(1));
 $('#practice-multitrack').addEventListener('click', (event) => {
   if (event.target.closest('[data-practice-load]')) { practiceLoadTracks(); return; }
@@ -3626,10 +3654,12 @@ function practiceCheckLyricsLength() {
     if (!Number.isFinite(audio.duration)) return;
     const diff = audio.duration - set;
     box.querySelector('.ly-drift')?.remove();
-    if (Math.abs(diff) <= 1.5) return;
+    practice.lyricsUnsynced = Math.abs(diff) > 1.5;
+    if (!practice.lyricsUnsynced) return;
+    $('#practice-lyrics-scroll')?.querySelectorAll('.ly-line').forEach((el) => el.classList.remove('current', 'next', 'past'));
     const note = document.createElement('p');
     note.className = 'ly-drift';
-    note.textContent = `This audio is ${Math.abs(diff).toFixed(1)} s ${diff > 0 ? 'longer' : 'shorter'} than the song in the last Ableton read, so the lyrics may drift.${state.member?.is_admin ? ' Export and upload this song again.' : ''}`;
+    note.textContent = `This audio is ${Math.abs(diff).toFixed(1)} s ${diff > 0 ? 'longer' : 'shorter'} than the song in the last Ableton read, so the lyrics are shown without timing.${state.member?.is_admin ? ' Export and upload this song again.' : ''}`;
     box.querySelector('.ly-chips')?.after(note);
   };
   if (Number.isFinite(audio.duration)) check(); else audio.addEventListener('loadedmetadata', check, { once: true });
@@ -3642,6 +3672,7 @@ function practiceNow() {
 }
 
 function practiceLyricsTick(force) {
+  if (practice.lyricsUnsynced) return; // audio and lyrics disagree on length
   const scroll = $('#practice-lyrics-scroll');
   const lines = practice.lyrics && lyricsTrack()?.lines;
   if (!scroll || !lines) return;
