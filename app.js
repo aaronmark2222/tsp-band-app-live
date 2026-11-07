@@ -2943,7 +2943,7 @@ function renderExportPanel() {
   const pageScroll = window.scrollY;
   const canStopAfter = running && job.state !== 'uploading' && (job.queue || []).length > 1 && job.song_index < (job.queue || []).length - 1;
   const stopSupported = exportVersionAtLeast('1.17');
-  box.innerHTML = `<header><h2>Practice audio</h2></header>
+  const controlsHtml = `<header><h2>Practice audio</h2></header>
     <p class="muted">Exports Stems, Parts, Backing, CPC and a Mixdown per song as MP3s, and uploads each song to the Practice page while the next one renders. A few minutes per song: start it at night, leave the Mac plugged in with the lid open, and don't use it until it finishes.</p>
     <div class="export-row export-opts">
       <label class="export-folder">Folder <input id="export-root" type="text" value="${escapeHtml(prefs.root)}" ${running ? 'disabled' : ''} spellcheck="false"></label>
@@ -2964,10 +2964,16 @@ function renderExportPanel() {
     <ul class="export-pick">${songs.map((song) => {
       const up = practice.available?.get(song.id);
       return `<li class="${up ? 'uploaded' : ''}"><label title="${up ? `${up.length} files on the band app` : 'Not uploaded yet'}"><input type="checkbox" data-export-song="${escapeHtml(song.id)}" ${exportJob.selected.has(song.id) ? 'checked' : ''} ${running ? 'disabled' : ''}><span class="song-id">${escapeHtml(song.id)}</span> <span class="export-name">${escapeHtml(song.name)}</span>${up ? ' <span class="export-up">●</span>' : ''}</label></li>`;
-    }).join('')}</ul>
-    ${status}`;
+    }).join('')}</ul>`;
+  // Only redraw what changed: during an export the progress below updates
+  // every 2 s, but the buttons and the list stay put so clicks aren't lost.
+  if (!box.querySelector(':scope > .export-controls')) box.innerHTML = '<div class="export-controls"></div><div class="export-status-wrap"></div>';
+  const controls = box.querySelector(':scope > .export-controls');
+  if (controls._html !== controlsHtml) { controls.innerHTML = controlsHtml; controls._html = controlsHtml; }
+  const statusWrap = box.querySelector(':scope > .export-status-wrap');
+  if (statusWrap._html !== status) { statusWrap.innerHTML = status; statusWrap._html = status; }
   const list = box.querySelector('.export-pick');
-  if (list && listScroll) list.scrollTop = listScroll;
+  if (list && listScroll && list.scrollTop !== listScroll) list.scrollTop = listScroll;
   if (Math.abs(window.scrollY - pageScroll) > 1) window.scrollTo(0, pageScroll);
 }
 function exportVersionAtLeast(want) {
@@ -3162,12 +3168,26 @@ document.addEventListener('click', (event) => {
     for (const id of [...exportJob.selected]) if (practice.available?.has(id)) exportJob.selected.delete(id);
     renderExportPanel();
   }
-  if (event.target.closest('#export-cancel')) abletonRequest('/export/cancel', {}, 3000).then(pollExport).catch(() => {});
-  if (event.target.closest('#export-stop-after')) {
+  if (event.target.closest('#export-cancel')) {
+    if (!window.confirm('Cancel the export right now? The song being exported is left unfinished. (To finish it first, use "Stop after this song".)')) return;
+    showNotice('Cancelling the export…');
+    abletonRequest('/export/cancel', {}, 5000).then(pollExport).catch(() => showNotice('TSPWork did not answer; try again.', true));
+  }
+  const stopBtn = event.target.closest('#export-stop-after');
+  if (stopBtn && !stopBtn.disabled) {
     const undo = !!exportJob.state?.stop_after_song;
-    abletonRequest('/export/cancel', { after_song: true, undo }, 3000)
-      .then((result) => { if (result?.job) exportJob.state = result.job; renderExportPanel(); })
-      .catch(() => showNotice('Could not reach TSPWork; try again.', true));
+    const songId = exportJob.state?.song_id || 'this song';
+    stopBtn.disabled = true;
+    stopBtn.textContent = undo ? 'Resuming…' : 'Asking TSPWork to stop…';
+    abletonRequest('/export/cancel', { after_song: true, undo }, 5000)
+      .then((result) => {
+        if (result?.job) exportJob.state = result.job;
+        const on = !!result?.job?.stop_after_song;
+        if (!result?.ok || on === undo) throw new Error('not applied');
+        showNotice(on ? `OK: the export will stop after ${songId} finishes.` : 'OK: the export will carry on with the remaining songs.');
+      })
+      .catch(() => showNotice('TSPWork did not confirm the stop; try again.', true))
+      .finally(() => renderExportPanel());
   }
 });
 $('#sync-content').addEventListener('click', (event) => {
