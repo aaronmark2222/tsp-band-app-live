@@ -2901,6 +2901,9 @@ function renderExportPanel() {
     </div>
     <div class="export-row">
       <button class="button quiet" type="button" data-export-all ${running ? 'disabled' : ''}>Select all</button>
+      <select class="export-setlist" data-export-setlist ${running ? 'disabled' : ''} aria-label="Select a setlist's songs">
+        <option value="">+ Setlist…</option>${(state.setlists || []).map((list) => `<option value="${escapeHtml(list.id)}">${escapeHtml(list.name)}</option>`).join('')}
+      </select>
       <button class="button quiet" type="button" data-export-none ${running || !count ? 'disabled' : ''}>Clear</button>
       <button id="export-start" class="button primary" type="button" ${running || !count || !abletonBridge.connected ? 'disabled' : ''}>${running ? 'Exporting…' : `Export ${count ? `${count} song${count === 1 ? '' : 's'}` : 'songs'}`}</button>
       ${running ? '<button id="export-cancel" class="button quiet" type="button" title="Stop after the current step and put Ableton back">Cancel</button>' : ''}
@@ -2955,7 +2958,18 @@ async function startExport() {
   }
 }
 
-document.addEventListener('change', (event) => {
+document.addEventListener('change', async (event) => {
+  if (event.target.matches?.('[data-export-setlist]') && event.target.value) {
+    // Adds every song of that setlist to the selection.
+    const setlistId = event.target.value;
+    const { data, error } = await db.from('setlist_items').select('song_id').eq('setlist_id', setlistId);
+    if (error) { fail('Could not read that setlist.', error); return; }
+    (data || []).forEach((row) => { if (row.song_id) exportJob.selected.add(row.song_id); });
+    const name = state.setlists.find((list) => list.id === setlistId)?.name || 'setlist';
+    showNotice(`Selected the ${new Set((data || []).filter((r) => r.song_id).map((r) => r.song_id)).size} songs of ${name}.`);
+    renderExportPanel();
+    return;
+  }
   if (event.target.id === 'export-root') { saveExportPrefs({ root: event.target.value.trim() || DEFAULT_EXPORT_ROOT }); return; }
   if (event.target.id === 'export-upload') { saveExportPrefs({ upload: event.target.checked }); return; }
   const box = event.target.closest?.('[data-export-song]');
@@ -3728,19 +3742,29 @@ function practiceLyricsTick(force) {
   if (!scroll || !practice.lyrics) return;
   const lines = lyricsTrack()?.lines || [];
   const t = practiceNow();
-  // Section under the playhead: a lighter highlight than the current line.
-  const sectionEls = [...scroll.querySelectorAll('.ly-section')];
-  let secEl = null;
-  for (const el of sectionEls) { if (Number(el.dataset.t) <= t + 0.05) secEl = el; }
-  if (force || secEl !== practice.sectionEl) {
-    sectionEls.forEach((el) => el.classList.toggle('current', el === secEl));
-    practice.sectionEl = secEl;
-    if (!lines.length && secEl && (force || Date.now() - (practice.lyricsTouchedAt || 0) > 4000)) lyricsScrollTo(scroll, secEl, force);
-  }
-  if (!lines.length) return;
   let idx = -1;
   for (let i = 0; i < lines.length; i += 1) { if (lines[i].t <= t + 0.05) idx = i; else break; }
   const inside = idx >= 0 && t < lines[idx].e;
+  // Section under the playhead gets a lighter highlight, but only when no
+  // line is live: while paused (e.g. after clicking it), or during a section
+  // with nothing on this track. A live line always wins.
+  const sectionEls = [...scroll.querySelectorAll('.ly-section')];
+  let secEl = null;
+  let secIndex = -1;
+  sectionEls.forEach((el, i) => { if (Number(el.dataset.t) <= t + 0.05) { secEl = el; secIndex = i; } });
+  let showSection = null;
+  if (secEl && !inside) {
+    const from = Number(secEl.dataset.t);
+    const to = sectionEls[secIndex + 1] ? Number(sectionEls[secIndex + 1].dataset.t) : Infinity;
+    const hasLines = lines.some((line) => line.t >= from - 0.05 && line.t < to);
+    if (!hasLines || !ptIsPlaying()) showSection = secEl;
+  }
+  if (force || showSection !== practice.sectionEl) {
+    sectionEls.forEach((el) => el.classList.toggle('current', el === showSection));
+    practice.sectionEl = showSection;
+    if (!lines.length && showSection && (force || Date.now() - (practice.lyricsTouchedAt || 0) > 4000)) lyricsScrollTo(scroll, showSection, force);
+  }
+  if (!lines.length) return;
   const key = inside ? idx : -1 - Math.max(0, idx + 1); // between lines: point at the next one
   if (!force && key === practice.lyricIndex) return;
   practice.lyricIndex = key;
