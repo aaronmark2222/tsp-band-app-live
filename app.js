@@ -2876,7 +2876,6 @@ document.addEventListener('click', (event) => {
   if (event.target.closest('[data-export-none]')) { exportJob.selected.clear(); renderExportPanel(); }
   if (event.target.closest('#export-cancel')) abletonRequest('/export/cancel', {}, 3000).then(pollExport).catch(() => {});
 });
-});
 $('#sync-content').addEventListener('click', (event) => {
   const jump = event.target.closest('[data-sync-jump]');
   if (jump) { sendAbletonCommand('/jump', { song_id: jump.dataset.syncJump }); return; }
