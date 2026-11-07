@@ -2785,10 +2785,14 @@ $('#sync-read').addEventListener('click', readAbletonSet);
 // song through Live's Export dialog into ~/Music/TSP Exports/<song>/ as MP3:
 // Stems, Parts, Backing, CPC and a Mixdown. Ableton must be left alone while
 // it runs; every solo/mute/loop is put back afterwards.
-const exportJob = { songId: '', state: null, timer: null };
+const exportJob = { selected: new Set(), state: null, timer: null };
 
 function exportVocalsComplete(songId) {
   return ['vox_dale', 'vox_anston'].filter((key) => state.tasks.find((t) => t.song_id === songId && t.task_key === key)?.status === 'Completed');
+}
+
+function exportSongPayload(song) {
+  return { song_id: song.id, song_name: song.name, vocals_complete: exportVocalsComplete(song.id), instrumental: song.type === 'Inst' || /^I\d/.test(song.id) };
 }
 
 function renderExportPanel() {
@@ -2797,22 +2801,34 @@ function renderExportPanel() {
   const job = exportJob.state;
   const running = job && ['starting', 'running'].includes(job.state);
   const songs = state.songs; // same order as the database / Songs page
-  if (!exportJob.songId && songs.length) exportJob.songId = songs[0].id;
+  const count = exportJob.selected.size;
   let status = '';
   if (job) {
+    const queue = job.queue || [job.song_id];
+    const results = new Map((job.results || []).map((r) => [r.song_id, r]));
     const files = (job.done || []).map((d) => `<li>✓ ${escapeHtml(d.label)}</li>`).join('');
     const now = running && job.current ? `<li class="export-now">● Exporting ${escapeHtml(job.current)}… (${(job.done || []).length + 1} of ${job.total || '?'})</li>` : '';
-    const head = job.state === 'done' ? `Done: ${job.done.length} files for ${escapeHtml(job.song_id)}.`
-      : job.state === 'error' ? `Stopped on ${escapeHtml(job.song_id)}: ${escapeHtml(job.error || 'error')}`
-      : `Exporting ${escapeHtml(job.song_id)}. Don't touch Ableton until it finishes.`;
-    const mix = job.mix ? `<p class="muted">Mixdown uses ${job.mix.instrumental ? 'no vocals (instrumental)' : job.mix.vocal_parts_used ? 'the vocal parts' : 'the VOCALS stem for vocals'}${job.mix.stems_used?.length ? `; stems filling gaps: ${escapeHtml(job.mix.stems_used.join(', '))}` : ''}.</p>` : '';
-    status = `<div class="export-status ${job.state}"><p><b>${head}</b></p>${job.folder ? `<p class="muted">Folder: ${escapeHtml(job.folder)}</p>` : ''}${mix}<ul class="export-files">${files}${now}</ul></div>`;
+    const songLine = queue.length > 1 ? `<ul class="export-queue">${queue.map((id, i) => {
+      const r = results.get(id);
+      const mark = r ? (r.state === 'done' ? '✓' : r.state === 'cancelled' ? '–' : '✕') : (running && i === job.song_index ? '●' : '·');
+      return `<li class="${r ? r.state : (running && i === job.song_index ? 'now' : '')}" title="${escapeHtml(r?.error || '')}">${mark} ${escapeHtml(id)}${r ? ` <small>${r.files} files${r.error ? ` · ${escapeHtml(r.error)}` : ''}</small>` : ''}</li>`;
+    }).join('')}</ul>` : '';
+    const doneCount = (job.results || []).filter((r) => r.state === 'done').length;
+    const head = job.state === 'done' ? `Done: ${queue.length > 1 ? `${doneCount} songs` : `${(job.done || []).length} files for ${escapeHtml(job.song_id)}`}.`
+      : job.state === 'error' ? (queue.length > 1 ? `Finished with problems: ${doneCount} of ${queue.length} songs exported.` : `Stopped on ${escapeHtml(job.song_id)}: ${escapeHtml(job.error || 'error')}`)
+      : `Exporting ${escapeHtml(job.song_id)}${queue.length > 1 ? ` (song ${job.song_index + 1} of ${queue.length})` : ''}. Don't touch Ableton until it finishes.`;
+    const mix = job.mix && running ? `<p class="muted">Mixdown uses ${job.mix.instrumental ? 'no vocals (instrumental)' : job.mix.vocal_parts_used ? 'the vocal parts' : 'the VOCALS stem for vocals'}${job.mix.stems_used?.length ? `; stems filling gaps: ${escapeHtml(job.mix.stems_used.join(', '))}` : ''}.</p>` : '';
+    status = `<div class="export-status ${job.state}"><p><b>${head}</b></p>${job.folder && running ? `<p class="muted">Folder: ${escapeHtml(job.folder)}</p>` : ''}${mix}${songLine}${running ? `<ul class="export-files">${files}${now}</ul>` : ''}</div>`;
   }
   box.innerHTML = `<header><h2>Practice audio</h2></header>
-    <p class="muted">Exports Stems, Parts, Backing, CPC and a Mixdown for one song as MP3s into Music › TSP Exports on this Mac. Takes a few minutes; leave Ableton alone while it runs.</p>
-    <div class="export-row"><select id="export-song" class="wide-select" ${running ? 'disabled' : ''}>${songs.map((song) => `<option value="${escapeHtml(song.id)}" ${song.id === exportJob.songId ? 'selected' : ''}>${escapeHtml(song.id)} · ${escapeHtml(song.name)}</option>`).join('')}</select>
-    <button id="export-start" class="button primary" type="button" ${running || !abletonBridge.connected ? 'disabled' : ''}>${running ? 'Exporting…' : 'Export song'}</button>
-    ${running ? '<button id="export-cancel" class="button quiet" type="button" title="Stop after the current step and put Ableton back">Cancel</button>' : ''}</div>
+    <p class="muted">Exports Stems, Parts, Backing, CPC and a Mixdown per song as MP3s into Music › TSP Exports on this Mac. A few minutes per song; leave Ableton alone while it runs.</p>
+    <div class="export-row">
+      <button class="button quiet" type="button" data-export-all ${running ? 'disabled' : ''}>Select all</button>
+      <button class="button quiet" type="button" data-export-none ${running || !count ? 'disabled' : ''}>Clear</button>
+      <button id="export-start" class="button primary" type="button" ${running || !count || !abletonBridge.connected ? 'disabled' : ''}>${running ? 'Exporting…' : `Export ${count ? `${count} song${count === 1 ? '' : 's'}` : 'songs'}`}</button>
+      ${running ? '<button id="export-cancel" class="button quiet" type="button" title="Stop after the current step and put Ableton back">Cancel</button>' : ''}
+    </div>
+    <ul class="export-pick">${songs.map((song) => `<li><label><input type="checkbox" data-export-song="${escapeHtml(song.id)}" ${exportJob.selected.has(song.id) ? 'checked' : ''} ${running ? 'disabled' : ''}><span class="song-id">${escapeHtml(song.id)}</span> ${escapeHtml(song.name)}</label></li>`).join('')}</ul>
     ${status}`;
 }
 
@@ -2825,33 +2841,41 @@ async function pollExport() {
   if (!exportJob.state || !['starting', 'running'].includes(exportJob.state.state)) {
     clearInterval(exportJob.timer);
     exportJob.timer = null;
-    if (exportJob.state?.state === 'done') showNotice(`Exported ${exportJob.state.done.length} files for ${exportJob.state.song_id}.`);
-    if (exportJob.state?.state === 'error') showNotice(`Export stopped: ${exportJob.state.error}`, true);
+    const job = exportJob.state;
+    if (job?.state === 'done') showNotice(`Export finished: ${(job.queue || []).length > 1 ? `${job.results.length} songs` : `${job.done.length} files for ${job.song_id}`}.`);
+    if (job?.state === 'error') showNotice(`Export finished with problems: ${job.error}`, true);
   }
 }
 
 async function startExport() {
-  const song = state.songs.find((item) => item.id === exportJob.songId);
-  if (!song) return;
-  if (!window.confirm(`Export practice audio for ${song.id} ${song.name}?\n\nAbleton will solo tracks and open its Export dialog several times. Don't use Ableton until it finishes.`)) return;
+  const songs = state.songs.filter((song) => exportJob.selected.has(song.id));
+  if (!songs.length) return;
+  const label = songs.length === 1 ? `${songs[0].id} ${songs[0].name}` : `${songs.length} songs`;
+  if (!window.confirm(`Export practice audio for ${label}?\n\nAbleton will solo tracks and open its Export dialog many times (about a minute per file). Don't use the Mac until it finishes. You can cancel from here.`)) return;
   try {
-    const result = await abletonRequest('/export', { song_id: song.id, song_name: song.name, vocals_complete: exportVocalsComplete(song.id), instrumental: song.type === 'Inst' || /^I\d/.test(song.id) }, 8000);
+    const result = await abletonRequest('/export', { songs: songs.map(exportSongPayload) }, 8000);
     if (!result?.ok) { showNotice(result?.error === 'export_running' ? 'An export is already running.' : `Could not start the export: ${result?.error || 'no response'}`, true); return; }
     exportJob.state = result.job;
     renderExportPanel();
     clearInterval(exportJob.timer);
     exportJob.timer = setInterval(pollExport, 2000);
   } catch {
-    showNotice('Ableton did not answer. Is TSPWork 1.13 running?', true);
+    showNotice('Ableton did not answer. Is TSPWork 1.14 running?', true);
   }
 }
 
 document.addEventListener('change', (event) => {
-  if (event.target.id === 'export-song') exportJob.songId = event.target.value;
+  const box = event.target.closest?.('[data-export-song]');
+  if (!box) return;
+  if (box.checked) exportJob.selected.add(box.dataset.exportSong); else exportJob.selected.delete(box.dataset.exportSong);
+  renderExportPanel();
 });
 document.addEventListener('click', (event) => {
   if (event.target.closest('#export-start')) startExport();
+  if (event.target.closest('[data-export-all]')) { state.songs.forEach((song) => exportJob.selected.add(song.id)); renderExportPanel(); }
+  if (event.target.closest('[data-export-none]')) { exportJob.selected.clear(); renderExportPanel(); }
   if (event.target.closest('#export-cancel')) abletonRequest('/export/cancel', {}, 3000).then(pollExport).catch(() => {});
+});
 });
 $('#sync-content').addEventListener('click', (event) => {
   const jump = event.target.closest('[data-sync-jump]');

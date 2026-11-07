@@ -31,7 +31,7 @@ from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
 TLS_PORT = 47711
-VERSION = '1.13.4'
+VERSION = '1.14'
 DEBUG_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requests.log')
 # https listener for the live site in Safari. Certificate made for 127.0.0.1 /
 # localhost only, trusted once in this Mac's Keychain. Files sit next to this
@@ -571,26 +571,36 @@ class TSPWork(ControlSurface):
             return {'ok': True, 'job': job.state if job else None}
         if job and job.state['state'] in ('starting', 'running'):
             return {'ok': False, 'error': 'export_running', 'job': job.state}
-        song_id = str(payload.get('song_id', ''))
-        if not SONG_ID_RE.match(song_id):
-            return {'ok': False, 'error': 'bad_song_id'}
+        raw = payload.get('songs')
+        if not isinstance(raw, list):
+            raw = [payload]
+        songs = []
+        for item in raw[:100]:
+            if not isinstance(item, dict):
+                continue
+            song_id = str(item.get('song_id', ''))
+            if not SONG_ID_RE.match(song_id):
+                return {'ok': False, 'error': 'bad_song_id'}
+            songs.append({'song_id': song_id, 'song_name': str(item.get('song_name', ''))[:80],
+                          'vocals_complete': [str(v) for v in (item.get('vocals_complete') or []) if str(v) in ('vox_dale', 'vox_anston')],
+                          'instrumental': bool(item.get('instrumental'))})
+        if not songs:
+            return {'ok': False, 'error': 'no_songs'}
         if self._busy:
             return {'ok': False, 'error': 'busy'}
-        song_name = str(payload.get('song_name', ''))[:80]
-        vocals = [str(v) for v in (payload.get('vocals_complete') or []) if str(v) in ('vox_dale', 'vox_anston')]
         import importlib
         from . import exporter
         importlib.reload(exporter)
         self._run_on_main(self._end_review)
         self._busy = True
-        self._export = exporter.ExportJob(self, song_id, song_name, vocals, bool(payload.get('instrumental')))
+        self._export = exporter.ExportJob(self, songs)
         self._export.thread.start()
         return {'ok': True, 'job': self._export.state}
 
     def _export_finished(self, job):
         self._busy = False
         st = job.state
-        msg = 'TSPWork %s: export %s %s (%d files)' % (VERSION, st['song_id'], st['state'], len(st['done']))
+        msg = 'TSPWork %s: export %s: %d of %d songs done' % (VERSION, st['state'], sum(1 for r in st['results'] if r['state'] == 'done'), len(st['queue']))
         if st.get('error'):
             msg += ': ' + st['error'][:80]
         self._debug(msg)

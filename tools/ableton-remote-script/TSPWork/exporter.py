@@ -231,19 +231,25 @@ def safe_name(text):
 
 
 class ExportJob(object):
-    def __init__(self, surface, song_id, song_name, vocals_complete, instrumental=False):
+    def __init__(self, surface, songs):
+        """songs: [{'song_id', 'song_name', 'vocals_complete', 'instrumental'}],
+        exported one after another in this order."""
         self.s = surface
-        self.song_id = song_id
-        self.song_name = song_name
-        self.vocals_complete = set(vocals_complete or [])
-        self.instrumental = bool(instrumental)   # 'I' songs: no vocals in the mixdown
-        self.state = {'state': 'starting', 'song_id': song_id, 'done': [], 'skipped': [],
+        self.songs = songs
+        self.state = {'state': 'starting', 'song_id': songs[0]['song_id'], 'done': [], 'skipped': [],
                       'current': None, 'total': 0, 'error': None, 'folder': None,
+                      'queue': [x['song_id'] for x in songs], 'song_index': 0, 'results': [],
                       'started_at': time.time()}
         self._saved = None
         self.cancelled = False
         self.thread = threading.Thread(target=self.run, name='TSPWorkExport')
         self.thread.daemon = True
+
+    def _select_song(self, song):
+        self.song_id = song['song_id']
+        self.song_name = song.get('song_name', '')
+        self.vocals_complete = set(song.get('vocals_complete') or [])
+        self.instrumental = bool(song.get('instrumental'))   # 'I' songs: no vocals in the mixdown
 
     # ------------------------------------------------------------ track helpers (main thread)
     def _tracks(self):
@@ -478,49 +484,71 @@ class ExportJob(object):
             last = size
         raise RuntimeError('export_timeout (no new file in %s; check the Save window)' % folder)
 
+    def _export_song(self):
+        st = self.state
+        plan = self._main(self.plan)
+        folder = os.path.join(EXPORT_ROOT, safe_name('%s %s' % (self.song_id, self.song_name)))
+        os.makedirs(folder, exist_ok=True)
+        st.update({'state': 'running', 'folder': folder, 'total': len(plan['elements']),
+                   'elements': plan['elements'], 'mix': self.mix_notes, 'done': []})
+        if self._saved is None:
+            self._main(self.save_state)
+        # Clean up a file left with a damaged name by an earlier run.
+        for f in os.listdir(folder):
+            if f.startswith(' - ') or f.startswith('- '):
+                os.remove(os.path.join(folder, f))
+        for i, (label, _, _) in enumerate(self.elements):
+            if self.cancelled:
+                raise RuntimeError('cancelled')
+            base = safe_name('%s - %s' % (self.song_id, label))
+            st['current'] = label
+            for f in os.listdir(folder):
+                if f.startswith(base + '.'):
+                    os.remove(os.path.join(folder, f))
+            before = set(os.listdir(folder))
+            self._main(self.setup_element, i)
+            time.sleep(0.3)
+            out = osascript(SELECT_LOOP)
+            if out != 'ok':
+                raise RuntimeError(out)
+            time.sleep(0.3)
+            out = osascript(OPEN_AND_EXPORT, folder, base, timeout=60)
+            if out != 'ok':
+                raise RuntimeError(out)
+            name = self._wait_for_file(folder, base, before)
+            st['done'].append({'label': label, 'file': name})
+        st['current'] = None
+
     def run(self):
         st = self.state
         try:
-            plan = self._main(self.plan)
-            folder = os.path.join(EXPORT_ROOT, safe_name('%s %s' % (self.song_id, self.song_name)))
-            os.makedirs(folder, exist_ok=True)
-            st.update({'state': 'running', 'folder': folder, 'total': len(plan['elements']),
-                       'elements': plan['elements'], 'mix': self.mix_notes})
-            self._main(self.save_state)
-            # Clean up a file left with a damaged name by an earlier run.
-            for f in os.listdir(folder):
-                if f.startswith(' - ') or f.startswith('- '):
-                    os.remove(os.path.join(folder, f))
-            for i, (label, _, _) in enumerate(self.elements):
+            for index, song in enumerate(self.songs):
                 if self.cancelled:
-                    raise RuntimeError('cancelled')
-                base = safe_name('%s - %s' % (self.song_id, label))
-                st['current'] = label
-                for f in os.listdir(folder):
-                    if f.startswith(base + '.'):
-                        os.remove(os.path.join(folder, f))
-                before = set(os.listdir(folder))
-                self._main(self.setup_element, i)
-                time.sleep(0.3)
-                out = osascript(SELECT_LOOP)
-                if out != 'ok':
-                    raise RuntimeError(out)
-                time.sleep(0.3)
-                out = osascript(OPEN_AND_EXPORT, folder, base, timeout=60)
-                if out != 'ok':
-                    raise RuntimeError(out)
-                name = self._wait_for_file(folder, base, before)
-                st['done'].append({'label': label, 'file': name})
-            st['current'] = None
-            st['state'] = 'done'
+                    st['results'].append({'song_id': song['song_id'], 'state': 'cancelled', 'files': 0})
+                    continue
+                self._select_song(song)
+                st.update({'song_index': index, 'song_id': self.song_id, 'error': None,
+                           'done': [], 'total': 0, 'current': None, 'folder': None})
+                try:
+                    self._export_song()
+                    st['results'].append({'song_id': self.song_id, 'state': 'done', 'files': len(st['done'])})
+                except Exception as err:
+                    st['error'] = str(err)[:300]
+                    st['results'].append({'song_id': self.song_id, 'state': 'error', 'files': len(st['done']),
+                                          'error': st['error']})
+                    osascript(CLOSE_DIALOGS, timeout=20)  # don't leave Export/Save open
+            failed = [r for r in st['results'] if r['state'] != 'done']
+            st['state'] = 'error' if failed else 'done'
+            if failed and not st.get('error'):
+                st['error'] = '%d song(s) not exported' % len(failed)
         except Exception as err:
             st['state'] = 'error'
             st['error'] = str(err)[:300]
-            osascript(CLOSE_DIALOGS, timeout=20)  # don't leave Export/Save open
         finally:
             try:
                 self.s._run_on_main(self.restore_state, timeout=10.0)
             except Exception:
                 pass
+            st['current'] = None
             st['finished_at'] = time.time()
             self.s._export_finished(self)
