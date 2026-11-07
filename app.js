@@ -2213,7 +2213,8 @@ async function probeAbletonBridge() {
     const status = await abletonRequest('/status');
     abletonBridge.status = status?.ok ? status : null;
     setAbletonConnected(!!status?.ok);
-    if (state.view === 'sync') renderSyncStatus();
+    if (status?.exporting && !exportJob.timer) { exportJob.state = status.exporting; exportJob.timer = setInterval(pollExport, 2000); }
+    if (state.view === 'sync') { renderSyncStatus(); renderExportPanel(); }
   } catch {
     setAbletonConnected(false);
   }
@@ -2648,6 +2649,7 @@ function renderSyncStatus() {
 
 function renderSyncPage() {
   renderSyncStatus();
+  renderExportPanel();
   const content = $('#sync-content');
   if (!sync.snapshot) {
     content.innerHTML = '<div class="empty-state">Press <b>Read Ableton set</b> to compare your saved Ableton set with TSP Work. Reading takes up to a minute; avoid doing it during a show.</div>';
@@ -2777,6 +2779,78 @@ async function runSyncApply(taskItems, metaItems, doneMessage) {
 }
 
 $('#sync-read').addEventListener('click', readAbletonSet);
+
+// ---------------------------------------------------------------------------
+// Practice audio export (admin's Mac). TSPWork 1.13 renders each element of a
+// song through Live's Export dialog into ~/Music/TSP Exports/<song>/ as MP3:
+// Stems, Parts, Backing, CPC and a Mixdown. Ableton must be left alone while
+// it runs; every solo/mute/loop is put back afterwards.
+const exportJob = { songId: '', state: null, timer: null };
+
+function exportVocalsComplete(songId) {
+  return ['vox_dale', 'vox_anston'].filter((key) => state.tasks.find((t) => t.song_id === songId && t.task_key === key)?.status === 'Completed');
+}
+
+function renderExportPanel() {
+  const box = $('#export-panel');
+  if (!box) return;
+  const job = exportJob.state;
+  const running = job && ['starting', 'running'].includes(job.state);
+  const songs = [...state.songs].sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+  if (!exportJob.songId && songs.length) exportJob.songId = songs[0].id;
+  let status = '';
+  if (job) {
+    const files = (job.done || []).map((d) => `<li>✓ ${escapeHtml(d.label)}</li>`).join('');
+    const now = running && job.current ? `<li class="export-now">● Exporting ${escapeHtml(job.current)}… (${(job.done || []).length + 1} of ${job.total || '?'})</li>` : '';
+    const head = job.state === 'done' ? `Done: ${job.done.length} files for ${escapeHtml(job.song_id)}.`
+      : job.state === 'error' ? `Stopped on ${escapeHtml(job.song_id)}: ${escapeHtml(job.error || 'error')}`
+      : `Exporting ${escapeHtml(job.song_id)}. Don't touch Ableton until it finishes.`;
+    const mix = job.mix ? `<p class="muted">Mixdown uses ${job.mix.vocal_parts_used ? 'the vocal parts' : 'the VOCALS stem for vocals'}${job.mix.stems_used?.length ? `; stems filling gaps: ${escapeHtml(job.mix.stems_used.join(', '))}` : ''}.</p>` : '';
+    status = `<div class="export-status ${job.state}"><p><b>${head}</b></p>${job.folder ? `<p class="muted">Folder: ${escapeHtml(job.folder)}</p>` : ''}${mix}<ul class="export-files">${files}${now}</ul></div>`;
+  }
+  box.innerHTML = `<header><h2>Practice audio</h2></header>
+    <p class="muted">Exports Stems, Parts, Backing, CPC and a Mixdown for one song as MP3s into Music › TSP Exports on this Mac. Takes a few minutes; leave Ableton alone while it runs.</p>
+    <div class="export-row"><select id="export-song" class="wide-select" ${running ? 'disabled' : ''}>${songs.map((song) => `<option value="${escapeHtml(song.id)}" ${song.id === exportJob.songId ? 'selected' : ''}>${escapeHtml(song.id)} · ${escapeHtml(song.name)}</option>`).join('')}</select>
+    <button id="export-start" class="button primary" type="button" ${running || !abletonBridge.connected ? 'disabled' : ''}>${running ? 'Exporting…' : 'Export song'}</button></div>
+    ${status}`;
+}
+
+async function pollExport() {
+  try {
+    const result = await abletonRequest('/export/state', {}, 3000);
+    exportJob.state = result?.job || exportJob.state;
+  } catch { /* Live may be busy rendering; try again */ }
+  renderExportPanel();
+  if (!exportJob.state || !['starting', 'running'].includes(exportJob.state.state)) {
+    clearInterval(exportJob.timer);
+    exportJob.timer = null;
+    if (exportJob.state?.state === 'done') showNotice(`Exported ${exportJob.state.done.length} files for ${exportJob.state.song_id}.`);
+    if (exportJob.state?.state === 'error') showNotice(`Export stopped: ${exportJob.state.error}`, true);
+  }
+}
+
+async function startExport() {
+  const song = state.songs.find((item) => item.id === exportJob.songId);
+  if (!song) return;
+  if (!window.confirm(`Export practice audio for ${song.id} ${song.name}?\n\nAbleton will solo tracks and open its Export dialog several times. Don't use Ableton until it finishes.`)) return;
+  try {
+    const result = await abletonRequest('/export', { song_id: song.id, song_name: song.name, vocals_complete: exportVocalsComplete(song.id) }, 8000);
+    if (!result?.ok) { showNotice(result?.error === 'export_running' ? 'An export is already running.' : `Could not start the export: ${result?.error || 'no response'}`, true); return; }
+    exportJob.state = result.job;
+    renderExportPanel();
+    clearInterval(exportJob.timer);
+    exportJob.timer = setInterval(pollExport, 2000);
+  } catch {
+    showNotice('Ableton did not answer. Is TSPWork 1.13 running?', true);
+  }
+}
+
+document.addEventListener('change', (event) => {
+  if (event.target.id === 'export-song') exportJob.songId = event.target.value;
+});
+document.addEventListener('click', (event) => {
+  if (event.target.closest('#export-start')) startExport();
+});
 $('#sync-content').addEventListener('click', (event) => {
   const jump = event.target.closest('[data-sync-jump]');
   if (jump) { sendAbletonCommand('/jump', { song_id: jump.dataset.syncJump }); return; }

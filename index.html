@@ -11,8 +11,8 @@
     <meta name="theme-color" content="#292929">
     <title>TSP Work · The String Project</title>
     <link rel="icon" href="assets/the-string-project-logo.png?v=20261019" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=20261107-autometa">
-    <script type="module" src="app.js?v=20261107-autometa"></script>
+    <link rel="stylesheet" href="styles.css?v=20261107-export">
+    <script type="module" src="app.js?v=20261107-export"></script>
   </head>
   <body>
     <main id="app" class="shell">
@@ -209,7 +209,7 @@
         <section id="sync-view" class="view hidden">
           <div class="hero-row"><div><p class="eyebrow">ABLETON MASTER PROJECT</p><h1>Ableton Sync</h1><p class="muted">Reads your saved Ableton set and suggests updates for TSP Work. Save in Ableton (⌘S) first. Click a task to see it in Ableton, then confirm it here.</p></div><button id="sync-read" class="button primary" type="button">Read Ableton set</button></div>
           <p id="sync-status" class="sync-status muted"></p>
-          <div id="sync-content" class="sync-content"></div>
+          <section id="export-panel" class="sync-card export-card"></section><div id="sync-content" class="sync-content"></div>
         </section>
 
         <section id="dashboard-view" class="view hidden">

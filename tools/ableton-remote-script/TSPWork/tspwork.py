@@ -31,7 +31,7 @@ from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
 TLS_PORT = 47711
-VERSION = '1.12'
+VERSION = '1.13'
 DEBUG_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requests.log')
 # https listener for the live site in Safari. Certificate made for 127.0.0.1 /
 # localhost only, trusted once in this Mac's Keychain. Files sit next to this
@@ -183,6 +183,7 @@ class TSPWork(ControlSurface):
         self._review = None        # what is being reviewed (song, task, tracks)
         self._solo_saved = []      # [(track, previous solo)] to put back
         self._loop_saved = None    # loop brace before 'Loop clip'
+        self._export = None        # running/last practice-audio export job
         self._tls = self._tls_context()
         self._thread = threading.Thread(target=self._serve, args=(PORT, None), name='TSPWorkBridge')
         self._thread.daemon = True
@@ -551,6 +552,40 @@ class TSPWork(ControlSurface):
             return {'ok': False, 'error': 'unknown_action'}
         return self._review_state()
 
+    def _export_request(self, path, payload):
+        job = self._export
+        if path.startswith('/export/state'):
+            return {'ok': True, 'job': job.state if job else None}
+        if job and job.state['state'] in ('starting', 'running'):
+            return {'ok': False, 'error': 'export_running', 'job': job.state}
+        song_id = str(payload.get('song_id', ''))
+        if not SONG_ID_RE.match(song_id):
+            return {'ok': False, 'error': 'bad_song_id'}
+        if self._busy:
+            return {'ok': False, 'error': 'busy'}
+        song_name = str(payload.get('song_name', ''))[:80]
+        vocals = [str(v) for v in (payload.get('vocals_complete') or []) if str(v) in ('vox_dale', 'vox_anston')]
+        import importlib
+        from . import exporter
+        importlib.reload(exporter)
+        self._run_on_main(self._end_review)
+        self._busy = True
+        self._export = exporter.ExportJob(self, song_id, song_name, vocals)
+        self._export.thread.start()
+        return {'ok': True, 'job': self._export.state}
+
+    def _export_finished(self, job):
+        self._busy = False
+        st = job.state
+        msg = 'TSPWork %s: export %s %s (%d files)' % (VERSION, st['song_id'], st['state'], len(st['done']))
+        if st.get('error'):
+            msg += ': ' + st['error'][:80]
+        self._debug(msg)
+        try:
+            self._run_on_main(self._status, msg)
+        except Exception:
+            pass
+
     def _show_lyrics(self, task_key):
         slug = LYRICS_SLUG.get(task_key)
         if not slug:
@@ -708,6 +743,10 @@ class TSPWork(ControlSurface):
                 return self._reply(conn, 204, None, origin if allowed else None)
             if not allowed:
                 return self._reply(conn, 403, {'ok': False, 'error': 'origin_not_allowed'}, None)
+            if method == 'GET' and path.startswith('/status') and self._export and self._export.state['state'] in ('starting', 'running'):
+                # Live is busy rendering; answer without waiting for its main thread.
+                return self._reply(conn, 200, {'ok': True, 'version': VERSION, 'https': self._tls is not None,
+                                               'exporting': self._export.state}, origin)
             if method == 'GET' and path.startswith('/status'):
                 return self._reply(conn, 200, self._run_on_main(self._cmd_status), origin)
             if method != 'POST':
@@ -717,6 +756,8 @@ class TSPWork(ControlSurface):
             except Exception:
                 return self._reply(conn, 400, {'ok': False, 'error': 'bad_json'}, origin)
             song_id = str(payload.get('song_id', ''))
+            if path.startswith('/export'):
+                return self._reply(conn, 200, self._export_request(path, payload), origin)
             if path.startswith('/transport'):
                 action = str(payload.get('action', ''))
                 if not re.match(r'^[a-z0-9]{1,12}$', action):

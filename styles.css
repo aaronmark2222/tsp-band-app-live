@@ -972,3 +972,11 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .sync-tab::after { content: "\200b"; }
 /* The avatar letter and name in the top bar did nothing; keep the bar compact. */
 #member-badge, #member-name { display: none !important; }
+.export-card { margin-bottom: 18px; }
+.export-row { display: flex; gap: 10px; align-items: center; }
+.export-row .wide-select { margin: 0; max-width: 420px; }
+.export-status { margin-top: 14px; padding: 12px 14px; border-radius: 10px; background: #1c281f; border: 1px solid #2b392e; font-size: 13px; }
+.export-status.error { border-color: #8d433c; }
+.export-status p { margin: 0 0 6px; }
+.export-files { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 3px; font: 12px var(--mono); color: #b7c6ad; }
+.export-now { color: var(--ink); }
