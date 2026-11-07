@@ -697,7 +697,9 @@ class ExportJob(object):
         # Stops the Mac idle-sleeping during an overnight run (screen may sleep).
         try:
             if on and self.caffeinate is None:
-                self.caffeinate = subprocess.Popen(['/usr/bin/caffeinate', '-i', '-w', str(os.getpid())])
+                # -d keeps the display on too: a locked screen can block the UI
+                # scripting that drives Live's Export dialog overnight.
+                self.caffeinate = subprocess.Popen(['/usr/bin/caffeinate', '-d', '-i', '-s', '-w', str(os.getpid())])
             elif not on and self.caffeinate is not None:
                 self.caffeinate.terminate()
                 self.caffeinate = None
@@ -752,6 +754,32 @@ class ExportJob(object):
                                           'error': st['error'], 'started_at': song_started, 'finished_at': time.time(),
                                           'seconds': round(time.time() - song_started, 1)})
                     osascript(CLOSE_DIALOGS, timeout=20)  # don't leave Export/Save open
+            # Unattended runs: give each song that failed one last try at the end.
+            for pos, r in enumerate(list(st['results'])):
+                if r['state'] != 'error' or self.cancelled or self.stop_after_song:
+                    continue
+                song = next((x for x in self.songs if x['song_id'] == r['song_id']), None)
+                if song is None:
+                    continue
+                osascript(CLOSE_DIALOGS, timeout=60)
+                wait_for_live()
+                time.sleep(5)
+                song_started = time.time()
+                self._select_song(song)
+                st.update({'song_index': self.songs.index(song), 'song_id': self.song_id, 'error': None,
+                           'done': [], 'skipped': [], 'total': 0, 'current': None, 'folder': None,
+                           'song_started_at': song_started, 'final_retry': True})
+                try:
+                    self._export_song()
+                    st['results'][pos] = {'song_id': self.song_id, 'state': 'done', 'files': len(st['done']),
+                                          'skipped': list(st['skipped']), 'retried': True,
+                                          'started_at': song_started, 'finished_at': time.time(),
+                                          'seconds': round(time.time() - song_started, 1),
+                                          'file_seconds': [[d['label'], d.get('seconds')] for d in st['done']]}
+                except Exception as err:
+                    r['error'] = ('%s (retried: %s)' % (r.get('error', ''), str(err)[:120]))[:300]
+                    osascript(CLOSE_DIALOGS, timeout=20)
+                st['final_retry'] = False
             failed = [r for r in st['results'] if r['state'] not in ('done', 'stopped')]
             st['stopped_early'] = any(r['state'] == 'stopped' for r in st['results'])
             st['state'] = 'error' if failed else 'done'
