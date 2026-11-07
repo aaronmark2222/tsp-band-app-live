@@ -58,22 +58,62 @@ on run argv
             if (count of items_) is 0 then return "no_export_item"
             click item 1 of items_
         end tell
+        -- Live's own dialogs are not always in "windows"; look at every
+        -- top-level element, and inside only small windows (the dialog is
+        -- ~300 px wide), so the big main window is never searched.
         set dlg to missing value
+        set exportButton to missing value
+        set seen to ""
         repeat 60 times
-            delay 0.1
+            delay 0.15
+            set cands to {}
             tell p
-                repeat with w in windows
-                    try
-                        if (count of (buttons of group 1 of w whose title is "Export")) > 0 then
+                try
+                    set cands to cands & (windows)
+                end try
+                try
+                    set cands to cands & (UI elements whose role is "AXWindow")
+                end try
+            end tell
+            set seen to ""
+            repeat with w in cands
+                try
+                    set sz to size of w
+                    set seen to seen & (item 1 of sz as text) & "x" & (item 2 of sz as text) & " "
+                    if (item 1 of sz) < 600 then
+                        set hits to {}
+                        try
+                            set hits to (buttons of group 1 of w whose name is "Export")
+                        end try
+                        if (count of hits) is 0 then
+                            try
+                                set hits to (buttons of group 1 of w whose title is "Export")
+                            end try
+                        end if
+                        if (count of hits) is 0 then
+                            try
+                                set allEls to entire contents of w
+                                repeat with el in allEls
+                                    try
+                                        if role of el is "AXButton" and (name of el is "Export" or title of el is "Export" or description of el is "Export") then
+                                            set hits to {el}
+                                            exit repeat
+                                        end if
+                                    end try
+                                end repeat
+                            end try
+                        end if
+                        if (count of hits) > 0 then
                             set dlg to w
+                            set exportButton to item 1 of hits
                             exit repeat
                         end if
-                    end try
-                end repeat
-            end tell
+                    end if
+                end try
+            end repeat
             if dlg is not missing value then exit repeat
         end repeat
-        if dlg is missing value then return "no_export_dialog"
+        if dlg is missing value then return "no_export_dialog (windows: " & seen & ")"
         set chooser to ""
         try
             set chooser to value of (first pop up button of group 1 of dlg whose description is "Rendered Track Chooser")
@@ -85,11 +125,10 @@ on run argv
         end if
         if chooser is not "" and chooser is not "Main" then
             try
-                click (first button of group 1 of dlg whose title is "Cancel")
+                click (first button of group 1 of dlg whose name is "Cancel")
             end try
             return "chooser_not_main:" & chooser
         end if
-        set exportButton to first button of group 1 of dlg whose title is "Export"
         ignoring application responses
             click exportButton
         end ignoring
@@ -118,6 +157,35 @@ on run argv
     end tell
     return "ok"
 end run
+'''
+
+CLOSE_DIALOGS = '''
+tell application "System Events"
+    set p to first application process whose bundle identifier is "com.ableton.live"
+    tell p
+        if exists window "Save" then
+            try
+                click button "Cancel" of window "Save"
+            end try
+            delay 0.5
+        end if
+        repeat with w in (UI elements whose role is "AXWindow")
+            try
+                if (item 1 of (size of w as list)) < 600 then
+                    repeat with el in (entire contents of w)
+                        try
+                            if role of el is "AXButton" and name of el is "Cancel" then
+                                click el
+                                exit repeat
+                            end if
+                        end try
+                    end repeat
+                end if
+            end try
+        end repeat
+    end tell
+end tell
+return "ok"
 '''
 
 SELECT_LOOP = '''
@@ -156,11 +224,12 @@ def safe_name(text):
 
 
 class ExportJob(object):
-    def __init__(self, surface, song_id, song_name, vocals_complete):
+    def __init__(self, surface, song_id, song_name, vocals_complete, instrumental=False):
         self.s = surface
         self.song_id = song_id
         self.song_name = song_name
         self.vocals_complete = set(vocals_complete or [])
+        self.instrumental = bool(instrumental)   # 'I' songs: no vocals in the mixdown
         self.state = {'state': 'starting', 'song_id': song_id, 'done': [], 'skipped': [],
                       'current': None, 'total': 0, 'error': None, 'folder': None,
                       'started_at': time.time()}
@@ -263,7 +332,7 @@ class ExportJob(object):
             fill.append('OTHER')
         if 'bass' not in parts:
             fill.append('BASS')
-        if not vocals_done:
+        if not vocals_done and not self.instrumental:
             fill.append('VOCALS')
         for name in fill:
             if name in stems:
@@ -279,7 +348,8 @@ class ExportJob(object):
         self.region = region
         self.elements = elements
         self.backup = backup
-        self.mix_notes = {'stems_used': [n for n in fill if n in stems], 'vocal_parts_used': vocals_done}
+        self.mix_notes = {'stems_used': [n for n in fill if n in stems], 'vocal_parts_used': vocals_done,
+                          'instrumental': self.instrumental}
         return {'ok': True, 'elements': [el[0] for el in elements]}
 
     def save_state(self):
@@ -413,6 +483,7 @@ class ExportJob(object):
         except Exception as err:
             st['state'] = 'error'
             st['error'] = str(err)[:300]
+            osascript(CLOSE_DIALOGS, timeout=20)  # don't leave Export/Save open
         finally:
             try:
                 self.s._run_on_main(self.restore_state, timeout=10.0)

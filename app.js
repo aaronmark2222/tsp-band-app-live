@@ -2805,7 +2805,7 @@ function renderExportPanel() {
     const head = job.state === 'done' ? `Done: ${job.done.length} files for ${escapeHtml(job.song_id)}.`
       : job.state === 'error' ? `Stopped on ${escapeHtml(job.song_id)}: ${escapeHtml(job.error || 'error')}`
       : `Exporting ${escapeHtml(job.song_id)}. Don't touch Ableton until it finishes.`;
-    const mix = job.mix ? `<p class="muted">Mixdown uses ${job.mix.vocal_parts_used ? 'the vocal parts' : 'the VOCALS stem for vocals'}${job.mix.stems_used?.length ? `; stems filling gaps: ${escapeHtml(job.mix.stems_used.join(', '))}` : ''}.</p>` : '';
+    const mix = job.mix ? `<p class="muted">Mixdown uses ${job.mix.instrumental ? 'no vocals (instrumental)' : job.mix.vocal_parts_used ? 'the vocal parts' : 'the VOCALS stem for vocals'}${job.mix.stems_used?.length ? `; stems filling gaps: ${escapeHtml(job.mix.stems_used.join(', '))}` : ''}.</p>` : '';
     status = `<div class="export-status ${job.state}"><p><b>${head}</b></p>${job.folder ? `<p class="muted">Folder: ${escapeHtml(job.folder)}</p>` : ''}${mix}<ul class="export-files">${files}${now}</ul></div>`;
   }
   box.innerHTML = `<header><h2>Practice audio</h2></header>
@@ -2834,7 +2834,7 @@ async function startExport() {
   if (!song) return;
   if (!window.confirm(`Export practice audio for ${song.id} ${song.name}?\n\nAbleton will solo tracks and open its Export dialog several times. Don't use Ableton until it finishes.`)) return;
   try {
-    const result = await abletonRequest('/export', { song_id: song.id, song_name: song.name, vocals_complete: exportVocalsComplete(song.id) }, 8000);
+    const result = await abletonRequest('/export', { song_id: song.id, song_name: song.name, vocals_complete: exportVocalsComplete(song.id), instrumental: song.type === 'Inst' || /^I\d/.test(song.id) }, 8000);
     if (!result?.ok) { showNotice(result?.error === 'export_running' ? 'An export is already running.' : `Could not start the export: ${result?.error || 'no response'}`, true); return; }
     exportJob.state = result.job;
     renderExportPanel();

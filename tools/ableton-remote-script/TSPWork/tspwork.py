@@ -31,7 +31,7 @@ from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
 TLS_PORT = 47711
-VERSION = '1.13'
+VERSION = '1.13.1'
 DEBUG_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requests.log')
 # https listener for the live site in Safari. Certificate made for 127.0.0.1 /
 # localhost only, trusted once in this Mac's Keychain. Files sit next to this
@@ -570,7 +570,7 @@ class TSPWork(ControlSurface):
         importlib.reload(exporter)
         self._run_on_main(self._end_review)
         self._busy = True
-        self._export = exporter.ExportJob(self, song_id, song_name, vocals)
+        self._export = exporter.ExportJob(self, song_id, song_name, vocals, bool(payload.get('instrumental')))
         self._export.thread.start()
         return {'ok': True, 'job': self._export.state}
 
