@@ -3700,7 +3700,7 @@ function lyricsPrefs() {
   try { old = JSON.parse(localStorage.getItem('tsp-practice-lyrics-v1') || '{}'); } catch { /* ignore */ }
   try { return { size: old.size || 'm', ...JSON.parse(localStorage.getItem(LYRICS_PREFS_KEY) || '{}') }; } catch { return { size: 'm' }; }
 }
-// Guitar -> Guitar, keys -> Keyboard, drums/percussion -> Drums, singers
+// Guitar -> Guitar, keys -> Keyboard, drums -> Drums, singers
 // (Dale, Anston) -> Lyrics; anyone else, or a song without that track -> Chords.
 function lyricsDefaultTrack() {
   const member = state.member || {};
@@ -3709,7 +3709,7 @@ function lyricsDefaultTrack() {
   if (slug === 'dale' || slug === 'anston') return 'lyrics';
   if (/guitar/.test(instrument)) return 'guitar';
   if (/key/.test(instrument)) return 'keyboard';
-  if (/drum|percussion/.test(instrument)) return 'drums';
+  if (/drum/.test(instrument)) return 'drums';
   return 'chords';
 }
 function saveLyricsPrefs(patch) {
