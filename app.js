@@ -2745,6 +2745,11 @@ async function readAbletonSet() {
       try { sync.lyricsSaved = await saveSongLyrics(sync.snapshot); } catch (error) { sync.lyricsSaved = null; showNotice(`Lyrics were not saved for Practice: ${error.message}`, true); }
     }
     try { await loadSyncAudioLengths(); } catch (error) { console.warn('Audio lengths not loaded', error); }
+    // Practice track colours follow the Ableton project.
+    if (sync.snapshot.track_colors && Object.keys(sync.snapshot.track_colors).length) {
+      const { error: colorError } = await db.from('app_meta').upsert({ key: 'practice_track_colors', value: sync.snapshot.track_colors, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+      if (colorError) console.warn('Track colours not saved', colorError); else practice.colors = sync.snapshot.track_colors;
+    }
   } catch (error) {
     fail(`Could not read the Ableton set: ${error.message || error}`, error);
   } finally {
@@ -3070,6 +3075,10 @@ async function practiceSongList() {
 
 async function renderPracticePage() {
   $('#practice-upload').classList.toggle('hidden', !state.member?.is_admin);
+  if (!practice.colors) {
+    const { data } = await db.from('app_meta').select('value').eq('key', 'practice_track_colors').maybeSingle();
+    practice.colors = data?.value || {};
+  }
   if (!practice.available) {
     try { await practiceLoadAvailable(); } catch (error) { practice.available = new Map(); console.warn(error); }
   }
@@ -3124,6 +3133,18 @@ async function practiceOpenSong(songId) {
   }
 }
 
+// Colour of a track as in the Ableton project (saved at each Sync read).
+function practiceColor(element) {
+  return practice.colors?.[element] || PRACTICE_COLORS[element] || '#9aa';
+}
+function practiceInk(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if (!m) return '#141414';
+  const n = parseInt(m[1], 16);
+  const lum = (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
+  return lum < 0.5 ? '#f2f2f2' : '#141414';
+}
+
 function practiceRank(element) {
   const i = PRACTICE_ORDER.indexOf(element);
   return i === -1 ? 50 : i;
@@ -3169,7 +3190,7 @@ function renderPracticePlayers() {
   renderPracticeMultitrack();
   const files = practice.tracks.slice().sort((a, b) => (a.element === 'Mixdown' ? -1 : b.element === 'Mixdown' ? 1 : practiceRank(a.element) - practiceRank(b.element)));
   dlBox.innerHTML = `<header><h2>Download</h2><span class="muted">Full-length MP3s for practising offline</span><button type="button" class="button quiet" data-practice-dl-all title="Download every file of this song">Download all (${files.length})</button></header>
-    <ul class="practice-dl-list">${files.map((t) => `<li><span class="practice-dl-dot" style="background:${PRACTICE_COLORS[t.element] || '#f39a26'}"></span><span>${escapeHtml(t.element)}</span><small class="muted">${t.bytes ? `${(t.bytes / 1048576).toFixed(1)} MB` : ''}</small><a class="button quiet" href="${escapeHtml(t.download || t.url)}" ${t.download ? '' : 'target="_blank" rel="noopener"'}>Download</a></li>`).join('')}</ul>`;
+    <ul class="practice-dl-list">${files.map((t) => `<li><span class="practice-dl-dot" style="background:${t.element === 'Mixdown' ? '#f39a26' : practiceColor(t.element)}"></span><span>${escapeHtml(t.element)}</span><small class="muted">${t.bytes ? `${(t.bytes / 1048576).toFixed(1)} MB` : ''}</small><a class="button quiet" href="${escapeHtml(t.download || t.url)}" ${t.download ? '' : 'target="_blank" rel="noopener"'}>Download</a></li>`).join('')}</ul>`;
   practiceCheckLyricsLength();
 }
 
@@ -3191,7 +3212,7 @@ function renderPracticeMultitrack() {
     const audible = st.on && (!anySolo || st.solo);
     const ls = practice.loadState.get(t.element);
     const dbLabel = st.vol > 0 ? (20 * Math.log10(st.vol)).toFixed(1) : '-inf';
-    return `<li class="ab-track ${audible ? '' : 'ab-silent'} ${myTaskKeys.has(t.element) ? 'ab-mine' : ''}" data-element="${escapeHtml(t.element)}" style="--track-color:${PRACTICE_COLORS[t.element] || '#9aa'}">
+    return `<li class="ab-track ${audible ? '' : 'ab-silent'} ${myTaskKeys.has(t.element) ? 'ab-mine' : ''}" data-element="${escapeHtml(t.element)}" style="--track-color:${practiceColor(t.element)};--track-ink:${practiceInk(practiceColor(t.element))}">
       <div class="ab-title"><span class="ab-name">${escapeHtml(t.element)}${myTaskKeys.has(t.element) ? ' <small>yours</small>' : ''}</span>${ls === 'error' ? '<small class="ab-err">failed</small>' : ls === 'loading' ? '<small>loading…</small>' : ''}</div>
       <div class="ab-controls">
         <button type="button" class="ab-activator ${st.on ? 'on' : ''}" data-practice-on="${escapeHtml(t.element)}" aria-pressed="${st.on}" title="Track on/off">${i + 1}</button>

@@ -204,6 +204,20 @@ end tell
 return "ok"
 '''
 
+ZOOM_SELECTION = '''
+tell application "System Events"
+    set p to first application process whose bundle identifier is "com.ableton.live"
+    tell p
+        set viewMenu to menu 1 of menu bar item "View" of menu bar 1
+        set zoomItems to (menu items of viewMenu whose name contains "Time Selection")
+        if (count of zoomItems) is 0 then return "no_zoom_item"
+        if not (enabled of item 1 of zoomItems) then return "zoom_disabled"
+        click item 1 of zoomItems
+    end tell
+end tell
+return "ok"
+'''
+
 SELECT_LOOP = '''
 tell application "System Events"
     set p to first application process whose bundle identifier is "com.ableton.live"
@@ -540,6 +554,15 @@ class ExportJob(object):
         for f in os.listdir(folder):
             if f.startswith(' - ') or f.startswith('- '):
                 os.remove(os.path.join(folder, f))
+        # Show the song first (zoomed to its whole range) so it's visible
+        # which song is being exported.
+        if self.elements:
+            self._main(self.setup_element, 0)
+            time.sleep(0.3)
+            if osascript(SELECT_LOOP) == 'ok':
+                time.sleep(0.3)
+                osascript(ZOOM_SELECTION)
+            time.sleep(1.0)
         for i, (label, _, _) in enumerate(self.elements):
             if self.cancelled:
                 raise RuntimeError('cancelled')

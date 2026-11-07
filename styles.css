@@ -1004,7 +1004,7 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .ab-seek { flex: 1; min-width: 160px; accent-color: #f39a26; }
 .ab-tracks { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; background: #161616; border: 1px solid #161616; border-radius: 3px; }
 .ab-track { display: grid; grid-template-columns: minmax(150px, 240px) 1fr; align-items: stretch; background: #3a3a3a; }
-.ab-title { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 10px; background: var(--track-color); color: #141414; font-weight: 600; font-size: 13px; min-width: 0; }
+.ab-title { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 10px; background: var(--track-color); color: var(--track-ink, #141414); font-weight: 600; font-size: 13px; min-width: 0; }
 .ab-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ab-title small { font-weight: 500; font-size: 10px; opacity: .8; }
 .ab-title .ab-err { color: #7a0000; }

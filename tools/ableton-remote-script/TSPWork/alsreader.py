@@ -108,6 +108,7 @@ def read_als(path):
                     'id': el.get('Id'), 'type': el.tag,
                     'name': _val(el, 'Name/EffectiveName', ''),
                     'group': _val(el, 'TrackGroupId', '-1'),
+                    'color': _val(el, 'Color', None),
                     'clips': _clips(el),
                 })
                 el.clear()
@@ -371,6 +372,43 @@ def _lyrics_for(lyric_tracks, section_clips, a, b, tl):
     return out
 
 
+# Live's 70-colour track palette (index stored as <Color Value=.../>).
+LIVE_PALETTE = [
+    'FF94A6', 'FFA529', 'CC9927', 'F7F47C', 'BFFB00', '1AFF2F', '25FFA8', '5CFFE8', '8BC5FF', '5480E4', '92A7FF', 'D86CE4', 'E553A0', 'FFFFFF',
+    'FF3636', 'F66C03', '99724B', 'FFF034', '87FF67', '3DC300', '00BFAF', '19E9FF', '10A4EE', '007DC0', '886CE4', 'B677C6', 'FF39D4', 'D0D0D0',
+    'E2675A', 'FFA374', 'D3AD71', 'EDFFAE', 'D2E498', 'BAD074', '9BC48D', 'D4FDE1', 'CDF1F8', 'B9C1E3', 'CDBBE4', 'AE98E5', 'E5DCE1', 'A9A9A9',
+    'C6928B', 'B78256', '99836A', 'BFBA69', 'A6BE00', '7DB04D', '88C2BA', '9BB3C4', '85A5C2', '8393CC', 'A595B5', 'BF9FBE', 'BC7196', '7B7B7B',
+    'AF3333', 'A95131', '724F41', 'DBC300', '85961F', '539F31', '0A9C8E', '236384', '1A2F96', '2F52A2', '624BAD', 'A34BAD', 'CC2E6E', '3C3C3C',
+]
+# Practice-page element -> (parent group, track name) whose colour it takes.
+COLOR_SOURCES = {
+    'Part - Bass': ('PARTS', 'Bass Part'), 'Part - Keyboard': ('PARTS', 'Keyboard Part'),
+    'Part - Guitar': ('PARTS', 'Guitar Part'), 'Part - Violin': ('PARTS', 'Violin Part'),
+    'Part - Percussion': ('PARTS', 'Percussion Part'), 'Part - Drums': ('PARTS', 'Drums Part'),
+    'Part - Dale Vox': ('PARTS', 'Dale Vox Part'), 'Part - Anston Vox': ('PARTS', 'Anston Vox Part'),
+    'Stem - Bass': ('STEMS', 'BASS'), 'Stem - Drums': ('STEMS', 'DRUMS'), 'Stem - Other': ('STEMS', 'OTHER'),
+    'Stem - Vocals': ('STEMS', 'VOCALS'), 'Backing': (None, 'MIXED BACKING'), 'CPC': (None, 'CPC'),
+}
+
+
+def _track_colors(tracks):
+    by_id = {t['id']: t for t in tracks}
+    out = {}
+    for element, (group, name) in COLOR_SOURCES.items():
+        for t in tracks:
+            if t['name'].strip() != name:
+                continue
+            parent = by_id.get(t['group'])
+            if group is not None and (parent is None or parent['name'].strip() != group):
+                continue
+            try:
+                out[element] = '#' + LIVE_PALETTE[int(t['color'])]
+            except (TypeError, ValueError, IndexError):
+                pass
+            break
+    return out
+
+
 def build_snapshot(als_path):
     raw = read_als(als_path)
     tl = Timeline(raw['tempo'], raw['timesig'])
@@ -490,6 +528,7 @@ def build_snapshot(als_path):
         'als_size': os.path.getsize(als_path),
         'read_at': dt.datetime.now(dt.timezone.utc).isoformat(),
         'songs': out,
+        'track_colors': _track_colors(tracks),
         'warnings': warnings,
     }
 
