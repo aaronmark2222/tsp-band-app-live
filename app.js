@@ -2868,6 +2868,12 @@ function exportSongPayload(song) {
 function renderExportPanel() {
   const box = $('#export-panel');
   if (!box) return;
+  // Which songs are already uploaded (from the bucket), loaded once and after each export.
+  if (!practice.available && !exportJob.loadingAvailable) {
+    exportJob.loadingAvailable = true;
+    practiceLoadAvailable().catch((error) => console.warn('Upload list not loaded', error))
+      .finally(() => { exportJob.loadingAvailable = false; if (practice.available) renderExportPanel(); });
+  }
   const job = exportJob.state;
   const running = job && ['starting', 'running', 'uploading'].includes(job.state);
   const songs = state.songs; // same order as the database / Songs page
@@ -2908,7 +2914,11 @@ function renderExportPanel() {
       <button id="export-start" class="button primary" type="button" ${running || !count || !abletonBridge.connected ? 'disabled' : ''}>${running ? 'Exporting…' : `Export ${count ? `${count} song${count === 1 ? '' : 's'}` : 'songs'}`}</button>
       ${running ? '<button id="export-cancel" class="button quiet" type="button" title="Stop after the current step and put Ableton back">Cancel</button>' : ''}
     </div>
-    <ul class="export-pick">${songs.map((song) => `<li><label><input type="checkbox" data-export-song="${escapeHtml(song.id)}" ${exportJob.selected.has(song.id) ? 'checked' : ''} ${running ? 'disabled' : ''}><span class="song-id">${escapeHtml(song.id)}</span> ${escapeHtml(song.name)}</label></li>`).join('')}</ul>
+    <p class="muted export-legend"><span class="export-up">●</span> already on the band app${practice.available ? ` (${practice.available.size} songs)` : ''}</p>
+    <ul class="export-pick">${songs.map((song) => {
+      const up = practice.available?.get(song.id);
+      return `<li class="${up ? 'uploaded' : ''}"><label title="${up ? `${up.length} files on the band app` : 'Not uploaded yet'}"><input type="checkbox" data-export-song="${escapeHtml(song.id)}" ${exportJob.selected.has(song.id) ? 'checked' : ''} ${running ? 'disabled' : ''}><span class="song-id">${escapeHtml(song.id)}</span> <span class="export-name">${escapeHtml(song.name)}</span>${up ? ' <span class="export-up">●</span>' : ''}</label></li>`;
+    }).join('')}</ul>
     ${status}`;
 }
 

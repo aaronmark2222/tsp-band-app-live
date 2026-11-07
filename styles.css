@@ -1118,3 +1118,6 @@ body.view-practice .shell { padding-bottom: 96px; }
 
 .export-pick li { break-inside: avoid; }
 .export-setlist { height: 38px; padding: 0 10px; color: var(--ink); background: #111a15; border: 1px solid var(--line); border-radius: 9px; }
+.export-pick li.uploaded .export-name { color: #79d36b; }
+.export-up { color: #79d36b; font-size: 10px; }
+.export-legend { margin: 10px 0 0; font-size: 12px; }
