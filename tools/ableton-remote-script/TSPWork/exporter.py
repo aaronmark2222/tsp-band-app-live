@@ -46,9 +46,11 @@ EXTRA_SOLO = {'drums': ['Drums Midi Part']}
 # A track is exported only if it has an active (not deactivated) clip with at
 # least this much inside the song; muted-only or sliver-only tracks are skipped.
 MIN_CLIP_BEATS = 0.25
-# A part whose active clips cover less than this share of the song (e.g. one
-# stray bar) counts as missing: no part file, and its stem fills the mixdown.
-MIN_PART_COVERAGE = 0.25
+# A part with less than this much active audio in the song (in beats; 12 = 3
+# bars of 4/4) is a stray clip and counts as missing: no part file, and its
+# stem fills the mixdown. Measured on the set (7 Nov 2026): strays are one
+# clip of 3-8 beats; the shortest real parts (e.g. a violin lead) are 20+.
+MIN_PART_BEATS = 12.0
 
 # Fixed AppleScripts: data (folder, file name) is passed as arguments, never
 # pasted into the script text.
@@ -307,7 +309,7 @@ class ExportJob(object):
                 continue
             total += b - max(a, end)
             end = b
-        return total / max(1e-6, e - s)
+        return total
 
     def _ancestors(self, track):
         out = []
@@ -336,7 +338,7 @@ class ExportJob(object):
             live = self._named(live_name, 'LIVE CHANNELS')
             if live is None or not any(self._has_clips(x, s, e) for x in src):
                 continue
-            if self._coverage(src, s, e) < MIN_PART_COVERAGE:
+            if self._coverage(src, s, e) < MIN_PART_BEATS:
                 self.state['skipped'].append('Part - %s (only stray clips)' % label)
                 continue
             extra = [x for x in src if x.name.strip() in EXTRA_SOLO.get(key, [])]
