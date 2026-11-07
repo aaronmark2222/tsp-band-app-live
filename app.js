@@ -3547,14 +3547,22 @@ function lyricLineHtml(text) {
   const re = /\[([^\]]*)\]/g;
   let m;
   const pushText = (str) => {
-    if (!str && pendingChord === null) return;
-    parts.push({ chord: pendingChord, text: str });
-    pendingChord = null;
+    // "\\" in a clip name is a line break (AbleSet).
+    const pieces = String(str || '').split(/\s*\\{1,2}\s*/);
+    pieces.forEach((piece, i) => {
+      if (i > 0) { if (pendingChord !== null) { parts.push({ chord: pendingChord, text: '' }); pendingChord = null; } parts.push({ br: true }); }
+      if (!piece && pendingChord === null) return;
+      parts.push({ chord: pendingChord, text: piece });
+      pendingChord = null;
+    });
   };
   while ((m = re.exec(raw))) {
     const before = raw.slice(last, m.index);
     const token = m[1].trim();
-    if (LYRIC_CHORD_RE.test(token)) {
+    // A chord, or a chord with an instruction like "A(stop)" / "E x2": shown above the words.
+    // Chords, chords with an instruction ("A(stop)", "E x2") and bracketed
+    // instructions like "[(stop)]" all sit above the words, in chord colour.
+    if (LYRIC_CHORD_RE.test(token) || LYRIC_CHORD_RE.test(token.split(/[\s(]/)[0]) || /^\(.*\)$/.test(token)) {
       pushText(before);
       pendingChord = token.replace(/-$/, '');
     } else {
@@ -3565,9 +3573,10 @@ function lyricLineHtml(text) {
   }
   pushText(raw.slice(last));
   if (pendingChord !== null) parts.push({ chord: pendingChord, text: '' });
-  const chordOnly = parts.every((p) => p.label !== undefined || !String(p.text || '').trim());
+  const chordOnly = parts.every((p) => p.br || p.label !== undefined || !String(p.text || '').trim());
   const fmt = (str) => escapeHtml(str).replace(/\(([^)]*)\)/g, '<span class="ly-note">($1)</span>');
   return parts.map((p) => {
+    if (p.br) return '<span class="ly-br"></span>';
     if (p.label !== undefined) return p.label ? `<span class="ly-label">${escapeHtml(p.label)}</span>` : '';
     if (p.chord === null || p.chord === undefined) return `<span class="ly-seg"><span class="ly-word">${fmt(p.text)}</span></span>`;
     return `<span class="ly-seg ${chordOnly ? 'ly-chord-only' : ''}"><span class="ly-chord">${escapeHtml(p.chord)}</span><span class="ly-word">${fmt(p.text) || '&nbsp;'}</span></span>`;
@@ -3649,7 +3658,7 @@ function practiceLyricsTick(force) {
   });
   const target = scroll.querySelector(`.ly-line[data-line="${inside ? idx : Math.max(0, idx + 1)}"]`);
   if (target) {
-    const top = target.offsetTop - scroll.clientHeight * 0.35;
+    const top = target.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop - scroll.clientHeight * 0.35;
     scroll.scrollTo({ top: Math.max(0, top), behavior: force ? 'auto' : 'smooth' });
   }
 }
