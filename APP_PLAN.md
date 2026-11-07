@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-07** · App version marker `?v=20261108-stopfix` · TSPWork remote script **1.17** (alsreader md5 `0ff2bbb0…`, exporter md5 `e7c4c16b…`, tspwork md5 `223967ff…`) · Supabase ledger head `20261107174948_practice_export_log` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
+_Last updated: **2026-11-07** · App version marker `?v=20261108-stopfix2` · TSPWork remote script **1.17** (alsreader md5 `0ff2bbb0…`, exporter md5 `e7c4c16b…`, tspwork md5 `223967ff…`) · Supabase ledger head `20261107174948_practice_export_log` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 

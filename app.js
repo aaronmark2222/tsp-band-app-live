@@ -2232,6 +2232,7 @@ async function probeAbletonBridge() {
   try {
     const status = await abletonRequest('/status');
     abletonBridge.status = status?.ok ? status : null;
+    if (status?.version) abletonBridge.version = status.version; // kept even if a later probe misses
     setAbletonConnected(!!status?.ok);
     if (status?.exporting && !exportJob.timer) { exportJob.state = status.exporting; exportJob.timer = setInterval(pollExport, 2000); }
     if (state.view === 'sync') { renderSyncStatus(); renderExportPanel(); }
@@ -2956,7 +2957,7 @@ function renderExportPanel() {
       </select>
       <button class="button quiet" type="button" data-export-none ${running || !count ? 'disabled' : ''}>Clear</button>
       ${(() => { const up = [...exportJob.selected].filter((id) => practice.available?.has(id)).length; return `<button class="button quiet" type="button" data-export-unuploaded ${running || !up ? 'disabled' : ''} title="Uncheck the checked songs that are already on the band app">Uncheck uploaded${up ? ` (${up})` : ''}</button>`; })()}
-      <button id="export-start" class="button primary" type="button" ${running || !count || !abletonBridge.connected ? 'disabled' : ''}>${running ? 'Exporting…' : `Export ${count ? `${count} song${count === 1 ? '' : 's'}` : 'songs'}`}</button>
+      <button id="export-start" class="button primary" type="button" ${running || !count || (!abletonBridge.connected && !running) ? 'disabled' : ''}>${running ? 'Exporting…' : `Export ${count ? `${count} song${count === 1 ? '' : 's'}` : 'songs'}`}</button>
       ${canStopAfter ? `<button id="export-stop-after" class="button ${job.stop_after_song ? 'primary' : 'quiet'}" type="button" ${stopSupported ? '' : 'disabled'} title="${stopSupported ? (job.stop_after_song ? 'Keep exporting the rest of the songs' : 'Finish the song being exported, then stop') : 'Needs TSPWork 1.17: in Live, set the TSPWork control surface to None and back to TSPWork'}">${job.stop_after_song ? `Keep going after ${escapeHtml(job.song_id)}` : 'Stop after this song'}</button>` : ''}
       ${running ? '<button id="export-cancel" class="button quiet" type="button" title="Stop right away (the current song is left unfinished) and put Ableton back">Cancel now</button>' : ''}
     </div>
@@ -2977,7 +2978,7 @@ function renderExportPanel() {
   if (Math.abs(window.scrollY - pageScroll) > 1) window.scrollTo(0, pageScroll);
 }
 function exportVersionAtLeast(want) {
-  const have = String(abletonBridge.status?.version || '0').split('.').map(Number);
+  const have = String(abletonBridge.status?.version || abletonBridge.version || '0').split('.').map(Number);
   const need = want.split('.').map(Number);
   for (let i = 0; i < need.length; i += 1) {
     if ((have[i] || 0) !== need[i]) return (have[i] || 0) > need[i];
