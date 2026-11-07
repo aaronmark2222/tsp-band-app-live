@@ -3765,7 +3765,7 @@ const LYRICS_STANDARD = [['chords', 'Chords'], ['guitar', 'Guitar'], ['keyboard'
 function lyricLineHtml(text) {
   const raw = String(text || '');
   const keyMatch = raw.match(/^\s*\[Key:\]\s*\[([^\]]+)\]\s*$/);
-  if (keyMatch) return `<span class="ly-key">Key: <b>${escapeHtml(keyMatch[1])}</b></span>`;
+  if (keyMatch) return `<span class="ly-key">Key:&nbsp; <b>${escapeHtml(keyMatch[1])}</b></span>`;
   const parts = [];
   let last = 0;
   let pendingChord = null;
@@ -3829,10 +3829,24 @@ function renderPracticeLyrics() {
   for (const sec of ly.sections || []) items.push({ type: 'section', t: sec.t, name: sec.name, c: sec.c });
   (current?.lines || []).forEach((line, i) => items.push({ type: 'line', t: line.t, e: line.e, text: line.text, c: line.c, i }));
   items.sort((a, b) => a.t - b.t || (a.type === 'section' ? -1 : 1));
+  // AbleSet-style count dots under a section heading while nothing is sung or
+  // played on this track: one per beat for short gaps, otherwise a few that
+  // step through the bars.
+  const withDots = [];
+  items.forEach((it, i) => {
+    withDots.push(it);
+    if (it.type !== 'section') return;
+    const nextT = items[i + 1]?.t ?? (practice.lyrics?.duration_seconds || ptDuration() || it.t);
+    const n = lyricsDotCount(it.t, nextT);
+    if (n) withDots.push({ type: 'dots', t: it.t, t1: nextT, n });
+  });
+  const song = state.songs.find((row) => row.id === practice.songId);
   box.innerHTML = `<header><h2>Lyrics</h2><span class="ly-sizes">${['s', 'm', 'l'].map((size) => `<button type="button" class="ly-size ${prefs.size === size ? 'on' : ''}" data-lyrics-size="${size}">${size === 's' ? 'A' : size === 'm' ? 'A' : 'A'}</button>`).join('')}</span></header>
     <div class="ly-chips">${chips}</div>${missing}
-    <div class="ly-scroll ly-size-${prefs.size}" id="practice-lyrics-scroll">${items.map((it) => it.type === 'section'
-      ? `<div class="ly-section" data-t="${it.t}"${/^#[0-9a-f]{6}$/i.test(it.c || '') ? ` style="--sec-color:${it.c};--sec-ink:${practiceInk(it.c)}"` : ''}>${escapeHtml(it.name)}</div>`
+    <div class="ly-scroll ly-size-${prefs.size} ly-track-${escapeHtml(current?.slug || 'none')}" id="practice-lyrics-scroll">${song ? `<div class="ly-title">${escapeHtml(song.name)}</div>` : ''}${withDots.map((it) => it.type === 'dots'
+      ? `<div class="ly-dots" data-t="${it.t}" data-t1="${it.t1}">${'<span class="ly-dot"></span>'.repeat(it.n)}</div>`
+      : it.type === 'section'
+      ? `<div class="ly-section" data-t="${it.t}"${/^#[0-9a-f]{6}$/i.test(it.c || '') ? ` style="--sec-color:${it.c}"` : ''}>${escapeHtml(it.name)}</div>`
       : `<div class="ly-line" data-line="${it.i}" data-t="${it.t}" data-e="${it.e}"${lyricInk(it.c) ? ` style="--ly-ink:${lyricInk(it.c)}"` : ''}>${lyricLineHtml(it.text)}</div>`).join('')}</div>
     <p class="muted ly-foot">From the Ableton set read ${ly.updated_at ? new Date(ly.updated_at).toLocaleDateString() : ''}. Click a line to jump there.</p>`;
   practice.lyricIndex = -2;
@@ -3868,12 +3882,51 @@ function practiceNow() {
   return ptPosition();
 }
 
+// Beats between two times, from the set's tempo map.
+function lyricsBeatsBetween(t0, t1) {
+  const map = Array.isArray(practice.lyrics?.tempo) && practice.lyrics.tempo.length ? practice.lyrics.tempo : null;
+  const song = state.songs.find((row) => row.id === practice.songId);
+  const bpmAt = (t) => {
+    if (!map) return Number(song?.tempo_start) || 120;
+    let bpm = map[0][1];
+    for (const [pt, v] of map) { if (pt <= t) bpm = v; else break; }
+    return bpm;
+  };
+  let beats = 0;
+  const step = 0.05;
+  for (let t = t0; t < t1; t += step) beats += (Math.min(step, t1 - t) * bpmAt(t)) / 60;
+  return beats;
+}
+function lyricsDotCount(t0, t1) {
+  if (!(t1 > t0)) return 0;
+  const beats = lyricsBeatsBetween(t0, t1);
+  if (beats < 0.9) return 0;
+  if (beats <= 8.1) return Math.max(1, Math.round(beats)); // one per beat
+  const bars = beats / 4;
+  let unit = 1;
+  while (bars / unit > 4.01) unit *= 2; // at most four dots, each a few bars
+  return Math.max(1, Math.ceil(bars / unit - 0.01));
+}
+function practiceLyricsDots(scroll, t) {
+  scroll.querySelectorAll('.ly-dots').forEach((row) => {
+    const t0 = Number(row.dataset.t);
+    const t1 = Number(row.dataset.t1);
+    const dots = row.children;
+    const lit = t < t0 ? 0 : t >= t1 ? dots.length : Math.floor(((t - t0) / (t1 - t0)) * dots.length) + 1;
+    if (row.dataset.lit === String(lit)) return;
+    row.dataset.lit = String(lit);
+    [...dots].forEach((dot, i) => dot.classList.toggle('on', i < lit));
+    row.classList.toggle('live', t >= t0 && t < t1);
+  });
+}
+
 function practiceLyricsTick(force) {
   if (practice.lyricsUnsynced) return; // audio and lyrics disagree on length
   const scroll = $('#practice-lyrics-scroll');
   if (!scroll || !practice.lyrics) return;
   const lines = lyricsTrack()?.lines || [];
   const t = practiceNow();
+  practiceLyricsDots(scroll, t);
   let idx = -1;
   for (let i = 0; i < lines.length; i += 1) { if (lines[i].t <= t + 0.05) idx = i; else break; }
   const inside = idx >= 0 && t < lines[idx].e;

@@ -1182,3 +1182,34 @@ body { padding-top: env(safe-area-inset-top); }
 .tone-guide summary { cursor: pointer; color: #f39a26; font-weight: 600; }
 .tone-guide ol { margin: 8px 0; padding-left: 20px; display: grid; gap: 6px; line-height: 1.45; }
 .tone-guide p { font-size: 12px; line-height: 1.5; }
+
+/* ---- Lyrics in the AbleSet look ------------------------------------------ */
+.ly-scroll { background: #0b0b0c; border-radius: 10px; font-family: var(--sans); }
+.ly-title { display: inline-block; max-width: 100%; margin: 0 0 1em; padding: .45em .75em; border-radius: .45em; background: #1c1f26; color: #8d96a8; font-size: .5em; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; line-height: 1.35; }
+.ly-key { color: rgba(255,255,255,.55); font-size: .92em; font-weight: 500; }
+.ly-key b { color: #fff; font-weight: 500; }
+.ly-line { padding: .18em .1em; margin: .3em 0; border-radius: 0; background: none !important; box-shadow: none !important; opacity: .34; line-height: 1.22; transition: opacity .2s; }
+.ly-line.next { opacity: .5; }
+.ly-line.past { opacity: .3; }
+.ly-line.current { opacity: 1; }
+.ly-line:hover { opacity: .8; }
+/* chords (and anything in [ ]) sit above the words in a dark rounded box */
+.ly-seg { display: inline-flex; flex-direction: column; align-items: flex-start; vertical-align: bottom; }
+.ly-chord { display: inline-block; margin: 0 .22em .18em 0; padding: .04em .28em; min-height: 0; border-radius: .28em; background: rgba(255,255,255,.085); color: #fff; font-size: .95em; font-weight: 500; line-height: 1.25; white-space: pre; }
+.ly-line.current .ly-chord { color: #fff; background: rgba(255,255,255,.12); }
+.ly-chord-only { margin-right: 0; }
+.ly-chord-only .ly-chord { font-size: 1em; margin-bottom: 0; }
+.ly-word { white-space: pre-wrap; }
+.ly-note { font-style: normal; color: inherit; font-size: inherit; }
+/* sections: pill in a deepened clip colour, white text */
+.ly-section { display: table; margin: 1.15em 0 .75em; padding: .42em .9em; border-radius: 999px; font-size: .78em; font-weight: 500; letter-spacing: 0; text-transform: none; color: #fff;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--sec-color, #2f4f7a) 58%, #000), color-mix(in srgb, var(--sec-color, #2f4f7a) 42%, #000)); opacity: .45; box-shadow: none; }
+.ly-section.current { opacity: 1; box-shadow: none; }
+.ly-section:hover { opacity: .9; }
+/* count dots while nothing is happening on this track */
+.ly-dots { display: flex; gap: .5em; margin: -.1em 0 .9em .2em; opacity: .5; transition: opacity .2s; }
+.ly-dots.live { opacity: 1; }
+.ly-dot { width: .42em; height: .42em; border-radius: 50%; background: rgba(255,255,255,.2); transition: background .15s; }
+.ly-dot.on { background: #fff; }
+/* the plain Lyrics track reads as bigger, tighter lines */
+.ly-track-lyrics .ly-line { margin: .12em 0; font-size: 1.12em; }
