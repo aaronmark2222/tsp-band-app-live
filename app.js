@@ -3211,6 +3211,7 @@ async function practiceSongList() {
 
 async function renderPracticePage() {
   $('#practice-upload').classList.toggle('hidden', !state.member?.is_admin);
+  renderTonePanel();
   if (!practice.colors) {
     const { data } = await db.from('app_meta').select('value').eq('key', 'practice_track_colors').maybeSingle();
     practice.colors = data?.value || {};
@@ -3726,11 +3727,12 @@ function saveLyricsPrefs(patch) {
 async function practiceLoadLyrics(songId) {
   practice.lyrics = null;
   renderPracticeLyrics();
-  const { data, error } = await db.from('song_lyrics').select('tracks, sections, tempo, bars, duration_seconds, updated_at').eq('song_id', songId).maybeSingle();
+  const { data, error } = await db.from('song_lyrics').select('tracks, sections, tempo, bars, tone, duration_seconds, updated_at').eq('song_id', songId).maybeSingle();
   if (practice.songId !== songId) return;
   practice.lyrics = error ? { error: error.message } : (data || { tracks: [], sections: [] });
   practice.lyricIndex = -2;
   renderPracticeLyrics();
+  renderTonePanel();
 }
 
 function lyricsTrack() {
@@ -3953,7 +3955,7 @@ async function saveSongLyrics(snapshot) {
   const known = new Set(state.songs.map((song) => song.id));
   const rows = Object.entries(snapshot?.songs || {})
     .filter(([id, data]) => known.has(id) && data.lyrics)
-    .map(([id, data]) => ({ song_id: id, tracks: data.lyrics.tracks || [], sections: data.lyrics.sections || [], tempo: data.lyrics.tempo || [], bars: data.bars || [],
+    .map(([id, data]) => ({ song_id: id, tracks: data.lyrics.tracks || [], sections: data.lyrics.sections || [], tempo: data.lyrics.tempo || [], bars: data.bars || [], tone: data.tone || [],
       duration_seconds: data.duration_seconds, als_modified_at: snapshot.als_modified_at, updated_at: new Date().toISOString() }));
   for (let i = 0; i < rows.length; i += 20) {
     const { error } = await db.from('song_lyrics').upsert(rows.slice(i, i + 20), { onConflict: 'song_id' });
@@ -4198,6 +4200,169 @@ function ptQueueLabel() {
   const i = list.findIndex((song) => song.id === practice.songId);
   return i >= 0 ? ` <small class="pt-queue">${i + 1} / ${list.length}</small>` : '';
 }
+// ---------------------------------------------------------------------------
+// Guitar tones over MIDI: the GUITAR TONE Midi notes from the set are sent
+// from this page (Chrome/Edge Web MIDI) to the guitarist's Mac, at the same
+// moments Ableton would send them. Jumping around re-sends the tone that
+// should be active at the new spot.
+const TONE_PREFS_KEY = 'tsp-tone-midi-v1';
+const tone = { access: null, requesting: false, error: '', current: null, last: null, lastPos: null, lastHi: null, lastSong: null };
+function tonePrefs() {
+  try { return { enabled: false, output: '', channel: 1, ...JSON.parse(localStorage.getItem(TONE_PREFS_KEY) || '{}') }; } catch { return { enabled: false, output: '', channel: 1 }; }
+}
+function saveTonePrefs(patch) {
+  try { localStorage.setItem(TONE_PREFS_KEY, JSON.stringify({ ...tonePrefs(), ...patch })); } catch { /* ignore */ }
+}
+function toneForMe() {
+  return /guitar/i.test(state.member?.instrument || '') || !!state.member?.is_admin;
+}
+function toneSupported() {
+  return typeof navigator !== 'undefined' && typeof navigator.requestMIDIAccess === 'function';
+}
+function toneOutputs() {
+  return tone.access ? [...tone.access.outputs.values()].filter((o) => o.state !== 'disconnected') : [];
+}
+function toneOutput() {
+  const name = tonePrefs().output;
+  return toneOutputs().find((o) => o.name === name) || null;
+}
+function toneEvents() {
+  return Array.isArray(practice.lyrics?.tone) ? practice.lyrics.tone : [];
+}
+async function toneConnect() {
+  if (tone.requesting || !toneSupported()) return;
+  tone.requesting = true;
+  tone.error = '';
+  try {
+    tone.access = await navigator.requestMIDIAccess();
+    tone.access.onstatechange = () => renderTonePanel();
+    saveTonePrefs({ enabled: true });
+    if (!toneOutput()) {
+      const iac = toneOutputs().find((o) => /IAC/i.test(o.name));
+      if (iac) saveTonePrefs({ output: iac.name });
+    }
+  } catch (error) {
+    tone.error = error?.name === 'SecurityError' || error?.name === 'NotAllowedError'
+      ? 'MIDI access was blocked. Click the icon at the left of the address bar, allow MIDI devices, then press Enable MIDI again.'
+      : (error?.message || String(error));
+  }
+  tone.requesting = false;
+  renderTonePanel();
+}
+function toneSend(ev, why) {
+  const out = toneOutput();
+  if (!out || !ev) return;
+  const ch = Math.min(16, Math.max(1, Number(tonePrefs().channel) || 1)) - 1;
+  try {
+    out.send([0x90 | ch, ev.n & 127, (ev.v || 100) & 127]);
+    out.send([0x80 | ch, ev.n & 127, 0], performance.now() + Math.max(40, (ev.d || 0.1) * 1000));
+    tone.current = ev;
+    tone.last = { ...ev, why, song: practice.songId };
+    tone.error = '';
+  } catch (error) {
+    tone.error = error?.message || String(error);
+  }
+  toneRenderStatus();
+}
+function toneActiveAt(pos) {
+  let active = null;
+  for (const ev of toneEvents()) { if (ev.t <= pos + 0.02) active = ev; else break; }
+  return active;
+}
+function toneChase(pos) {
+  const active = toneActiveAt(pos);
+  if (active && active !== tone.current) toneSend(active, 'jump');
+}
+const TONE_LOOKAHEAD = 0.02;
+function toneTick() {
+  if (!tone.access || !practice.songId || !toneOutput()) { tone.lastPos = null; return; }
+  if (tone.lastSong !== practice.songId) { tone.lastSong = practice.songId; tone.lastPos = null; tone.current = null; }
+  const pos = ptPosition();
+  const playing = ptIsPlaying();
+  const hi = pos + TONE_LOOKAHEAD;
+  let jumped = true;
+  if (tone.lastPos === null) {
+    toneChase(pos); // song just opened, or the port was just chosen
+  } else if (playing && pos >= tone.lastPos - 0.05 && pos - tone.lastPos <= 1) {
+    jumped = false; // normal playback: send the changes the playhead passes
+    for (const ev of toneEvents()) {
+      if (ev.t > tone.lastHi + 1e-4 && ev.t <= hi) toneSend(ev, 'play');
+    }
+  } else if (playing || Math.abs(pos - tone.lastPos) > 0.01) {
+    toneChase(pos); // scrubbed or skipped: send the tone for the new spot now
+  }
+  tone.lastPos = pos;
+  tone.lastHi = jumped ? hi : Math.max(hi, tone.lastHi);
+}
+setInterval(() => { try { toneTick(); } catch (error) { console.warn('tone', error); } }, 15);
+function toneRenderStatus() {
+  const box = $('#tone-status');
+  if (!box) return;
+  const ev = tone.last;
+  box.textContent = tone.error ? tone.error
+    : ev ? `Last sent: note ${ev.n} (bar ${ev.bar}, ${ptTime(ev.t)}${ev.song && ev.song !== practice.songId ? `, ${ev.song}` : ''})${ev.why === 'test' ? ' · test' : ''}`
+    : 'Nothing sent yet.';
+  box.classList.toggle('error', !!tone.error);
+}
+function renderTonePanel() {
+  const box = $('#practice-tone');
+  if (!box) return;
+  const show = toneForMe();
+  box.classList.toggle('hidden', !show);
+  if (!show) return;
+  const prefs = tonePrefs();
+  if (prefs.enabled && !tone.access && !tone.requesting && toneSupported()) toneConnect();
+  const events = toneEvents();
+  const outputs = toneOutputs();
+  const ready = !!(tone.access && toneOutput());
+  const song = state.songs.find((item) => item.id === practice.songId);
+  const count = !practice.songId ? '' : !practice.lyrics ? 'Loading this song’s tones…'
+    : events.length ? `${song ? escapeHtml(song.id) : 'This song'} has ${events.length} tone change${events.length === 1 ? '' : 's'}: ${events.map((ev) => `bar ${ev.bar}`).join(', ')}.`
+    : `${song ? escapeHtml(song.id) : 'This song'} has no tone changes on the GUITAR TONE Midi track.`;
+  let body;
+  if (!toneSupported()) {
+    body = '<p class="tone-warn">This browser can’t send MIDI. On your MacBook, open TSP Work in <b>Google Chrome</b> or <b>Microsoft Edge</b> (Safari doesn’t support MIDI).</p>';
+  } else if (!tone.access) {
+    body = `<div class="tone-row"><button type="button" class="button primary" data-tone-connect ${tone.requesting ? 'disabled' : ''}>${tone.requesting ? 'Waiting for permission…' : 'Enable MIDI'}</button><span class="muted">Chrome will ask to allow MIDI devices; click Allow.</span></div>`;
+  } else {
+    const options = outputs.map((o) => `<option value="${escapeHtml(o.name)}" ${o.name === prefs.output ? 'selected' : ''}>${escapeHtml(o.name)}</option>`).join('');
+    body = `<div class="tone-row">
+        <label>Send to <select data-tone-output><option value="">Choose a MIDI port…</option>${options}</select></label>
+        <label>Channel <select data-tone-channel>${Array.from({ length: 16 }, (_, i) => `<option value="${i + 1}" ${Number(prefs.channel) === i + 1 ? 'selected' : ''}>${i + 1}</option>`).join('')}</select></label>
+        <button type="button" class="button quiet" data-tone-test ${ready ? '' : 'disabled'} title="Send the tone for the current playhead position">Send current tone</button>
+      </div>
+      ${outputs.length ? '' : '<p class="tone-warn">No MIDI ports found. Do step 2 below (turn on the IAC Driver), then reload this page.</p>'}`;
+  }
+  box.innerHTML = `<header><h2>Guitar tones <small class="muted">MIDI</small></h2><span class="tone-state ${ready ? 'on' : ''}">${ready ? '● Sending to ' + escapeHtml(prefs.output) : 'Off'}</span></header>
+    ${body}
+    <p class="muted tone-count">${count}</p>
+    <p class="muted tone-status" id="tone-status"></p>
+    <details class="tone-guide" ${ready ? '' : 'open'}><summary>How to set it up on your MacBook</summary>
+      <ol>
+        <li><b>Use Chrome or Edge</b> on your MacBook and keep this Practice page open while you play along. Safari can’t send MIDI.</li>
+        <li><b>Turn on the Mac’s built-in MIDI cable:</b> open <i>Audio MIDI Setup</i> (Applications › Utilities), choose <i>Window › Show MIDI Studio</i>, double-click <i>IAC Driver</i>, tick <i>Device is online</i> and click <i>Apply</i>. Reload this page afterwards.</li>
+        <li><b>In Ableton Live:</b> open <i>Settings › Link, Tempo &amp; MIDI</i>. In the MIDI Ports list, turn <i>Track</i> on for the input <i>IAC Driver (Bus 1)</i>, and for the output that goes to your guitar processor.</li>
+        <li><b>Make a MIDI track</b> in your Live set: <i>MIDI From</i> = IAC Driver (Bus 1), All Channels; <i>Monitor</i> = In; <i>MIDI To</i> = your guitar processor, on the channel it listens to for preset changes.</li>
+        <li><b>Here:</b> click <i>Enable MIDI</i> and allow it, choose <i>IAC Driver Bus 1</i> under <i>Send to</i>, keep Channel 1 (or whatever your Ableton track expects), then press <i>Send current tone</i> to test.</li>
+      </ol>
+      <p class="muted">Tones change at the same moments as in Aaron’s set: the GUITAR TONE Midi notes (for example note 65 or 66) are sent at the start of each section that needs a new tone. If you skip back or ahead into the middle of a section, the tone for that spot is sent straight away, before you press play. If your processor is plugged into the Mac by USB, you can also pick it directly under <i>Send to</i> and skip Ableton.</p>
+    </details>`;
+  toneRenderStatus();
+}
+document.addEventListener('click', (event) => {
+  if (event.target.closest('[data-tone-connect]')) { toneConnect(); return; }
+  if (event.target.closest('[data-tone-test]')) {
+    const ev = toneActiveAt(ptPosition()) || toneEvents()[0];
+    if (ev) toneSend(ev, 'test'); else { tone.error = 'This song has no tone changes to send.'; toneRenderStatus(); }
+  }
+});
+document.addEventListener('change', (event) => {
+  const out = event.target.closest('[data-tone-output]');
+  if (out) { saveTonePrefs({ output: out.value }); tone.current = null; tone.lastPos = null; renderTonePanel(); return; }
+  const ch = event.target.closest('[data-tone-channel]');
+  if (ch) { saveTonePrefs({ channel: Number(ch.value) || 1 }); tone.current = null; }
+});
+
 (function ptLoop() {
   if (state.view === 'practice' && !document.hidden) ptTick();
   requestAnimationFrame(ptLoop);

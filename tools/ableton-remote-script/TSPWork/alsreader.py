@@ -44,6 +44,54 @@ def _val(el, path, default=None):
     return node.get('Value') if node is not None else default
 
 
+def _clip_notes(c, cstart, cend):
+    """Enabled notes of a short MIDI clip as (arrangement_beat, key, velocity,
+    length_beats), following the clip's start marker and looping."""
+    def f(path, default=0.0):
+        try:
+            return float(_val(c, path, default))
+        except (TypeError, ValueError):
+            return default
+    looped = _val(c, 'Loop/LoopOn', 'false') == 'true'
+    loop_start, loop_end = f('Loop/LoopStart'), f('Loop/LoopEnd')
+    marker = f('Loop/StartMarker', loop_start)
+    raw = []
+    for kt in c.iter('KeyTrack'):
+        try:
+            key = int(_val(kt, 'MidiKey', '-1'))
+        except ValueError:
+            continue
+        for n in kt.iter('MidiNoteEvent'):
+            if n.get('IsEnabled', 'true') != 'true':
+                continue
+            raw.append((float(n.get('Time', '0')), key, int(float(n.get('Velocity', '100'))), float(n.get('Duration', '0.25'))))
+    out = []
+    if not looped or loop_end - loop_start <= 1e-6:
+        for t, key, vel, dur in raw:
+            pos = cstart + (t - marker)
+            if cstart - 1e-6 <= pos < cend - 1e-6:
+                out.append((pos, key, vel, dur))
+    else:
+        length = loop_end - loop_start
+        # first pass runs from the start marker to the loop end, then repeats the loop
+        for t, key, vel, dur in raw:
+            if marker - 1e-6 <= t < loop_end - 1e-6:
+                pos = cstart + (t - marker)
+                if pos < cend - 1e-6:
+                    out.append((pos, key, vel, dur))
+        rep_start = cstart + (loop_end - marker)
+        k = 0
+        while rep_start + k * length < cend - 1e-6 and k < 256:
+            for t, key, vel, dur in raw:
+                if loop_start - 1e-6 <= t < loop_end - 1e-6:
+                    pos = rep_start + k * length + (t - loop_start)
+                    if pos < cend - 1e-6:
+                        out.append((pos, key, vel, dur))
+            k += 1
+    out.sort()
+    return out
+
+
 def _clips(track_el):
     """Arrangement clips of a track (not session or freeze clips)."""
     seq = track_el.find('DeviceChain/MainSequencer')
@@ -62,6 +110,7 @@ def _clips(track_el):
             if start is None or end is None:
                 continue
             notes = sum(1 for _ in c.iter('MidiNoteEvent')) if c.tag == 'MidiClip' else None
+            midi = _clip_notes(c, float(start.get('Value')), float(end.get('Value'))) if c.tag == 'MidiClip' and notes and notes <= 16 else []
             out.append({
                 'start': float(start.get('Value')),
                 'end': float(end.get('Value')),
@@ -69,6 +118,7 @@ def _clips(track_el):
                 'disabled': _val(c, 'Disabled', 'false') == 'true',
                 'color': _val(c, 'Color', None),
                 'notes': notes,
+                'midi': midi,
                 'file': (_val(c, 'SampleRef/FileRef/Path', '') or _val(c, 'SampleRef/FileRef/RelativePath', '') or '')
                         if c.tag == 'AudioClip' else '',
             })
@@ -561,6 +611,16 @@ def build_snapshot(als_path):
             if ref and other != ref:
                 fmt = lambda xs: ', '.join(f'{k} @ bar {bar}' for bar, k in xs) or 'none'
                 warnings.append({'kind': 'key_mismatch', 'msg': f'{label}: {lt["label"]} track key markers ({fmt(other)}) differ from the Chords track ({fmt(ref)}).'})
+        # Guitar tone changes (notes on GUITAR TONE Midi) for the practice page.
+        tone = []
+        for c in _in(clips['tone'], a, b):
+            if c['disabled']:
+                continue
+            for pos, key, vel, dur in c.get('midi') or []:
+                if a - 1e-6 <= pos < b - 1e-6:
+                    tone.append({'t': round(tl.seconds(a, pos), 3) if pos > a else 0.0, 'bar': tl.bar_of(pos, a),
+                                 'n': key, 'v': vel, 'd': round(tl.seconds(pos, pos + dur), 3)})
+        tone.sort(key=lambda e: e['t'])
         # Time-signature changes that land mid-bar cut the bar short.
         bars, short = _bar_starts(tl, a, b)
         for bar_no in short:
@@ -604,6 +664,7 @@ def build_snapshot(als_path):
             'chord_mismatches': mism,
             'lyrics': _lyrics_for(lyric_tracks, clips['sections'], a, b, tl),
             'bars': bars,
+            'tone': tone,
         }
     return {
         'als_path': os.path.abspath(als_path),
