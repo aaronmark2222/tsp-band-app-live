@@ -250,6 +250,26 @@ def osascript(script, *args, timeout=40):
     return (out.stdout or '').strip()
 
 
+LIVE_RESPONDS = '''
+tell application "System Events"
+    set p to first application process whose bundle identifier is "com.ableton.live"
+    return (count of windows of p) as text
+end tell
+'''
+
+
+def wait_for_live(max_wait=600):
+    """After a long render Live can ignore UI scripting for a while; wait
+    until it answers again (True) or give up after max_wait seconds."""
+    started = time.time()
+    while time.time() - started < max_wait:
+        out = osascript(LIVE_RESPONDS, timeout=20)
+        if out and out[0].isdigit():
+            return True
+        time.sleep(5)
+    return False
+
+
 def safe_name(text):
     text = re.sub(r'[\\/:*?"<>|]+', ' ', str(text or '')).strip()
     return re.sub(r'\s+', ' ', text)[:80] or 'Song'
@@ -513,6 +533,10 @@ class ExportJob(object):
             raise RuntimeError((result or {}).get('error') or (result or {}).get('detail') or 'live_timeout')
         return result
 
+    def _new_file(self, folder, before):
+        return any(not f.startswith('.') and f not in before and os.path.isfile(os.path.join(folder, f))
+                   for f in os.listdir(folder))
+
     def _wait_for_file(self, folder, base, before, timeout=900):
         """Wait for the new audio file to appear and stop growing. Typed file
         names can lose characters, so any new file in the folder counts; it
@@ -531,7 +555,7 @@ class ExportJob(object):
             size = os.path.getsize(os.path.join(folder, found))
             if size > 0 and size == last:
                 stable += 1
-                if stable >= 3:
+                if stable >= 4:
                     ext = os.path.splitext(found)[1] or '.mp3'
                     target = base + ext
                     if found != target:
@@ -582,7 +606,26 @@ class ExportJob(object):
             if out != 'ok':
                 raise RuntimeError(out)
             time.sleep(0.3)
-            out = osascript(OPEN_AND_EXPORT, folder, base, timeout=60)
+            # Live may still be busy finishing the previous (long) file and not
+            # answer UI scripting yet: wait for it, and retry the dialog.
+            out = ''
+            for attempt in range(3):
+                if attempt:
+                    if self._new_file(folder, before):
+                        out = 'ok'  # the export went ahead despite the timeout
+                        break
+                    osascript(CLOSE_DIALOGS, timeout=60)
+                    wait_for_live()
+                    time.sleep(3)
+                    self._main(self.setup_element, i)
+                    time.sleep(0.3)
+                    if osascript(SELECT_LOOP) != 'ok':
+                        continue
+                    time.sleep(0.3)
+                out = osascript(OPEN_AND_EXPORT, folder, base, timeout=150)
+                if out == 'ok' or out in ('accessibility_needed',):
+                    break
+                st['retries'] = st.get('retries', 0) + 1
             if out != 'ok':
                 raise RuntimeError(out)
             name = self._wait_for_file(folder, base, before)
@@ -683,7 +726,20 @@ class ExportJob(object):
                            'done': [], 'skipped': [], 'total': 0, 'current': None, 'folder': None,
                            'song_started_at': song_started})
                 try:
-                    self._export_song()
+                    try:
+                        self._export_song()
+                    except Exception as first:
+                        if self.cancelled or 'accessibility' in str(first) or 'export_folder' in str(first):
+                            raise
+                        # One fresh try of the whole song after a hiccup (e.g. Live
+                        # not answering after a long render).
+                        st['song_retries'] = st.get('song_retries', 0) + 1
+                        osascript(CLOSE_DIALOGS, timeout=60)
+                        wait_for_live()
+                        time.sleep(5)
+                        st.update({'done': [], 'skipped': [], 'current': None,
+                                   'last_error': str(first)[:200]})
+                        self._export_song()
                     st['results'].append({'song_id': self.song_id, 'state': 'done', 'files': len(st['done']),
                                           'skipped': list(st['skipped']),
                                           # timing, logged by the app for time-left estimates

@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-07** · App version marker `?v=20261107-uncheckup` · TSPWork remote script **1.17** (alsreader md5 `0ff2bbb0…`, exporter md5 `f8aa0686…`, tspwork md5 `223967ff…`) · Supabase ledger head `20261107174948_practice_export_log` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
+_Last updated: **2026-11-07** · App version marker `?v=20261107-uncheckup` · TSPWork remote script **1.17** (alsreader md5 `0ff2bbb0…`, exporter md5 `e7c4c16b…`, tspwork md5 `223967ff…`) · Supabase ledger head `20261107174948_practice_export_log` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -450,6 +450,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 ---
 
 ## 17. Changelog of this plan
+- **2026-11-08:** Exporter recovers when Live stops answering after a long render (EM6 failed this way): waits for Live, retries the Export dialog up to 3 times (150 s each, skipping the retry if the file appeared anyway), and retries a failed song once from scratch; a file must be stable for 4 s.
 - **2026-11-07 (late):** TSPWork 1.17: **Stop after this song** (the remaining songs are marked `stopped`, not errors); the export checklist keeps its scroll position.
 - **2026-11-07 (late):** Export timing: the exporter reports per-song and per-file seconds, the app logs them to `practice_export_log`, and the time-left estimate uses them.
 - **2026-11-07:** Created. Consolidated everything since the start: the tracker, Ableton Sync, TSPWork 1.16, the overnight export, the Practice page, AbleSet lyrics and guitar tones. The repo was synced with the live Supabase ledger (10 migration files renamed to their live versions; 3 missing migrations added; migrations README). Edge Functions and Mac scripts were verified identical to the repo.
