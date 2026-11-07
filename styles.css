@@ -1105,3 +1105,8 @@ body.view-practice .shell { padding-bottom: 96px; }
   .pt-song { display: none; }
   body.view-practice .shell { padding-bottom: 130px; }
 }
+.pt-multi { gap: 6px; display: inline-flex !important; align-items: center; }
+.pt-multi small { font: 10px var(--mono); opacity: .8; }
+.pt-dl { display: inline-grid; place-items: center; color: #f39a26; }
+.pt-spin { width: 11px; height: 11px; border: 2px solid #777; border-top-color: #f39a26; border-radius: 50%; animation: spin .7s linear infinite; }
+.pt-queue { color: #8a8a8a; font: 11px var(--mono); margin-left: 6px; }

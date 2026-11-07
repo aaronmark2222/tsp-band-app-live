@@ -3110,7 +3110,8 @@ async function practiceOpenSong(songId) {
   practice.duration = 0;
   practice.offset = 0;
   practice.position = 0;
-  practice.loop = null;
+  // A new song starts on its Mixdown; the multitrack is downloaded on request.
+  try { sessionStorage.setItem(PT_MODE_KEY, 'mix'); } catch { /* ignore */ }
   practice.error = '';
   practice.lyrics = null;
   practice.lyricIndex = -2;
@@ -3183,6 +3184,10 @@ function renderPracticePlayers() {
   if (audio) {
     audio.addEventListener('ended', () => { practice.position = 0; audio.currentTime = 0; ptRender(); });
     audio.addEventListener('loadedmetadata', ptRender);
+    if (practice.autoplay) {
+      practice.autoplay = false;
+      audio.addEventListener('canplay', () => ptPlay(), { once: true });
+    }
   }
   renderPracticeMultitrack();
   ptRender();
@@ -3262,6 +3267,7 @@ async function practiceLoadTracks() {
         console.warn('Practice track failed', t.element, error);
       }
       renderPracticeMultitrack();
+      ptRender();
     }
   };
   await Promise.all([worker(), worker()]);
@@ -3826,7 +3832,18 @@ function ptSeek(t) {
   practice.lyricIndex = -2;
   ptRender();
 }
+function ptMultiLoading() {
+  return practiceMultiTracks().some((tr) => practice.loadState.get(tr.element) === 'loading');
+}
 function ptSetMode(mode) {
+  // Multitrack not downloaded yet: this click downloads it (the button shows
+  // progress); once ready, the next click switches to it.
+  if (mode === 'multi' && !ptMultiReady()) {
+    if (!ptMultiLoading() && practiceMultiTracks().length) practiceLoadTracks();
+    ptRender();
+    return;
+  }
+  if (mode === ptEngine()) return;
   const wasPlaying = ptIsPlaying();
   const t = ptPosition();
   practicePause();
@@ -3834,26 +3851,20 @@ function ptSetMode(mode) {
   try { sessionStorage.setItem(PT_MODE_KEY, mode); } catch { /* ignore */ }
   practice.position = t;
   practice.offset = t;
-  if (mode === 'multi' && !ptMultiReady() && practiceMultiTracks().length) {
-    showNotice('Load the multitrack first; playing the Mixdown until it is ready.');
-    if (!practiceMultiTracks().some((tr) => practice.loadState.get(tr.element) === 'loading')) practiceLoadTracks();
-  }
-  renderPracticePlayers();
-  if (wasPlaying) ptPlay();
+  // Only the labels change; the players themselves are left alone so the
+  // playhead is kept.
+  ptRefreshPicks();
+  if (wasPlaying) ptPlay(); else ptSeek(t);
 }
-// Loop the lyrics section the playhead is in (from SECTIONS in the set).
-function ptToggleLoop() {
-  if (practice.loop) { practice.loop = null; ptRender(); return; }
-  const sections = (practice.lyrics?.sections || []).slice().sort((a, b) => a.t - b.t);
-  const t = ptPosition();
-  const dur = ptDuration();
-  let start = 0;
-  let end = dur;
-  for (let i = 0; i < sections.length; i += 1) {
-    if (sections[i].t <= t + 0.05) { start = sections[i].t; end = sections[i + 1]?.t ?? dur; }
-  }
-  if (!sections.length || end - start < 1) { showNotice('No sections to loop in this song.', true); return; }
-  practice.loop = { start, end, name: sections.find((sec) => sec.t === start)?.name || '' };
+function ptRefreshPicks() {
+  const engine = ptEngine();
+  document.querySelectorAll('#practice-view .pt-pick').forEach((btn) => {
+    const mine = btn.dataset.ptMode === engine;
+    btn.classList.toggle('on', mine);
+    btn.textContent = btn.dataset.ptMode === 'mix'
+      ? (mine ? '● Playing from the Mixdown' : 'Play the Mixdown')
+      : (mine ? '● Playing from the Multitrack' : 'Play the Multitrack');
+  });
   ptRender();
 }
 const ptIcons = {
@@ -3861,6 +3872,9 @@ const ptIcons = {
   play: '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M4 2.5v11L13.5 8z" fill="currentColor"/></svg>',
   pause: '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M4 3h3v10H4zM9 3h3v10H9z" fill="currentColor"/></svg>',
   stop: '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M3.5 3.5h9v9h-9z" fill="currentColor"/></svg>',
+  prev: '<svg viewBox="0 0 16 16" width="15" height="14"><path d="M2 3h2v10H2zM9 3v10L4.5 8zM15 3v10L10.5 8z" fill="currentColor"/></svg>',
+  next: '<svg viewBox="0 0 16 16" width="15" height="14"><path d="M12 3h2v10h-2zM7 3v10l4.5-5zM1 3v10l4.5-5z" fill="currentColor"/></svg>',
+  download: '<svg viewBox="0 0 16 16" width="12" height="12"><path d="M7 1h2v7.2l2.6-2.6L13 7l-5 5-5-5 1.4-1.4L7 8.2zM2 13h12v2H2z" fill="currentColor"/></svg>',
   loop: '<svg viewBox="0 0 16 16" width="16" height="14"><path d="M4 5h7.5l-1.8-1.8L11 2l4 4-4 4-1.3-1.2L11.5 7H4a1.5 1.5 0 0 0-1.5 1.5V9H1v-.5A3 3 0 0 1 4 5zm8 6H4.5l1.8 1.8L5 14l-4-4 4-4 1.3 1.2L4.5 9H12a1.5 1.5 0 0 0 1.5-1.5V7H15v.5A3 3 0 0 1 12 11z" fill="currentColor"/></svg>'
 };
 function ptTime(seconds) {
@@ -3880,18 +3894,19 @@ function ptRender() {
   bar.innerHTML = `
     <div class="pt-group pt-modes" role="radiogroup" aria-label="Play from">
       <button type="button" data-pt-mode="mix" class="${engine === 'mix' ? 'on' : ''}" ${$('#practice-mix-audio') ? '' : 'disabled'}>Mixdown</button>
-      <button type="button" data-pt-mode="multi" class="${engine === 'multi' ? 'on' : ''}" ${multiAvailable ? '' : 'disabled'}>Multitrack</button>
+      <button type="button" data-pt-mode="multi" class="pt-multi ${engine === 'multi' ? 'on' : ''}" ${multiAvailable ? '' : 'disabled'} title="${ptMultiReady() ? 'Play from the multitrack' : 'Download the multitrack tracks first'}">Multitrack${multiAvailable && !ptMultiReady() ? (ptMultiLoading() ? ` <span class="pt-spin" aria-label="Downloading"></span><small>${practiceMultiTracks().filter((t) => practice.buffers.has(t.element)).length}/${practiceMultiTracks().length}</small>` : ` <span class="pt-dl" aria-hidden="true">${ptIcons.download}</span>`) : ''}</button>
     </div>
     <div class="pt-group">
+      <button type="button" data-pt="prev" title="Previous song in the list">${ptIcons.prev}</button>
       <button type="button" data-pt="start" title="Back to start">${ptIcons.start}</button>
       <button type="button" data-pt="play" class="pt-play ${playing ? 'on' : ''}" title="Play / pause (Space)">${playing ? ptIcons.pause : ptIcons.play}</button>
       <button type="button" data-pt="stop" title="Stop">${ptIcons.stop}</button>
-      <button type="button" data-pt="loop" class="pt-loop ${practice.loop ? 'on' : ''}" title="Loop the section you're in">${ptIcons.loop}</button>
+      <button type="button" data-pt="next" title="Next song in the list">${ptIcons.next}</button>
     </div>
     <div class="pt-lcd" id="pt-pos">${ptTime(ptPosition())}</div>
     <input type="range" id="pt-seek" class="pt-seek" min="0" max="${dur.toFixed(2)}" step="0.05" value="${ptPosition().toFixed(2)}" aria-label="Position">
     <div class="pt-lcd pt-dim">${ptTime(dur)}</div>
-    <div class="pt-song">${song ? `<b>${escapeHtml(song.id)}</b> ${escapeHtml(song.name)}` : ''}${practice.loop ? ` <span class="pt-loopname">⟲ ${escapeHtml(practice.loop.name)}</span>` : ''}</div>`;
+    <div class="pt-song">${song ? `<b>${escapeHtml(song.id)}</b> ${escapeHtml(song.name)}` : ''}${ptQueueLabel()}</div>`;
 }
 function ptTick() {
   const bar = $('#practice-transport');
@@ -3904,7 +3919,11 @@ function ptTick() {
   const playBtn = bar.querySelector('[data-pt="play"]');
   const playing = ptIsPlaying();
   if (playBtn && playBtn.classList.contains('on') !== playing) ptRender();
-  if (practice.loop && playing && pos >= practice.loop.end - 0.03) ptSeek(practice.loop.start);
+}
+function ptQueueLabel() {
+  const list = practice.songList || state.songs;
+  const i = list.findIndex((song) => song.id === practice.songId);
+  return i >= 0 ? ` <small class="pt-queue">${i + 1} / ${list.length}</small>` : '';
 }
 (function ptLoop() {
   if (state.view === 'practice' && !document.hidden) ptTick();
@@ -3919,7 +3938,12 @@ document.addEventListener('click', (event) => {
   if (action === 'play') { ptIsPlaying() ? ptPause() : ptPlay(); }
   else if (action === 'stop') ptStop();
   else if (action === 'start') ptSeek(0);
-  else if (action === 'loop') ptToggleLoop();
+  else if (action === 'prev' || action === 'next') {
+    // Next/previous song in the chosen list (repertoire or setlist); keeps playing if it was.
+    practice.autoplay = ptIsPlaying();
+    ptPause();
+    practiceStepSong(action === 'next' ? 1 : -1);
+  }
 });
 document.addEventListener('input', (event) => {
   if (event.target.id === 'pt-seek' && !ptIsPlaying()) { practice.position = Number(event.target.value); const lcd = $('#pt-pos'); if (lcd) lcd.textContent = ptTime(practice.position); }
