@@ -2955,6 +2955,7 @@ function renderExportPanel() {
         <option value="">+ Setlist…</option>${(state.setlists || []).map((list) => `<option value="${escapeHtml(list.id)}">${escapeHtml(list.name)}</option>`).join('')}
       </select>
       <button class="button quiet" type="button" data-export-none ${running || !count ? 'disabled' : ''}>Clear</button>
+      ${(() => { const up = [...exportJob.selected].filter((id) => practice.available?.has(id)).length; return `<button class="button quiet" type="button" data-export-unuploaded ${running || !up ? 'disabled' : ''} title="Uncheck the checked songs that are already on the band app">Uncheck uploaded${up ? ` (${up})` : ''}</button>`; })()}
       <button id="export-start" class="button primary" type="button" ${running || !count || !abletonBridge.connected ? 'disabled' : ''}>${running ? 'Exporting…' : `Export ${count ? `${count} song${count === 1 ? '' : 's'}` : 'songs'}`}</button>
       ${canStopAfter ? `<button id="export-stop-after" class="button ${job.stop_after_song ? 'primary' : 'quiet'}" type="button" ${stopSupported ? '' : 'disabled'} title="${stopSupported ? (job.stop_after_song ? 'Keep exporting the rest of the songs' : 'Finish the song being exported, then stop') : 'Needs TSPWork 1.17: in Live, set the TSPWork control surface to None and back to TSPWork'}">${job.stop_after_song ? `Keep going after ${escapeHtml(job.song_id)}` : 'Stop after this song'}</button>` : ''}
       ${running ? '<button id="export-cancel" class="button quiet" type="button" title="Stop right away (the current song is left unfinished) and put Ableton back">Cancel now</button>' : ''}
@@ -3157,6 +3158,10 @@ document.addEventListener('click', (event) => {
   if (event.target.closest('#export-start')) startExport();
   if (event.target.closest('[data-export-all]')) { state.songs.forEach((song) => exportJob.selected.add(song.id)); renderExportPanel(); }
   if (event.target.closest('[data-export-none]')) { exportJob.selected.clear(); renderExportPanel(); }
+  if (event.target.closest('[data-export-unuploaded]')) {
+    for (const id of [...exportJob.selected]) if (practice.available?.has(id)) exportJob.selected.delete(id);
+    renderExportPanel();
+  }
   if (event.target.closest('#export-cancel')) abletonRequest('/export/cancel', {}, 3000).then(pollExport).catch(() => {});
   if (event.target.closest('#export-stop-after')) {
     const undo = !!exportJob.state?.stop_after_song;

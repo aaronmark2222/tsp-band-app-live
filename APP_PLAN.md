@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-07** · App version marker `?v=20261107-stopafter` · TSPWork remote script **1.17** (alsreader md5 `0ff2bbb0…`, exporter md5 `f8aa0686…`, tspwork md5 `223967ff…`) · Supabase ledger head `20261107174948_practice_export_log` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
+_Last updated: **2026-11-07** · App version marker `?v=20261107-uncheckup` · TSPWork remote script **1.17** (alsreader md5 `0ff2bbb0…`, exporter md5 `f8aa0686…`, tspwork md5 `223967ff…`) · Supabase ledger head `20261107174948_practice_export_log` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -209,7 +209,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
   - A review bar appears with clip transport, loop, solo and Complete. Space plays/stops Ableton (not on the Practice page).
   - Backing tasks map to the BACKING TRACKS groups (Dale and Anston under BACKING VOCALS), "Mixed" to MIXED BACKING, parts to the PARTS tracks.
 - **Practice audio export panel:**
-  - Song checklist (columns, uploaded songs in green, Select all, "+ Setlist…" adds a setlist's songs), export folder field, upload checkbox, Start/Cancel.
+  - Song checklist (columns, uploaded songs in green, Select all, "+ Setlist…" adds a setlist's songs, Clear, "Uncheck uploaded" drops checked songs already in R2), export folder field, upload checkbox, Start/Cancel.
   - Progress bar weighted by song length and file count. Time left comes from past export timings in `practice_export_log` (seconds per file per second of song); until there is history it uses this run's own pace; "Uploaded N files (MB)" plus Cloudflare storage used out of 10 GB.
   - Start fetches 24 h presigned links via `practice-audio` `upload_batch`, then `POST /export {songs, export_root, uploads}`, then polls `/export/state`.
 
