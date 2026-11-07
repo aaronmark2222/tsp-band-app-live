@@ -123,7 +123,7 @@ function showFirstLoginPasswordSetup() {
 }
 
 async function loadMember(user) {
-  const { data, error } = await db.from('members').select('id,name,slug,is_admin,must_change_password').eq('user_id', user.id).maybeSingle();
+  const { data, error } = await db.from('members').select('id,name,slug,instrument,is_admin,must_change_password').eq('user_id', user.id).maybeSingle();
   if (error) throw error;
   if (!data) throw new Error('This account is not linked to a band member. Ask Aaron to check the account setup.');
   state.member = data;
@@ -4204,8 +4204,10 @@ function tonePrefs() {
 function saveTonePrefs(patch) {
   try { localStorage.setItem(TONE_PREFS_KEY, JSON.stringify({ ...tonePrefs(), ...patch })); } catch { /* ignore */ }
 }
+// Only Aaron and Rowen see the guitar tone sender.
+const TONE_MEMBERS = new Set(['aaron', 'rowen']);
 function toneForMe() {
-  return /guitar/i.test(state.member?.instrument || '') || !!state.member?.is_admin;
+  return TONE_MEMBERS.has(String(state.member?.slug || '').toLowerCase());
 }
 function toneSupported() {
   return typeof navigator !== 'undefined' && typeof navigator.requestMIDIAccess === 'function';
