@@ -2686,12 +2686,38 @@ function renderSyncPage() {
     <section class="sync-card"><header><h2>Song details <span>${meta.length}</span></h2>${meta.length ? '<button type="button" class="button" data-sync-all="meta">Apply all</button>' : ''}</header>
       <p class="muted">Name and starting key read from Ableton. Duration and tempo are updated automatically on every read. Ableton's spelling wins; TSP Work keeps Title Case.</p>
       ${meta.length ? `<ul class="sync-list">${metaRows}</ul>` : '<p class="sync-empty">Everything matches.</p>'}</section>
+    ${(() => {
+      const mism = syncAudioMismatches();
+      return `<section class="sync-card"><header><h2>Practice audio length <span>${mism.length}</span></h2></header>
+      <p class="muted">Uploaded Mixdowns compared with the song length in this read. A difference means the song changed after it was exported: export it again and re-upload, or the Practice lyrics will drift.${sync.lyricsSaved ? ` Lyrics for ${sync.lyricsSaved} songs were saved for Practice.` : ''}</p>
+      ${mism.length ? `<ul class="sync-notes">${mism.map((m) => `<li><b>${escapeHtml(m.songId)}</b> ${escapeHtml(m.name)}: audio ${practiceTime(m.audio)}, set ${practiceTime(m.set)} (${m.diff > 0 ? '+' : ''}${m.diff.toFixed(1)} s)</li>`).join('')}</ul>` : `<p class="sync-empty">${sync.audioLengths?.size ? 'Every uploaded Mixdown matches the set.' : 'No practice audio uploaded yet.'}</p>`}</section>`;
+    })()}
     <section class="sync-card"><header><h2>Ableton housekeeping <span>${warnings.length}</span></h2></header>
       <p class="muted">Things to tidy in the Ableton set. Nothing here changes TSP Work.</p>
       ${warnings.length ? `<ul class="sync-notes">${warnings.map((w) => `<li>${escapeHtml(w.msg)}</li>`).join('')}</ul>` : '<p class="sync-empty">No issues found.</p>'}</section>
     <section class="sync-card"><header><h2>Check in TSP Work <span>${notices.length}</span></h2></header>
       <p class="muted">TSP Work and Ableton disagree, but the sync never lowers a status. Review these by hand.</p>
       ${notices.length ? `<ul class="sync-notes">${notices.map((n) => `<li>${escapeHtml(n)}</li>`).join('')}</ul>` : '<p class="sync-empty">Nothing to check.</p>'}</section>`;
+}
+
+// Practice audio vs the set: a Mixdown whose length differs from the song in
+// the last read means the audio is out of date (lyrics would drift).
+async function loadSyncAudioLengths() {
+  const { data, error } = await db.from('practice_tracks').select('song_id, element, duration_seconds, uploaded_at').eq('element', 'Mixdown');
+  if (error) throw error;
+  sync.audioLengths = new Map((data || []).map((row) => [row.song_id, row]));
+}
+
+function syncAudioMismatches() {
+  const out = [];
+  if (!sync.snapshot || !sync.audioLengths) return out;
+  for (const [songId, row] of sync.audioLengths) {
+    const data = sync.snapshot.songs[songId];
+    if (!data || row.duration_seconds == null) continue;
+    const diff = Number(row.duration_seconds) - data.duration_seconds;
+    if (Math.abs(diff) > 1.5) out.push({ songId, name: state.songs.find((song) => song.id === songId)?.name || '', audio: Number(row.duration_seconds), set: data.duration_seconds, diff });
+  }
+  return out.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
 }
 
 async function readAbletonSet() {
@@ -2709,6 +2735,11 @@ async function readAbletonSet() {
     const autoMeta = computeSyncDiff(sync.snapshot).meta.filter((item) => SYNC_AUTO_FIELDS.includes(item.field));
     if (autoMeta.length) sync.autoApply = autoMeta;
     try { await loadSyncSnoozes(); } catch (error) { console.warn('Snoozes not loaded', error); }
+    // Lyrics for the Practice page come from this read.
+    if (Object.values(sync.snapshot.songs || {}).some((song) => song.lyrics)) {
+      try { sync.lyricsSaved = await saveSongLyrics(sync.snapshot); } catch (error) { sync.lyricsSaved = null; showNotice(`Lyrics were not saved for Practice: ${error.message}`, true); }
+    }
+    try { await loadSyncAudioLengths(); } catch (error) { console.warn('Audio lengths not loaded', error); }
   } catch (error) {
     fail(`Could not read the Ableton set: ${error.message || error}`, error);
   } finally {
@@ -2965,17 +2996,59 @@ async function practiceLoadAvailable() {
   practice.available = map;
 }
 
+// Which songs the Practice page offers: the whole repertoire, an upcoming
+// gig's setlist, or any setlist. Remembered on this device.
+const PRACTICE_SOURCE_KEY = 'tsp-practice-source';
+const practiceSetlistSongs = new Map(); // setlist id -> [song ids in order]
+
+function practiceSources() {
+  const today = new Date().toISOString().slice(0, 10);
+  const gigs = (state.gigs || []).filter((gig) => !gig.completed && gig.setlist_id && (!gig.event_date || gig.event_date >= today))
+    .sort((a, b) => String(a.event_date).localeCompare(String(b.event_date)));
+  const out = [{ value: 'all', label: 'All songs (repertoire)' }];
+  for (const gig of gigs) {
+    const date = gig.event_date ? new Date(`${gig.event_date}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '';
+    out.push({ value: `setlist:${gig.setlist_id}`, label: `Gig: ${gig.name}${date ? ` · ${date}` : ''}`, gig: true });
+  }
+  for (const list of state.setlists || []) out.push({ value: `setlist:${list.id}`, label: `Setlist: ${list.name}` });
+  return out;
+}
+
+function practiceSourceValue() {
+  const sources = practiceSources();
+  let saved = '';
+  try { saved = localStorage.getItem(PRACTICE_SOURCE_KEY) || ''; } catch { /* ignore */ }
+  if (saved && sources.some((src) => src.value === saved)) return saved;
+  return sources.find((src) => src.gig)?.value || 'all';
+}
+
+async function practiceSongList() {
+  const source = practiceSourceValue();
+  if (source === 'all') return state.songs;
+  const setlistId = source.slice('setlist:'.length);
+  if (!practiceSetlistSongs.has(setlistId)) {
+    const { data, error } = await db.from('setlist_items').select('song_id, position, item_type').eq('setlist_id', setlistId).order('position');
+    if (error) throw error;
+    practiceSetlistSongs.set(setlistId, (data || []).filter((row) => row.song_id).map((row) => row.song_id));
+  }
+  const ids = practiceSetlistSongs.get(setlistId);
+  return ids.map((id) => state.songs.find((song) => song.id === id)).filter(Boolean);
+}
+
 async function renderPracticePage() {
   $('#practice-upload').classList.toggle('hidden', !state.member?.is_admin);
   if (!practice.available) {
     try { await practiceLoadAvailable(); } catch (error) { practice.available = new Map(); console.warn(error); }
   }
-  const select = $('#practice-song');
-  const songs = state.songs;
-  if (!practice.songId) practice.songId = (songs.find((song) => practice.available.has(song.id)) || songs[0])?.id || '';
-  select.innerHTML = songs.map((song) => {
+  const source = practiceSourceValue();
+  $('#practice-source').innerHTML = practiceSources().map((src) => `<option value="${escapeHtml(src.value)}" ${src.value === source ? 'selected' : ''}>${escapeHtml(src.label)}</option>`).join('');
+  let songs = state.songs;
+  try { songs = await practiceSongList(); } catch (error) { console.warn(error); }
+  practice.songList = songs;
+  if (!songs.some((song) => song.id === practice.songId)) practice.songId = (songs.find((song) => practice.available.has(song.id)) || songs[0])?.id || '';
+  $('#practice-song').innerHTML = songs.map((song, i) => {
     const has = practice.available.has(song.id);
-    return `<option value="${escapeHtml(song.id)}" ${song.id === practice.songId ? 'selected' : ''}>${escapeHtml(song.id)} · ${escapeHtml(song.name)}${has ? '' : ' (no audio yet)'}</option>`;
+    return `<option value="${escapeHtml(song.id)}" ${song.id === practice.songId ? 'selected' : ''}>${source === 'all' ? '' : `${i + 1}. `}${escapeHtml(song.id)} · ${escapeHtml(song.name)}${has ? '' : ' (no audio yet)'}</option>`;
   }).join('');
   renderPracticeUpload();
   if (practice.tracks.songId !== practice.songId) await practiceOpenSong(practice.songId);
@@ -2991,8 +3064,14 @@ async function practiceOpenSong(songId) {
   practice.loadState = new Map();
   practice.duration = 0;
   practice.offset = 0;
+  practice.lastActive = 'mix';
   practice.error = '';
+  practice.lyrics = null;
+  practice.lyricIndex = -2;
   practice.loadToken += 1;
+  const select = $('#practice-song');
+  if (select && select.value !== songId) select.value = songId;
+  practiceLoadLyrics(songId);
   if (!practice.available?.has(songId)) { renderPracticePlayers(); return; }
   practice.loadingSong = true;
   renderPracticePlayers();
@@ -3025,7 +3104,9 @@ function renderPracticePlayers() {
   const song = state.songs.find((item) => item.id === practice.songId);
   const mixBox = $('#practice-mixdown');
   const multiBox = $('#practice-multitrack');
+  const dlBox = $('#practice-downloads');
   $('#practice-song-note').textContent = '';
+  dlBox.innerHTML = '';
   if (!song) { mixBox.innerHTML = ''; multiBox.innerHTML = ''; return; }
   if (practice.loadingSong) { mixBox.innerHTML = '<p class="muted">Loading…</p>'; multiBox.innerHTML = ''; return; }
   if (practice.error) { mixBox.innerHTML = `<p class="error">${escapeHtml(practice.error)}</p>`; multiBox.innerHTML = ''; return; }
@@ -3035,11 +3116,26 @@ function renderPracticePlayers() {
     return;
   }
   const mix = practice.tracks.find((t) => t.element === 'Mixdown');
-  mixBox.innerHTML = `<header><h2>Mixdown</h2>${mix ? `<a class="practice-dl" href="${escapeHtml(mix.url)}" target="_blank" rel="noopener" title="Download the Mixdown MP3">Download</a>` : ''}</header>
+  mixBox.innerHTML = `<header><h2>Mixdown</h2><span class="muted">${escapeHtml(song.id)} · ${escapeHtml(song.name)}</span></header>
     ${mix ? `<audio id="practice-mix-audio" controls preload="metadata" src="${escapeHtml(mix.url)}"></audio>` : '<p class="muted">No mixdown for this song.</p>'}`;
   const audio = $('#practice-mix-audio');
-  audio?.addEventListener('play', () => practicePause());
+  if (audio) {
+    // Linked playback: whichever player you start picks up where the other was.
+    audio.addEventListener('play', () => {
+      if (practice.lastActive === 'multi') {
+        const pos = practicePosition();
+        if (Math.abs(audio.currentTime - pos) > 0.25) audio.currentTime = pos;
+      }
+      practice.lastActive = 'mix';
+      practicePause();
+    });
+    audio.addEventListener('seeked', () => { if (!practice.playing) { practice.offset = audio.currentTime; practice.lastActive = 'mix'; } });
+    audio.addEventListener('ended', () => { practice.offset = 0; });
+  }
   renderPracticeMultitrack();
+  const files = practice.tracks.slice().sort((a, b) => (a.element === 'Mixdown' ? -1 : b.element === 'Mixdown' ? 1 : practiceRank(a.element) - practiceRank(b.element)));
+  dlBox.innerHTML = `<header><h2>Download</h2><span class="muted">Full-length MP3s for practising offline</span></header>
+    <ul class="practice-dl-list">${files.map((t) => `<li><span class="practice-dl-dot" style="background:${PRACTICE_COLORS[t.element] || '#f39a26'}"></span><span>${escapeHtml(t.element)}</span><small class="muted">${t.bytes ? `${(t.bytes / 1048576).toFixed(1)} MB` : ''}</small><a class="button quiet" href="${escapeHtml(t.download || t.url)}" ${t.download ? '' : 'target="_blank" rel="noopener"'}>Download</a></li>`).join('')}</ul>`;
 }
 
 function practiceMultiTracks() {
@@ -3145,7 +3241,10 @@ function practiceApplyGains() {
 
 function practicePlay() {
   if (!practice.ctx || practice.playing) return;
-  $('#practice-mix-audio')?.pause();
+  const mixAudio = $('#practice-mix-audio');
+  if (mixAudio && practice.lastActive === 'mix') practice.offset = Math.min(mixAudio.currentTime || 0, practice.duration);
+  mixAudio?.pause();
+  practice.lastActive = 'multi';
   practice.ctx.resume().catch(() => {});
   if (practice.offset >= practice.duration - 0.05) practice.offset = 0;
   const when = practice.ctx.currentTime + 0.08;
@@ -3221,6 +3320,18 @@ function practiceTick() {
 }
 
 $('#practice-song').addEventListener('change', (event) => practiceOpenSong(event.target.value));
+$('#practice-source').addEventListener('change', (event) => {
+  try { localStorage.setItem(PRACTICE_SOURCE_KEY, event.target.value); } catch { /* ignore */ }
+  renderPracticePage();
+});
+function practiceStepSong(delta) {
+  const list = practice.songList || state.songs;
+  const i = list.findIndex((song) => song.id === practice.songId);
+  const next = list[Math.max(0, Math.min(list.length - 1, i + delta))];
+  if (next && next.id !== practice.songId) practiceOpenSong(next.id);
+}
+$('#practice-prev').addEventListener('click', () => practiceStepSong(-1));
+$('#practice-next').addEventListener('click', () => practiceStepSong(1));
 $('#practice-multitrack').addEventListener('click', (event) => {
   if (event.target.closest('[data-practice-load]')) { practiceLoadTracks(); return; }
   if (event.target.closest('[data-practice-play]')) { practice.playing ? practicePause() : practicePlay(); return; }
@@ -3284,6 +3395,19 @@ function renderPracticeUpload() {
     ${up.items.length ? `<p class="muted">${done} of ${up.items.length} uploaded${failed.length ? ` · ${failed.length} failed` : ''}.</p><ul class="export-files">${listed}</ul>` : ''}`;
 }
 
+function practiceFileDuration(file) {
+  return new Promise((resolve) => {
+    const audio = new Audio();
+    const url = URL.createObjectURL(file);
+    const done = (value) => { URL.revokeObjectURL(url); resolve(value); };
+    audio.preload = 'metadata';
+    audio.onloadedmetadata = () => done(Number.isFinite(audio.duration) ? Math.round(audio.duration * 10) / 10 : null);
+    audio.onerror = () => done(null);
+    setTimeout(() => done(null), 8000);
+    audio.src = url;
+  });
+}
+
 async function practiceUploadFiles(files) {
   if (practice.upload.running) return;
   const songIds = new Set(state.songs.map((song) => song.id));
@@ -3307,7 +3431,8 @@ async function practiceUploadFiles(files) {
       if (error || !data?.ok) throw new Error(data?.error || error?.message || 'no upload link');
       const put = await fetch(data.url, { method: 'PUT', body: item.file, headers: { 'Content-Type': 'audio/mpeg' } });
       if (!put.ok) throw new Error(`storage HTTP ${put.status}`);
-      const { error: rowError } = await db.from('practice_tracks').upsert({ song_id: item.songId, element: item.element, object_key: data.object_key, bytes: item.file.size, uploaded_at: new Date().toISOString() }, { onConflict: 'song_id,element' });
+      const duration = await practiceFileDuration(item.file);
+      const { error: rowError } = await db.from('practice_tracks').upsert({ song_id: item.songId, element: item.element, object_key: data.object_key, bytes: item.file.size, duration_seconds: duration, uploaded_at: new Date().toISOString() }, { onConflict: 'song_id,element' });
       if (rowError) throw rowError;
       item.state = 'done';
     } catch (error) {
@@ -3352,3 +3477,166 @@ $('#practice-upload').addEventListener('drop', async (event) => {
   if (entries.length) await Promise.all(entries.map(walk)); else files.push(...event.dataTransfer.files);
   practiceUploadFiles(files);
 });
+
+// ---------------------------------------------------------------------------
+// Lyrics on the Practice page, the way AbleSet shows them: every clip on a
+// +LYRICS track is a line ([C] chords inline, (notes), [labels]); SECTIONS
+// clips are headings. Saved by the admin's last "Read Ableton set" (song_lyrics),
+// timed in seconds from the song start, so they follow the practice audio.
+// The chosen lyrics track and text size are kept on this device across songs.
+const LYRICS_PREFS_KEY = 'tsp-practice-lyrics-v1';
+const LYRIC_CHORD_RE = /^(?:Key:|[A-G][#b]?(?:maj|min|m|dim|aug|sus|add|M|\+|°|ø)?[0-9]*(?:(?:sus|add|maj|b|#)?[0-9]+)*(?:\/[A-G][#b]?)?(?:-[A-G][#b]?(?:maj|min|m|dim|aug|sus|add|M|\+|°|ø)?[0-9]*(?:(?:sus|add|maj|b|#)?[0-9]+)*(?:\/[A-G][#b]?)?)*-?)$/;
+
+function lyricsPrefs() {
+  try { return { track: 'lyrics', size: 'm', ...JSON.parse(localStorage.getItem(LYRICS_PREFS_KEY) || '{}') }; } catch { return { track: 'lyrics', size: 'm' }; }
+}
+function saveLyricsPrefs(patch) {
+  try { localStorage.setItem(LYRICS_PREFS_KEY, JSON.stringify({ ...lyricsPrefs(), ...patch })); } catch { /* ignore */ }
+}
+
+async function practiceLoadLyrics(songId) {
+  practice.lyrics = null;
+  renderPracticeLyrics();
+  const { data, error } = await db.from('song_lyrics').select('tracks, sections, duration_seconds, updated_at').eq('song_id', songId).maybeSingle();
+  if (practice.songId !== songId) return;
+  practice.lyrics = error ? { error: error.message } : (data || { tracks: [], sections: [] });
+  practice.lyricIndex = -2;
+  renderPracticeLyrics();
+}
+
+function lyricsTrack() {
+  const tracks = practice.lyrics?.tracks || [];
+  const want = lyricsPrefs().track;
+  // The saved choice is kept even when a song lacks that track (fallback only for display).
+  return tracks.find((t) => t.slug === want) || tracks.find((t) => t.slug === 'lyrics') || tracks[0] || null;
+}
+
+function lyricLineHtml(text) {
+  const raw = String(text || '');
+  const keyMatch = raw.match(/^\s*\[Key:\]\s*\[([^\]]+)\]\s*$/);
+  if (keyMatch) return `<span class="ly-key">Key: <b>${escapeHtml(keyMatch[1])}</b></span>`;
+  const parts = [];
+  let last = 0;
+  let pendingChord = null;
+  const re = /\[([^\]]*)\]/g;
+  let m;
+  const pushText = (str) => {
+    if (!str && pendingChord === null) return;
+    parts.push({ chord: pendingChord, text: str });
+    pendingChord = null;
+  };
+  while ((m = re.exec(raw))) {
+    const before = raw.slice(last, m.index);
+    const token = m[1].trim();
+    if (LYRIC_CHORD_RE.test(token)) {
+      pushText(before);
+      pendingChord = token.replace(/-$/, '');
+    } else {
+      pushText(before);
+      parts.push({ label: token });
+    }
+    last = re.lastIndex;
+  }
+  pushText(raw.slice(last));
+  if (pendingChord !== null) parts.push({ chord: pendingChord, text: '' });
+  const chordOnly = parts.every((p) => p.label !== undefined || !String(p.text || '').trim());
+  const fmt = (str) => escapeHtml(str).replace(/\(([^)]*)\)/g, '<span class="ly-note">($1)</span>');
+  return parts.map((p) => {
+    if (p.label !== undefined) return p.label ? `<span class="ly-label">${escapeHtml(p.label)}</span>` : '';
+    if (p.chord === null || p.chord === undefined) return `<span class="ly-seg"><span class="ly-word">${fmt(p.text)}</span></span>`;
+    return `<span class="ly-seg ${chordOnly ? 'ly-chord-only' : ''}"><span class="ly-chord">${escapeHtml(p.chord)}</span><span class="ly-word">${fmt(p.text) || '&nbsp;'}</span></span>`;
+  }).join('');
+}
+
+function renderPracticeLyrics() {
+  const box = $('#practice-lyrics');
+  if (!box) return;
+  const prefs = lyricsPrefs();
+  const ly = practice.lyrics;
+  if (!ly) { box.innerHTML = '<header><h2>Lyrics</h2></header><p class="muted">Loading…</p>'; return; }
+  if (ly.error) { box.innerHTML = `<header><h2>Lyrics</h2></header><p class="error">${escapeHtml(ly.error)}</p>`; return; }
+  const tracks = ly.tracks || [];
+  if (!tracks.length) { box.innerHTML = '<header><h2>Lyrics</h2></header><p class="muted">No lyrics saved for this song yet. They come from the admin\'s last Ableton Sync read.</p>'; return; }
+  const current = lyricsTrack();
+  const chips = tracks.map((t) => `<button type="button" class="ly-chip ${t.slug === current?.slug ? 'on' : ''}" data-lyrics-track="${escapeHtml(t.slug)}">${escapeHtml(t.label)}</button>`).join('');
+  const missing = prefs.track && !tracks.some((t) => t.slug === prefs.track) ? `<p class="muted ly-missing">This song has no ${escapeHtml(prefs.track)} track; showing ${escapeHtml(current?.label || '')}.</p>` : '';
+  // Merge section headings into the line list by time.
+  const items = [];
+  for (const sec of ly.sections || []) items.push({ type: 'section', t: sec.t, name: sec.name });
+  (current?.lines || []).forEach((line, i) => items.push({ type: 'line', t: line.t, e: line.e, text: line.text, i }));
+  items.sort((a, b) => a.t - b.t || (a.type === 'section' ? -1 : 1));
+  box.innerHTML = `<header><h2>Lyrics</h2><span class="ly-sizes">${['s', 'm', 'l'].map((size) => `<button type="button" class="ly-size ${prefs.size === size ? 'on' : ''}" data-lyrics-size="${size}">${size === 's' ? 'A' : size === 'm' ? 'A' : 'A'}</button>`).join('')}</span></header>
+    <div class="ly-chips">${chips}</div>${missing}
+    <div class="ly-scroll ly-size-${prefs.size}" id="practice-lyrics-scroll">${items.map((it) => it.type === 'section'
+      ? `<div class="ly-section" data-t="${it.t}">${escapeHtml(it.name)}</div>`
+      : `<div class="ly-line" data-line="${it.i}" data-t="${it.t}" data-e="${it.e}">${lyricLineHtml(it.text)}</div>`).join('')}</div>
+    <p class="muted ly-foot">From the Ableton set read ${ly.updated_at ? new Date(ly.updated_at).toLocaleDateString() : ''}. Click a line to jump there.</p>`;
+  practice.lyricIndex = -2;
+  practiceLyricsTick(true);
+}
+
+function practiceNow() {
+  const audio = $('#practice-mix-audio');
+  if (practice.playing || practice.lastActive === 'multi') return practicePosition();
+  return audio ? audio.currentTime || 0 : practicePosition();
+}
+
+function practiceLyricsTick(force) {
+  const scroll = $('#practice-lyrics-scroll');
+  const lines = practice.lyrics && lyricsTrack()?.lines;
+  if (!scroll || !lines) return;
+  const t = practiceNow();
+  let idx = -1;
+  for (let i = 0; i < lines.length; i += 1) { if (lines[i].t <= t + 0.05) idx = i; else break; }
+  const inside = idx >= 0 && t < lines[idx].e;
+  const key = inside ? idx : -1 - Math.max(0, idx + 1); // between lines: point at the next one
+  if (!force && key === practice.lyricIndex) return;
+  practice.lyricIndex = key;
+  scroll.querySelectorAll('.ly-line').forEach((el) => {
+    const i = Number(el.dataset.line);
+    el.classList.toggle('current', inside && i === idx);
+    el.classList.toggle('next', (inside ? i === idx + 1 : i === idx + 1));
+    el.classList.toggle('past', i < idx || (!inside && i === idx));
+  });
+  const target = scroll.querySelector(`.ly-line[data-line="${inside ? idx : Math.max(0, idx + 1)}"]`);
+  if (target) {
+    const top = target.offsetTop - scroll.clientHeight * 0.35;
+    scroll.scrollTo({ top: Math.max(0, top), behavior: force ? 'auto' : 'smooth' });
+  }
+}
+
+// One loop keeps lyrics in step with whichever player is running.
+(function lyricsLoop() {
+  if (state.view === 'practice' && !document.hidden) practiceLyricsTick(false);
+  requestAnimationFrame(lyricsLoop);
+})();
+
+$('#practice-lyrics').addEventListener('click', (event) => {
+  const chip = event.target.closest('[data-lyrics-track]');
+  if (chip) { saveLyricsPrefs({ track: chip.dataset.lyricsTrack }); renderPracticeLyrics(); return; }
+  const size = event.target.closest('[data-lyrics-size]');
+  if (size) { saveLyricsPrefs({ size: size.dataset.lyricsSize }); renderPracticeLyrics(); return; }
+  const line = event.target.closest('.ly-line, .ly-section');
+  if (line) {
+    const t = Math.max(0, Number(line.dataset.t) - 0.05);
+    const audio = $('#practice-mix-audio');
+    if (practice.playing || (practice.lastActive === 'multi' && practice.buffers.size)) practiceSeek(t);
+    else if (audio) { audio.currentTime = t; practice.offset = t; }
+    else practice.offset = t;
+    practice.lyricIndex = -2;
+  }
+});
+
+// Saved on each admin "Read Ableton set": one row per song with its lyrics.
+async function saveSongLyrics(snapshot) {
+  const known = new Set(state.songs.map((song) => song.id));
+  const rows = Object.entries(snapshot?.songs || {})
+    .filter(([id, data]) => known.has(id) && data.lyrics)
+    .map(([id, data]) => ({ song_id: id, tracks: data.lyrics.tracks || [], sections: data.lyrics.sections || [],
+      duration_seconds: data.duration_seconds, als_modified_at: snapshot.als_modified_at, updated_at: new Date().toISOString() }));
+  for (let i = 0; i < rows.length; i += 20) {
+    const { error } = await db.from('song_lyrics').upsert(rows.slice(i, i + 20), { onConflict: 'song_id' });
+    if (error) throw error;
+  }
+  return rows.length;
+}

@@ -351,6 +351,26 @@ def _key_from(name):
     return root + m.group(3)
 
 
+def _lyrics_for(lyric_tracks, section_clips, a, b, tl):
+    """Each +LYRICS clip in the song as a timed line (seconds from the song
+    start, through the tempo map), like AbleSet shows them; plus sections."""
+    def sec(beat):
+        return round(tl.seconds(a, beat), 3) if beat > a else 0.0
+    out = {'tracks': [], 'sections': []}
+    for c in _in(section_clips, a, b):
+        out['sections'].append({'t': sec(max(a, c['start'])), 'name': c['name']})
+    for lt in lyric_tracks:
+        lines = []
+        for c in _in(lt['clips'], a, b):
+            if not c['name'].strip():
+                continue
+            start = max(a, c['start'])
+            lines.append({'t': sec(start), 'e': sec(min(b, c['end'])), 'text': c['name']})
+        if lines:
+            out['tracks'].append({'slug': lt['slug'], 'label': lt['label'], 'lines': lines})
+    return out
+
+
 def build_snapshot(als_path):
     raw = read_als(als_path)
     tl = Timeline(raw['tempo'], raw['timesig'])
@@ -361,6 +381,13 @@ def build_snapshot(als_path):
         if t is None:
             warnings.append({'kind': 'track_missing', 'msg': f'Track for "{k}" ({TRACKS[k][1]}… in {TRACKS[k][0]}) not found; that check was skipped.'})
     clips = {k: (t['clips'] if t else []) for k, t in found.items()}
+    # AbleSet lyrics tracks: every track flagged +LYRICS (Chords, Guitar, ...).
+    lyric_tracks = []
+    for t in tracks:
+        if '+LYRICS' in t['name'].upper():
+            label = re.split(r'\s+\+', t['name'], maxsplit=1)[0].strip()
+            lyric_tracks.append({'slug': re.sub(r'[^a-z0-9]+', '-', label.lower()).strip('-'),
+                                 'label': label, 'name': t['name'], 'clips': t['clips']})
 
     def where(t):
         return f'bar {tl.bar_of(t, 0)} (beat {_num(t)})'
@@ -455,6 +482,7 @@ def build_snapshot(als_path):
             'evidence': ev,
             'fingerprints': fp,
             'chord_mismatches': mism,
+            'lyrics': _lyrics_for(lyric_tracks, clips['sections'], a, b, tl),
         }
     return {
         'als_path': os.path.abspath(als_path),

@@ -11,8 +11,8 @@
     <meta name="theme-color" content="#292929">
     <title>TSP Work · The String Project</title>
     <link rel="icon" href="assets/the-string-project-logo.png?v=20261019" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=20261107-practice">
-    <script type="module" src="app.js?v=20261107-practice"></script>
+    <link rel="stylesheet" href="styles.css?v=20261107-practice3">
+    <script type="module" src="app.js?v=20261107-practice3"></script>
   </head>
   <body>
     <main id="app" class="shell">
@@ -209,9 +209,21 @@
 
         <section id="practice-view" class="view hidden">
           <div class="hero-row"><div><p class="eyebrow">PLAY ALONG</p><h1>Practice</h1><p class="muted">Listen to the mixdown, or open the multitrack to switch parts on and off, solo and set levels. Your settings stay the same as you change songs.</p></div></div>
-          <div class="practice-pick"><select id="practice-song" class="wide-select" aria-label="Song"></select><span id="practice-song-note" class="muted"></span></div>
-          <section id="practice-mixdown" class="practice-card"></section>
-          <section id="practice-multitrack" class="practice-card"></section>
+          <div class="practice-pick">
+            <select id="practice-source" class="wide-select" aria-label="Practise songs from"></select>
+            <button type="button" class="button quiet" id="practice-prev" title="Previous song">‹</button>
+            <select id="practice-song" class="wide-select" aria-label="Song"></select>
+            <button type="button" class="button quiet" id="practice-next" title="Next song">›</button>
+            <span id="practice-song-note" class="muted"></span>
+          </div>
+          <div class="practice-layout">
+            <div class="practice-main">
+              <section id="practice-mixdown" class="practice-card"></section>
+              <section id="practice-multitrack" class="practice-card"></section>
+              <section id="practice-downloads" class="practice-card"></section>
+            </div>
+            <aside class="practice-side"><section id="practice-lyrics" class="practice-card lyrics-card"></section></aside>
+          </div>
           <section id="practice-upload" class="practice-card hidden"></section>
         </section>
         <section id="sync-view" class="view hidden">

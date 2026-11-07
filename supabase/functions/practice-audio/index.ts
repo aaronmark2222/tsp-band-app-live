@@ -30,7 +30,7 @@ async function hmac(key: ArrayBuffer | Uint8Array, text: string) {
 const rfc3986 = (s: string) => encodeURIComponent(s).replace(/[!'()*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
 
 // AWS Signature V4 query-string presign (S3-compatible; R2 region is "auto").
-async function presign(method: 'GET' | 'PUT', key: string, expires: number) {
+async function presign(method: 'GET' | 'PUT', key: string, expires: number, extra: Record<string, string> = {}) {
   const account = Deno.env.get('R2_ACCOUNT_ID');
   const akid = Deno.env.get('R2_ACCESS_KEY_ID');
   const secret = Deno.env.get('R2_SECRET_ACCESS_KEY');
@@ -47,6 +47,7 @@ async function presign(method: 'GET' | 'PUT', key: string, expires: number) {
     'X-Amz-Date': amzDate,
     'X-Amz-Expires': String(expires),
     'X-Amz-SignedHeaders': 'host',
+    ...extra,
   };
   const query = Object.keys(params).sort().map((k) => `${rfc3986(k)}=${rfc3986(params[k])}`).join('&');
   const canonical = [method, path, query, `host:${host}\n`, 'host', 'UNSIGNED-PAYLOAD'].join('\n');
@@ -83,6 +84,10 @@ Deno.serve(async (req) => {
       const tracks = await Promise.all((data || []).map(async (row) => ({
         element: row.element, bytes: row.bytes, uploaded_at: row.uploaded_at,
         url: await presign('GET', row.object_key, 3 * 3600),
+        // Same file, but the browser saves it instead of playing it.
+        download: await presign('GET', row.object_key, 3 * 3600, {
+          'response-content-disposition': `attachment; filename="${songId} - ${row.element}.mp3"`,
+        }),
       })));
       return reply(200, { ok: true, tracks });
     }
