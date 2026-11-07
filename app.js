@@ -2901,7 +2901,7 @@ function exportSongPayload(song) {
   return { song_id: song.id, song_name: song.name, vocals_complete: exportVocalsComplete(song.id), instrumental: song.type === 'Inst' || /^I\d/.test(song.id) };
 }
 
-function renderExportPanel() {
+function renderExportPanel(opts = {}) {
   const box = $('#export-panel');
   if (!box) return;
   // Which songs are already uploaded (from the bucket), loaded once and after each export.
@@ -2947,7 +2947,8 @@ function renderExportPanel() {
   }
   const prefs = exportPrefs();
   // The panel is redrawn on every poll and click: keep the song list where it was scrolled.
-  const listScroll = box.querySelector('.export-pick')?.scrollTop || 0;
+  const oldList = box.querySelector('.export-pick');
+  const listScroll = oldList ? [oldList.scrollTop, oldList.scrollLeft] : null;
   const pageScroll = window.scrollY;
   const canStopAfter = running && job.state !== 'uploading' && (job.queue || []).length > 1 && job.song_index < (job.queue || []).length - 1;
   const stopSupported = exportVersionAtLeast('1.17');
@@ -2977,13 +2978,20 @@ function renderExportPanel() {
     }).join('')}</ul>`;
   // Only redraw what changed: during an export the progress below updates
   // every 2 s, but the buttons and the list stay put so clicks aren't lost.
-  if (!box.querySelector(':scope > .export-controls')) box.innerHTML = '<div class="export-controls"></div><div class="export-status-wrap"></div>';
+  if (!box.querySelector(':scope > .export-list-wrap')) box.innerHTML = '<div class="export-controls"></div><div class="export-list-wrap"></div><div class="export-status-wrap"></div>';
+  const cut = controlsHtml.indexOf('<ul class="export-pick">');
+  const topHtml = cut >= 0 ? controlsHtml.slice(0, cut) : controlsHtml;
+  const listHtml = cut >= 0 ? controlsHtml.slice(cut) : '';
   const controls = box.querySelector(':scope > .export-controls');
-  if (controls._html !== controlsHtml) { controls.innerHTML = controlsHtml; controls._html = controlsHtml; }
+  if (controls._html !== topHtml) { controls.innerHTML = topHtml; controls._html = topHtml; }
+  const listWrap = box.querySelector(':scope > .export-list-wrap');
+  // A tick the user just made is already on screen: don't redraw the list for it.
+  if (opts.keepList && listWrap._html) listWrap._html = listHtml;
+  else if (listWrap._html !== listHtml) { listWrap.innerHTML = listHtml; listWrap._html = listHtml; }
   const statusWrap = box.querySelector(':scope > .export-status-wrap');
   if (statusWrap._html !== status) { statusWrap.innerHTML = status; statusWrap._html = status; }
   const list = box.querySelector('.export-pick');
-  if (list && listScroll && list.scrollTop !== listScroll) list.scrollTop = listScroll;
+  if (list && listScroll && list !== oldList) { list.scrollTop = listScroll[0]; list.scrollLeft = listScroll[1]; }
   if (Math.abs(window.scrollY - pageScroll) > 1) window.scrollTo(0, pageScroll);
 }
 function exportChangedIds() {
@@ -3264,7 +3272,7 @@ document.addEventListener('change', async (event) => {
   const box = event.target.closest?.('[data-export-song]');
   if (!box) return;
   if (box.checked) exportJob.selected.add(box.dataset.exportSong); else exportJob.selected.delete(box.dataset.exportSong);
-  renderExportPanel();
+  renderExportPanel({ keepList: true });
 });
 document.addEventListener('click', (event) => {
   if (event.target.closest('#export-start')) startExport();
