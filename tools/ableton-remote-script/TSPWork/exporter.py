@@ -40,6 +40,9 @@ PARTS = [
     ('anston', 'Anston Vox', ['Anston Vox Part'], 'ANSTON VOX Live', 'vox_anston'),
 ]
 BACKING = ['MUSIC', 'BACKING VOCALS', 'PERCUSSION', 'SFX']
+# PARTS tracks that must be soloed too (not just on): Drums Midi Part only
+# feeds Drums Part (which feeds DRUMS Live) when it is soloed itself.
+EXTRA_SOLO = {'drums': ['Drums Midi Part']}
 
 # Fixed AppleScripts: data (folder, file name) is passed as arguments, never
 # pasted into the script text.
@@ -294,8 +297,9 @@ class ExportJob(object):
             live = self._named(live_name, 'LIVE CHANNELS')
             if live is None or not any(self._has_clips(x, s, e) for x in src):
                 continue
-            parts[key] = (live, src, task_key)
-            elements.append(('Part - %s' % label, [live], [live] + src))
+            extra = [x for x in src if x.name.strip() in EXTRA_SOLO.get(key, [])]
+            parts[key] = (live, src, task_key, extra)
+            elements.append(('Part - %s' % label, [live] + extra, [live] + src))
         backing = []
         for comp in BACKING:
             mixed = self._named(comp, 'MIXED BACKING')
@@ -316,14 +320,14 @@ class ExportJob(object):
         for key in parts:
             if key in ('dale', 'anston'):
                 continue
-            live, src, _ = parts[key]
-            mix.append(live)
+            live, src, _, extra = parts[key]
+            mix += [live] + extra
             need_on += [live] + src
         vocal_parts = [parts[k] for k in ('dale', 'anston') if k in parts]
         vocals_done = bool(vocal_parts) and all(p[2] in self.vocals_complete for p in vocal_parts)
         if vocals_done:
-            for live, src, _ in vocal_parts:
-                mix.append(live)
+            for live, src, _, extra in vocal_parts:
+                mix += [live] + extra
                 need_on += [live] + src
         fill = []
         if 'drums' not in parts:
