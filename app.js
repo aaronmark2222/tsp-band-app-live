@@ -545,6 +545,7 @@ function openGigForm(gig = null) {
   $('#gig-setlist-field').classList.toggle('hidden', !gig);
   $('#gig-setlist').required = !!gig;
   $('#gig-auto-setlist-note').classList.toggle('hidden', !!gig);
+  $('#delete-gig').classList.toggle('hidden', !gig || !state.member?.is_admin);
   $('#gig-form').classList.remove('hidden');
   $('#gig-name').focus();
 }
@@ -2044,6 +2045,21 @@ $('#new-setlist-selected').addEventListener('click', (event) => {
 $('#new-gig').addEventListener('click', () => openGigForm());
 $('#gig-form').addEventListener('submit', saveGig);
 $('#cancel-gig-edit').addEventListener('click', () => $('#gig-form').classList.add('hidden'));
+// Delete a gig (e.g. cancelled). Its setlist is kept in Setlists.
+$('#delete-gig').addEventListener('click', async () => {
+  const id = $('#gig-id').value;
+  const gig = state.gigs.find((item) => item.id === id);
+  if (!gig || !state.member.is_admin) return;
+  const setlist = state.setlists.find((item) => item.id === gig.setlist_id);
+  if (!window.confirm(`Delete the gig "${gig.name}"?${setlist ? `\n\nIts setlist "${setlist.name}" stays in Setlists.` : ''}`)) return;
+  const { error } = await db.from('gigs').delete().eq('id', id);
+  if (error) return fail('Could not delete this gig.', error);
+  $('#gig-form').classList.add('hidden');
+  await loadData();
+  renderGigs();
+  if (state.view === 'dashboard') await renderDashboard();
+  showNotice(`Deleted the gig "${gig.name}".${setlist ? ' Its setlist is still in Setlists.' : ''}`);
+});
 $('#gig-list').addEventListener('click', (event) => {
   const completeButton = event.target.closest('[data-complete-gig]');
   if (completeButton) {
@@ -3046,12 +3062,19 @@ function practiceSources() {
   const today = new Date().toISOString().slice(0, 10);
   const gigs = (state.gigs || []).filter((gig) => !gig.completed && gig.setlist_id && (!gig.event_date || gig.event_date >= today))
     .sort((a, b) => String(a.event_date).localeCompare(String(b.event_date)));
+  // Each setlist appears once: under its upcoming gig if it has one, else under Setlists.
   const out = [{ value: 'all', label: 'All songs (repertoire)' }];
+  const used = new Set();
   for (const gig of gigs) {
+    if (used.has(gig.setlist_id)) continue;
+    used.add(gig.setlist_id);
     const date = gig.event_date ? new Date(`${gig.event_date}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '';
-    out.push({ value: `setlist:${gig.setlist_id}`, label: `Gig: ${gig.name}${date ? ` · ${date}` : ''}`, gig: true });
+    const list = (state.setlists || []).find((item) => item.id === gig.setlist_id);
+    out.push({ value: `setlist:${gig.setlist_id}`, label: `${gig.name}${date ? ` · ${date}` : ''}${list ? ` (${list.name})` : ''}`, gig: true, group: 'Upcoming gigs' });
   }
-  for (const list of state.setlists || []) out.push({ value: `setlist:${list.id}`, label: `Setlist: ${list.name}` });
+  for (const list of state.setlists || []) {
+    if (!used.has(list.id)) out.push({ value: `setlist:${list.id}`, label: list.name, group: 'Setlists' });
+  }
   return out;
 }
 
@@ -3086,7 +3109,13 @@ async function renderPracticePage() {
     try { await practiceLoadAvailable(); } catch (error) { practice.available = new Map(); console.warn(error); }
   }
   const source = practiceSourceValue();
-  $('#practice-source').innerHTML = practiceSources().map((src) => `<option value="${escapeHtml(src.value)}" ${src.value === source ? 'selected' : ''}>${escapeHtml(src.label)}</option>`).join('');
+  const opt = (src) => `<option value="${escapeHtml(src.value)}" ${src.value === source ? 'selected' : ''}>${escapeHtml(src.label)}</option>`;
+  const sources = practiceSources();
+  $('#practice-source').innerHTML = sources.filter((src) => !src.group).map(opt).join('')
+    + ['Upcoming gigs', 'Setlists'].map((group) => {
+      const items = sources.filter((src) => src.group === group);
+      return items.length ? `<optgroup label="${group}">${items.map(opt).join('')}</optgroup>` : '';
+    }).join('');
   let songs = state.songs;
   try { songs = await practiceSongList(); } catch (error) { console.warn(error); }
   practice.songList = songs;
