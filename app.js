@@ -2796,7 +2796,7 @@ function renderExportPanel() {
   if (!box) return;
   const job = exportJob.state;
   const running = job && ['starting', 'running'].includes(job.state);
-  const songs = [...state.songs].sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+  const songs = state.songs; // same order as the database / Songs page
   if (!exportJob.songId && songs.length) exportJob.songId = songs[0].id;
   let status = '';
   if (job) {
