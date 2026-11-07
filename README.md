@@ -1,9 +1,10 @@
 # TSP Work — The String Project
 
-A band workspace for tracking song work and performance setlists. **The GitHub repository is public; the deployed app requires a linked Supabase Auth account.** The repository contains the static frontend, project summary, product plan, Supabase setup notes, app guide, and SQL migrations.
+A band workspace for tracking song work and performance setlists, integrated with the band's Ableton Live master project (sync, review, practice audio, AbleSet-style lyrics). **The GitHub repository is public; the deployed app requires a linked Supabase Auth account.** The repository contains the static frontend, project summary, product plan, Supabase setup notes, app guide, and SQL migrations.
 
 ## Start here
 
+- **[App Plan](APP_PLAN.md) — the current master document (systems, data, Ableton/TSPWork, Practice, runbooks, decisions). Start here.**
 - [Cross-system map](docs/SYSTEM_MAP.md) — current app, Supabase schema/security, Ableton workflow, metadata relationship, and planned local MP3 exports.
 - [Current implementation context](docs/CURRENT_STATE.md) — app architecture, deployment, data-model references, and a checklist for future changes.
 - [Project summary](TSP%20Band%20App%20Summary.md) — product behavior, confirmed decisions, and change log.
