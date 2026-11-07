@@ -1110,3 +1110,8 @@ body.view-practice .shell { padding-bottom: 96px; }
 .pt-dl { display: inline-grid; place-items: center; color: #f39a26; }
 .pt-spin { width: 11px; height: 11px; border: 2px solid #777; border-top-color: #f39a26; border-radius: 50%; animation: spin .7s linear infinite; }
 .pt-queue { color: #8a8a8a; font: 11px var(--mono); margin-left: 6px; }
+.ly-chip.empty { opacity: .5; }
+.ly-chip.empty.on { opacity: 1; }
+.ly-section { transition: background .15s, box-shadow .15s, color .15s; opacity: .75; }
+.ly-section.current { opacity: 1; background: #3d6aa8; box-shadow: 0 0 0 2px rgba(243,154,38,.55); }
+.ly-section:hover { opacity: 1; }

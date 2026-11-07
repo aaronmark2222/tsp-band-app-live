@@ -3580,9 +3580,11 @@ async function practiceLoadLyrics(songId) {
 function lyricsTrack() {
   const tracks = practice.lyrics?.tracks || [];
   const want = lyricsPrefs().track;
-  // The saved choice is kept even when a song lacks that track (fallback only for display).
-  return tracks.find((t) => t.slug === want) || tracks.find((t) => t.slug === 'lyrics') || tracks[0] || null;
+  // The chosen track is kept across songs; a song without it shows just its sections.
+  return tracks.find((t) => t.slug === want) || null;
 }
+// Always offered (in this order), plus any other +LYRICS track a song has.
+const LYRICS_STANDARD = [['chords', 'Chords'], ['guitar', 'Guitar'], ['keyboard', 'Keyboard'], ['lyrics', 'Lyrics'], ['drums', 'Drums']];
 
 function lyricLineHtml(text) {
   const raw = String(text || '');
@@ -3640,8 +3642,13 @@ function renderPracticeLyrics() {
   const tracks = ly.tracks || [];
   if (!tracks.length) { box.innerHTML = '<header><h2>Lyrics</h2></header><p class="muted">No lyrics saved for this song yet. They come from the admin\'s last Ableton Sync read.</p>'; return; }
   const current = lyricsTrack();
-  const chips = tracks.map((t) => `<button type="button" class="ly-chip ${t.slug === current?.slug ? 'on' : ''}" data-lyrics-track="${escapeHtml(t.slug)}">${escapeHtml(t.label)}</button>`).join('');
-  const missing = prefs.track && !tracks.some((t) => t.slug === prefs.track) ? `<p class="muted ly-missing">This song has no ${escapeHtml(prefs.track)} track; showing ${escapeHtml(current?.label || '')}.</p>` : '';
+  const chipList = [...LYRICS_STANDARD, ...tracks.filter((t) => !LYRICS_STANDARD.some(([slug]) => slug === t.slug)).map((t) => [t.slug, t.label])];
+  const chips = chipList.map(([slug, label]) => {
+    const has = tracks.some((t) => t.slug === slug && t.lines?.length);
+    return `<button type="button" class="ly-chip ${slug === prefs.track ? 'on' : ''} ${has ? '' : 'empty'}" data-lyrics-track="${escapeHtml(slug)}" title="${has ? '' : 'Nothing on this track for this song'}">${escapeHtml(label)}</button>`;
+  }).join('');
+  const chosenLabel = chipList.find(([slug]) => slug === prefs.track)?.[1] || prefs.track;
+  const missing = !current ? `<p class="muted ly-missing">No ${escapeHtml(chosenLabel)} notes in this song; showing its sections.</p>` : '';
   // Merge section headings into the line list by time.
   const items = [];
   for (const sec of ly.sections || []) items.push({ type: 'section', t: sec.t, name: sec.name });
@@ -3689,9 +3696,19 @@ function practiceNow() {
 function practiceLyricsTick(force) {
   if (practice.lyricsUnsynced) return; // audio and lyrics disagree on length
   const scroll = $('#practice-lyrics-scroll');
-  const lines = practice.lyrics && lyricsTrack()?.lines;
-  if (!scroll || !lines) return;
+  if (!scroll || !practice.lyrics) return;
+  const lines = lyricsTrack()?.lines || [];
   const t = practiceNow();
+  // Section under the playhead: a lighter highlight than the current line.
+  const sectionEls = [...scroll.querySelectorAll('.ly-section')];
+  let secEl = null;
+  for (const el of sectionEls) { if (Number(el.dataset.t) <= t + 0.05) secEl = el; }
+  if (force || secEl !== practice.sectionEl) {
+    sectionEls.forEach((el) => el.classList.toggle('current', el === secEl));
+    practice.sectionEl = secEl;
+    if (!lines.length && secEl && (force || Date.now() - (practice.lyricsTouchedAt || 0) > 4000)) lyricsScrollTo(scroll, secEl, force);
+  }
+  if (!lines.length) return;
   let idx = -1;
   for (let i = 0; i < lines.length; i += 1) { if (lines[i].t <= t + 0.05) idx = i; else break; }
   const inside = idx >= 0 && t < lines[idx].e;
