@@ -2706,6 +2706,31 @@ async function loadSyncAudioLengths() {
   const { data, error } = await db.from('practice_tracks').select('song_id, element, duration_seconds, uploaded_at').eq('element', 'Mixdown');
   if (error) throw error;
   sync.audioLengths = new Map((data || []).map((row) => [row.song_id, row]));
+  // Files uploaded before lengths were recorded: measure them once now.
+  for (const row of data || []) {
+    if (row.duration_seconds != null) continue;
+    try {
+      const { data: links } = await db.functions.invoke('practice-audio', { body: { action: 'urls', song_id: row.song_id } });
+      const mix = links?.tracks?.find((t) => t.element === 'Mixdown');
+      if (!mix) continue;
+      const duration = await audioUrlDuration(mix.url);
+      if (duration == null) continue;
+      row.duration_seconds = duration;
+      await db.from('practice_tracks').update({ duration_seconds: duration }).eq('song_id', row.song_id).eq('element', 'Mixdown');
+    } catch (err) { console.warn('Could not measure', row.song_id, err); }
+  }
+}
+
+function audioUrlDuration(url) {
+  return new Promise((resolve) => {
+    const audio = new Audio();
+    const done = (value) => { audio.removeAttribute('src'); resolve(value); };
+    audio.preload = 'metadata';
+    audio.onloadedmetadata = () => done(Number.isFinite(audio.duration) ? Math.round(audio.duration * 10) / 10 : null);
+    audio.onerror = () => done(null);
+    setTimeout(() => done(null), 15000);
+    audio.src = url;
+  });
 }
 
 function syncAudioMismatches() {
@@ -3019,7 +3044,7 @@ function practiceSourceValue() {
   let saved = '';
   try { saved = localStorage.getItem(PRACTICE_SOURCE_KEY) || ''; } catch { /* ignore */ }
   if (saved && sources.some((src) => src.value === saved)) return saved;
-  return sources.find((src) => src.gig)?.value || 'all';
+  return 'all';
 }
 
 async function practiceSongList() {
@@ -3048,7 +3073,7 @@ async function renderPracticePage() {
   if (!songs.some((song) => song.id === practice.songId)) practice.songId = (songs.find((song) => practice.available.has(song.id)) || songs[0])?.id || '';
   $('#practice-song').innerHTML = songs.map((song, i) => {
     const has = practice.available.has(song.id);
-    return `<option value="${escapeHtml(song.id)}" ${song.id === practice.songId ? 'selected' : ''}>${source === 'all' ? '' : `${i + 1}. `}${escapeHtml(song.id)} · ${escapeHtml(song.name)}${has ? '' : ' (no audio yet)'}</option>`;
+    return `<option value="${escapeHtml(song.id)}" class="${has ? 'has-audio' : 'no-audio'}" ${song.id === practice.songId ? 'selected' : ''}>${has ? '● ' : '○ '}${source === 'all' ? '' : `${i + 1}. `}${escapeHtml(song.id)} · ${escapeHtml(song.name)}${has ? '' : ' (no audio yet)'}</option>`;
   }).join('');
   renderPracticeUpload();
   if (practice.tracks.songId !== practice.songId) await practiceOpenSong(practice.songId);
@@ -3136,6 +3161,7 @@ function renderPracticePlayers() {
   const files = practice.tracks.slice().sort((a, b) => (a.element === 'Mixdown' ? -1 : b.element === 'Mixdown' ? 1 : practiceRank(a.element) - practiceRank(b.element)));
   dlBox.innerHTML = `<header><h2>Download</h2><span class="muted">Full-length MP3s for practising offline</span></header>
     <ul class="practice-dl-list">${files.map((t) => `<li><span class="practice-dl-dot" style="background:${PRACTICE_COLORS[t.element] || '#f39a26'}"></span><span>${escapeHtml(t.element)}</span><small class="muted">${t.bytes ? `${(t.bytes / 1048576).toFixed(1)} MB` : ''}</small><a class="button quiet" href="${escapeHtml(t.download || t.url)}" ${t.download ? '' : 'target="_blank" rel="noopener"'}>Download</a></li>`).join('')}</ul>`;
+  practiceCheckLyricsLength();
 }
 
 function practiceMultiTracks() {
@@ -3573,6 +3599,29 @@ function renderPracticeLyrics() {
     <p class="muted ly-foot">From the Ableton set read ${ly.updated_at ? new Date(ly.updated_at).toLocaleDateString() : ''}. Click a line to jump there.</p>`;
   practice.lyricIndex = -2;
   practiceLyricsTick(true);
+  practiceCheckLyricsLength();
+}
+
+// Lyrics are timed from the song start, the same point the exported audio
+// starts, so they line up by themselves. Only a length difference means the
+// song changed in Ableton after the audio was exported.
+function practiceCheckLyricsLength() {
+  const box = $('#practice-lyrics');
+  const audio = $('#practice-mix-audio');
+  const set = practice.lyrics?.duration_seconds;
+  box?.querySelector('.ly-drift')?.remove();
+  if (!box || !audio || !set) return;
+  const check = () => {
+    if (!Number.isFinite(audio.duration)) return;
+    const diff = audio.duration - set;
+    box.querySelector('.ly-drift')?.remove();
+    if (Math.abs(diff) <= 1.5) return;
+    const note = document.createElement('p');
+    note.className = 'ly-drift';
+    note.textContent = `This audio is ${Math.abs(diff).toFixed(1)} s ${diff > 0 ? 'longer' : 'shorter'} than the song in the last Ableton read, so the lyrics may drift.${state.member?.is_admin ? ' Export and upload this song again.' : ''}`;
+    box.querySelector('.ly-chips')?.after(note);
+  };
+  if (Number.isFinite(audio.duration)) check(); else audio.addEventListener('loadedmetadata', check, { once: true });
 }
 
 function practiceNow() {
