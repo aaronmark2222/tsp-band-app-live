@@ -2966,7 +2966,7 @@ function renderExportPanel(opts = {}) {
       <button class="button quiet" type="button" data-export-none ${running || !count ? 'disabled' : ''}>Clear</button>
       <button class="button quiet" type="button" data-export-changed ${running || !exportChangedIds().length ? 'disabled' : ''} title="Add the songs that changed in Ableton since their upload">+ Changed${exportChangedIds().length ? ` (${exportChangedIds().length})` : ''}</button>
       ${(() => { const up = [...exportJob.selected].filter((id) => practice.available?.has(id) && !audioChanges(id).length).length; return `<button class="button quiet" type="button" data-export-unuploaded ${running || !up ? 'disabled' : ''} title="Uncheck the checked songs that are already on the band app">Uncheck uploaded${up ? ` (${up})` : ''}</button>`; })()}
-      <button id="export-start" class="button primary" type="button" ${running || !count || (!abletonBridge.connected && !running) ? 'disabled' : ''}>${running ? 'Exporting…' : `Export ${count ? `${count} song${count === 1 ? '' : 's'}` : 'songs'}`}</button>
+      <button id="export-start" class="button primary" type="button" ${running || exportJob.preparing || !count || (!abletonBridge.connected && !running) ? 'disabled' : ''}>${exportJob.preparing ? 'Starting…' : running ? 'Exporting…' : `Export ${count ? `${count} song${count === 1 ? '' : 's'}` : 'songs'}`}</button>
       ${canStopAfter ? `<button id="export-stop-after" class="button ${job.stop_after_song ? 'primary' : 'quiet'}" type="button" ${stopSupported ? '' : 'disabled'} title="${stopSupported ? (job.stop_after_song ? 'Keep exporting the rest of the songs' : 'Finish the song being exported, then stop') : 'Needs TSPWork 1.17: in Live, set the TSPWork control surface to None and back to TSPWork'}">${job.stop_after_song ? `Keep going after ${escapeHtml(job.song_id)}` : 'Stop after this song'}</button>` : ''}
       ${running ? '<button id="export-cancel" class="button quiet" type="button" title="Stop right away (the current song is left unfinished) and put Ableton back">Cancel now</button>' : ''}
     </div>
@@ -3208,6 +3208,7 @@ async function pollExport() {
 }
 
 async function startExport() {
+  if (exportJob.preparing) return;
   const songs = state.songs.filter((song) => exportJob.selected.has(song.id));
   if (!songs.length) return;
   const prefs = exportPrefs();
@@ -3216,13 +3217,30 @@ async function startExport() {
   try {
     // The fingerprints saved with each upload come from the saved set, read now.
     exportJob.baseline = null;
-    exportJob.preparing = 'Reading the saved Ableton set…';
+    exportJob.preparing = 'Checking the saved Ableton set…';
     renderExportPanel();
     try {
-      const snap = await abletonRequest('/snapshot', {}, 240000);
-      if (snap?.ok && snap.snapshot?.songs) {
-        exportJob.baseline = { songs: snap.snapshot.songs, als_modified_at: snap.snapshot.als_modified_at };
-        await audioStateAfterRead(snap.snapshot, { seed: false });
+      // Reuse a read of the same saved set (Read set, or a previous export);
+      // otherwise read it now, waiting if TSPWork is still busy reading.
+      const status = await abletonRequest('/status').catch(() => null);
+      const savedAt = Number(status?.als_saved_at) || 0;
+      const sameSet = (snap) => snap?.als_modified_at && savedAt && Math.abs(Date.parse(snap.als_modified_at) / 1000 - savedAt) < 2;
+      let snapshot = [sync.snapshot, exportJob.lastSnapshot].find((snap) => sameSet(snap) && Object.values(snap.songs || {}).some((song) => song.audio_fp)) || null;
+      const waitUntil = Date.now() + 5 * 60 * 1000;
+      while (!snapshot && Date.now() < waitUntil) {
+        exportJob.preparing = 'Reading the saved Ableton set (about a minute)…';
+        renderExportPanel();
+        const res = await abletonRequest('/snapshot', {}, 240000);
+        if (res?.ok && res.snapshot?.songs) { snapshot = res.snapshot; break; }
+        if (res?.error !== 'busy') break;
+        exportJob.preparing = 'TSPWork is still busy reading the set; waiting…';
+        renderExportPanel();
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+      }
+      if (snapshot) {
+        exportJob.lastSnapshot = snapshot;
+        exportJob.baseline = { songs: snapshot.songs, als_modified_at: snapshot.als_modified_at };
+        await audioStateAfterRead(snapshot, { seed: false });
       }
     } catch (error) { console.warn('Set not read before export', error); }
     exportJob.preparing = 'Preparing upload links…';
@@ -3235,11 +3253,18 @@ async function startExport() {
       if (error || !data?.ok) throw new Error(`upload links: ${data?.error || error?.message || 'failed'}`);
       uploads = data.urls;
     }
-    const result = await abletonRequest('/export', { songs: songs.map(exportSongPayload), export_root: prefs.root, uploads }, 20000);
+    let result = null;
+    for (let tries = 0; tries < 24; tries += 1) {
+      result = await abletonRequest('/export', { songs: songs.map(exportSongPayload), export_root: prefs.root, uploads }, 20000);
+      if (result?.error !== 'busy') break;
+      exportJob.preparing = 'TSPWork is busy; starting as soon as it is free…';
+      renderExportPanel();
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    }
     if (!result?.ok) {
       exportJob.preparing = null;
       renderExportPanel();
-      const why = { export_running: 'An export is already running.', export_folder_missing: `The folder isn't available: ${prefs.root}. Is the SSD connected?`, bad_export_folder: 'That folder path is not valid.' }[result?.error];
+      const why = { busy: 'TSPWork is still busy (reading the set). Try again in a minute.', export_running: 'An export is already running.', export_folder_missing: `The folder isn't available: ${prefs.root}. Is the SSD connected?`, bad_export_folder: 'That folder path is not valid.' }[result?.error];
       showNotice(why || `Could not start the export: ${result?.error || 'no response'}`, true);
       return;
     }
