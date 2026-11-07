@@ -3799,7 +3799,7 @@ function lyricLineHtml(text) {
     // the words in chord colour, like AbleSet.
     pushText(before);
     if (pendingChord !== null) parts.push({ chord: pendingChord, text: '' });
-    pendingChord = token.length > 1 ? token.replace(/-$/, '') : token;
+    pendingChord = token;
     last = re.lastIndex;
   }
   pushText(raw.slice(last));
@@ -3920,10 +3920,8 @@ function lyricsDotCount(t0, t1) {
   const beats = lyricsBeatsBetween(t0, t1);
   if (beats < 0.9) return 0;
   if (beats <= 8.1) return Math.max(1, Math.round(beats)); // one per beat
-  const bars = beats / 4;
-  let unit = 1;
-  while (bars / unit > 4.01) unit *= 2; // at most four dots, each a few bars
-  return Math.max(1, Math.ceil(bars / unit - 0.01));
+  // Longer gaps: one dot per bar, at most four (each then covers several bars).
+  return Math.min(4, Math.max(1, Math.round(beats / 4)));
 }
 function practiceLyricsDots(scroll, t) {
   scroll.querySelectorAll('.ly-dots').forEach((row) => {
