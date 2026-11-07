@@ -46,11 +46,11 @@ EXTRA_SOLO = {'drums': ['Drums Midi Part']}
 # A track is exported only if it has an active (not deactivated) clip with at
 # least this much inside the song; muted-only or sliver-only tracks are skipped.
 MIN_CLIP_BEATS = 0.25
-# A part with less than this much active audio in the song (in beats; 12 = 3
+# A part with less than this much active audio in the song (in beats; 16 = 4
 # bars of 4/4) is a stray clip and counts as missing: no part file, and its
 # stem fills the mixdown. Measured on the set (7 Nov 2026): strays are one
 # clip of 3-8 beats; the shortest real parts (e.g. a violin lead) are 20+.
-MIN_PART_BEATS = 12.0
+MIN_PART_BEATS = 16.0
 
 # Fixed AppleScripts: data (folder, file name) is passed as arguments, never
 # pasted into the script text.
