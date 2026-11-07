@@ -1658,7 +1658,9 @@ function setView(view) {
   $('#gigs-view').classList.toggle('hidden', view !== 'gigs');
   $('#dashboard-view').classList.toggle('hidden', view !== 'dashboard');
   $('#sync-view').classList.toggle('hidden', view !== 'sync');
+  $('#practice-view').classList.toggle('hidden', view !== 'practice');
   if (view === 'sync') renderSyncPage();
+  if (view === 'practice') renderPracticePage();
   if (view === 'setlists') renderActiveSetlist();
   if (view === 'gigs') renderGigs();
   if (view === 'dashboard') renderDashboard();
@@ -2913,4 +2915,440 @@ $('#sync-content').addEventListener('click', (event) => {
     if (!window.confirm(`${isTasks ? 'Complete' : 'Apply'} all ${count} ${isTasks ? 'task updates' : 'song detail changes'}?`)) return;
     runSyncApply(isTasks ? tasks : [], isTasks ? [] : meta);
   }
+});
+
+
+// ---------------------------------------------------------------------------
+// Practice page. MP3s exported by TSPWork are uploaded (admin) to Cloudflare R2;
+// the practice-audio Edge Function hands out short-lived signed links. Top: the
+// Mixdown with plain controls. Bottom: an Ableton-style multitrack (on/off,
+// solo, volume, meter per track) decoded in the browser and played in sync.
+// Track settings are kept per track name for this browser session, so they
+// carry across songs (e.g. Bass off stays off).
+const PRACTICE_ORDER = ['Part - Bass', 'Part - Keyboard', 'Part - Guitar', 'Part - Violin', 'Part - Percussion', 'Part - Drums',
+  'Part - Dale Vox', 'Part - Anston Vox', 'Backing', 'CPC', 'Stem - Bass', 'Stem - Drums', 'Stem - Other', 'Stem - Vocals'];
+const PRACTICE_TASK = { 'Part - Bass': 'bass_part', 'Part - Keyboard': 'keyboard_part', 'Part - Guitar': 'guitar_part', 'Part - Violin': 'violin_part',
+  'Part - Percussion': 'percussion_part', 'Part - Drums': 'drums_part', 'Part - Dale Vox': 'vox_dale', 'Part - Anston Vox': 'vox_anston' };
+const PRACTICE_COLORS = { 'Part - Bass': '#ff8d4f', 'Part - Keyboard': '#ffd54d', 'Part - Guitar': '#79d36b', 'Part - Violin': '#ef7fb7',
+  'Part - Percussion': '#c79bff', 'Part - Drums': '#5fb8ff', 'Part - Dale Vox': '#ff6b6b', 'Part - Anston Vox': '#ffa1a1',
+  Backing: '#4fd6c7', CPC: '#a8a8a8', 'Stem - Bass': '#b98a6a', 'Stem - Drums': '#6f97b8', 'Stem - Other': '#8fae7c', 'Stem - Vocals': '#b8828f' };
+const PRACTICE_SETTINGS_KEY = 'tsp-practice-mix-v1';
+const practice = {
+  songId: '', available: null, tracks: [], loadingSong: false, error: '',
+  ctx: null, master: null, buffers: new Map(), nodes: new Map(), loadState: new Map(),
+  playing: false, offset: 0, startedAt: 0, duration: 0, raf: null, loadToken: 0,
+  upload: { items: [], running: false }
+};
+
+function practiceSettings() {
+  try { return JSON.parse(sessionStorage.getItem(PRACTICE_SETTINGS_KEY) || '{}'); } catch { return {}; }
+}
+function practiceTrackSetting(element) {
+  const saved = practiceSettings()[element];
+  return { on: saved?.on ?? !element.startsWith('Stem'), solo: !!saved?.solo, vol: saved?.vol ?? 1 };
+}
+function savePracticeTrackSetting(element, patch) {
+  const all = practiceSettings();
+  all[element] = { ...practiceTrackSetting(element), ...patch };
+  try { sessionStorage.setItem(PRACTICE_SETTINGS_KEY, JSON.stringify(all)); } catch { /* private mode: keep in memory only */ }
+  practice.memory = all;
+}
+
+async function practiceLoadAvailable() {
+  const { data, error } = await db.from('practice_tracks').select('song_id, element, bytes');
+  if (error) throw error;
+  const map = new Map();
+  for (const row of data || []) {
+    if (!map.has(row.song_id)) map.set(row.song_id, []);
+    map.get(row.song_id).push(row);
+  }
+  practice.available = map;
+}
+
+async function renderPracticePage() {
+  $('#practice-upload').classList.toggle('hidden', !state.member?.is_admin);
+  if (!practice.available) {
+    try { await practiceLoadAvailable(); } catch (error) { practice.available = new Map(); console.warn(error); }
+  }
+  const select = $('#practice-song');
+  const songs = state.songs;
+  if (!practice.songId) practice.songId = (songs.find((song) => practice.available.has(song.id)) || songs[0])?.id || '';
+  select.innerHTML = songs.map((song) => {
+    const has = practice.available.has(song.id);
+    return `<option value="${escapeHtml(song.id)}" ${song.id === practice.songId ? 'selected' : ''}>${escapeHtml(song.id)} · ${escapeHtml(song.name)}${has ? '' : ' (no audio yet)'}</option>`;
+  }).join('');
+  renderPracticeUpload();
+  if (practice.tracks.songId !== practice.songId) await practiceOpenSong(practice.songId);
+  else renderPracticePlayers();
+}
+
+async function practiceOpenSong(songId) {
+  practiceStop(true);
+  practice.songId = songId;
+  practice.tracks = [];
+  practice.tracks.songId = songId;
+  practice.buffers = new Map();
+  practice.loadState = new Map();
+  practice.duration = 0;
+  practice.offset = 0;
+  practice.error = '';
+  practice.loadToken += 1;
+  if (!practice.available?.has(songId)) { renderPracticePlayers(); return; }
+  practice.loadingSong = true;
+  renderPracticePlayers();
+  try {
+    const { data, error } = await db.functions.invoke('practice-audio', { body: { action: 'urls', song_id: songId } });
+    if (error || !data?.ok) throw new Error(data?.error || error?.message || 'could not get the audio links');
+    if (practice.songId !== songId) return;
+    const tracks = data.tracks.slice().sort((a, b) => practiceRank(a.element) - practiceRank(b.element));
+    tracks.songId = songId;
+    practice.tracks = tracks;
+  } catch (error) {
+    practice.error = error.message === 'r2_not_configured' ? 'Audio storage is not set up yet.' : `Could not load this song's audio: ${error.message}`;
+  } finally {
+    practice.loadingSong = false;
+    renderPracticePlayers();
+  }
+}
+
+function practiceRank(element) {
+  const i = PRACTICE_ORDER.indexOf(element);
+  return i === -1 ? 50 : i;
+}
+
+function practiceTime(seconds) {
+  const s = Math.max(0, Math.floor(seconds || 0));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+function renderPracticePlayers() {
+  const song = state.songs.find((item) => item.id === practice.songId);
+  const mixBox = $('#practice-mixdown');
+  const multiBox = $('#practice-multitrack');
+  $('#practice-song-note').textContent = '';
+  if (!song) { mixBox.innerHTML = ''; multiBox.innerHTML = ''; return; }
+  if (practice.loadingSong) { mixBox.innerHTML = '<p class="muted">Loading…</p>'; multiBox.innerHTML = ''; return; }
+  if (practice.error) { mixBox.innerHTML = `<p class="error">${escapeHtml(practice.error)}</p>`; multiBox.innerHTML = ''; return; }
+  if (!practice.tracks.length) {
+    mixBox.innerHTML = `<div class="empty-state">No practice audio for ${escapeHtml(song.id)} ${escapeHtml(song.name)} yet.</div>`;
+    multiBox.innerHTML = '';
+    return;
+  }
+  const mix = practice.tracks.find((t) => t.element === 'Mixdown');
+  mixBox.innerHTML = `<header><h2>Mixdown</h2>${mix ? `<a class="practice-dl" href="${escapeHtml(mix.url)}" target="_blank" rel="noopener" title="Download the Mixdown MP3">Download</a>` : ''}</header>
+    ${mix ? `<audio id="practice-mix-audio" controls preload="metadata" src="${escapeHtml(mix.url)}"></audio>` : '<p class="muted">No mixdown for this song.</p>'}`;
+  const audio = $('#practice-mix-audio');
+  audio?.addEventListener('play', () => practicePause());
+  renderPracticeMultitrack();
+}
+
+function practiceMultiTracks() {
+  return practice.tracks.filter((t) => t.element !== 'Mixdown');
+}
+
+function renderPracticeMultitrack() {
+  const box = $('#practice-multitrack');
+  const tracks = practiceMultiTracks();
+  if (!tracks.length) { box.innerHTML = ''; return; }
+  const loaded = tracks.every((t) => practice.buffers.has(t.element));
+  const loading = tracks.some((t) => practice.loadState.get(t.element) === 'loading');
+  const totalMb = tracks.reduce((sum, t) => sum + (t.bytes || 0), 0) / 1048576;
+  const anySolo = tracks.some((t) => practiceTrackSetting(t.element).solo);
+  const myTaskKeys = new Set(Object.entries(PRACTICE_TASK).filter(([, key]) => state.taskTypes.find((type) => type.key === key)?.owner_member_id === state.member?.id).map(([element]) => element));
+  const rows = tracks.map((t, i) => {
+    const st = practiceTrackSetting(t.element);
+    const audible = st.on && (!anySolo || st.solo);
+    const ls = practice.loadState.get(t.element);
+    const dbLabel = st.vol > 0 ? (20 * Math.log10(st.vol)).toFixed(1) : '-inf';
+    return `<li class="ab-track ${audible ? '' : 'ab-silent'} ${myTaskKeys.has(t.element) ? 'ab-mine' : ''}" data-element="${escapeHtml(t.element)}" style="--track-color:${PRACTICE_COLORS[t.element] || '#9aa'}">
+      <div class="ab-title"><span class="ab-name">${escapeHtml(t.element)}${myTaskKeys.has(t.element) ? ' <small>yours</small>' : ''}</span>${ls === 'error' ? '<small class="ab-err">failed</small>' : ls === 'loading' ? '<small>loading…</small>' : ''}</div>
+      <div class="ab-controls">
+        <button type="button" class="ab-activator ${st.on ? 'on' : ''}" data-practice-on="${escapeHtml(t.element)}" aria-pressed="${st.on}" title="Track on/off">${i + 1}</button>
+        <button type="button" class="ab-solo ${st.solo ? 'on' : ''}" data-practice-solo="${escapeHtml(t.element)}" aria-pressed="${st.solo}" title="Solo (Cmd/Ctrl-click to add)">S</button>
+        <input type="range" class="ab-fader" min="0" max="1.413" step="0.001" value="${st.vol}" data-practice-vol="${escapeHtml(t.element)}" aria-label="${escapeHtml(t.element)} volume">
+        <span class="ab-db">${dbLabel}</span>
+        <span class="ab-meter"><span data-practice-meter="${escapeHtml(t.element)}"></span></span>
+        <a class="ab-dl" href="${escapeHtml(t.url)}" target="_blank" rel="noopener" title="Download ${escapeHtml(t.element)}">↓</a>
+      </div></li>`;
+  }).join('');
+  const pos = practicePosition();
+  box.innerHTML = `<header><h2>Multitrack</h2><span class="muted">${tracks.length} tracks · ${totalMb.toFixed(0)} MB</span></header>
+    ${loaded ? `<div class="ab-transport">
+        <button type="button" class="ab-play" data-practice-play title="Play / pause">${practice.playing ? '❚❚' : '▶'}</button>
+        <button type="button" data-practice-rewind title="Back to start">⏮</button>
+        <span class="ab-time" id="practice-time">${practiceTime(pos)} / ${practiceTime(practice.duration)}</span>
+        <input type="range" class="ab-seek" id="practice-seek" min="0" max="${practice.duration.toFixed(2)}" step="0.1" value="${pos.toFixed(2)}" aria-label="Position">
+        <button type="button" class="button quiet" data-practice-reset title="Reset all tracks: on, no solo, 0 dB (stems off)">Reset mix</button>
+      </div>`
+    : `<div class="ab-transport"><button type="button" class="button primary" data-practice-load ${loading ? 'disabled' : ''}>${loading ? 'Loading tracks…' : `Load multitrack (${totalMb.toFixed(0)} MB)`}</button><span class="muted">Downloads every track once so they play in sync.</span></div>`}
+    <ul class="ab-tracks">${rows}</ul>`;
+}
+
+async function practiceLoadTracks() {
+  const token = practice.loadToken;
+  const tracks = practiceMultiTracks();
+  if (!practice.ctx) {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    practice.ctx = new Ctx();
+    practice.master = practice.ctx.createGain();
+    practice.master.connect(practice.ctx.destination);
+  }
+  await practice.ctx.resume().catch(() => {});
+  tracks.forEach((t) => { if (!practice.buffers.has(t.element)) practice.loadState.set(t.element, 'loading'); });
+  renderPracticeMultitrack();
+  // Two at a time keeps phones from running out of memory while decoding.
+  const queue = tracks.filter((t) => !practice.buffers.has(t.element));
+  const worker = async () => {
+    while (queue.length) {
+      const t = queue.shift();
+      try {
+        const response = await fetch(t.url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.arrayBuffer();
+        const buffer = await practice.ctx.decodeAudioData(data);
+        if (token !== practice.loadToken) return;
+        practice.buffers.set(t.element, buffer);
+        practice.loadState.set(t.element, 'ready');
+        practice.duration = Math.max(practice.duration, buffer.duration);
+      } catch (error) {
+        if (token !== practice.loadToken) return;
+        practice.loadState.set(t.element, 'error');
+        console.warn('Practice track failed', t.element, error);
+      }
+      renderPracticeMultitrack();
+    }
+  };
+  await Promise.all([worker(), worker()]);
+  if (token !== practice.loadToken) return;
+  // Tracks that failed are dropped so the rest can still play.
+  practice.tracks = practice.tracks.filter((t) => t.element === 'Mixdown' || practice.buffers.has(t.element));
+  practice.tracks.songId = practice.songId;
+  renderPracticeMultitrack();
+}
+
+function practicePosition() {
+  if (!practice.playing || !practice.ctx) return practice.offset;
+  return Math.min(practice.duration, practice.offset + practice.ctx.currentTime - practice.startedAt);
+}
+
+function practiceApplyGains() {
+  const tracks = practiceMultiTracks();
+  const anySolo = tracks.some((t) => practiceTrackSetting(t.element).solo);
+  for (const t of tracks) {
+    const node = practice.nodes.get(t.element);
+    if (!node) continue;
+    const st = practiceTrackSetting(t.element);
+    const target = st.on && (!anySolo || st.solo) ? st.vol : 0;
+    node.gain.gain.setTargetAtTime(target, practice.ctx.currentTime, 0.015);
+  }
+}
+
+function practicePlay() {
+  if (!practice.ctx || practice.playing) return;
+  $('#practice-mix-audio')?.pause();
+  practice.ctx.resume().catch(() => {});
+  if (practice.offset >= practice.duration - 0.05) practice.offset = 0;
+  const when = practice.ctx.currentTime + 0.08;
+  practice.nodes = new Map();
+  for (const t of practiceMultiTracks()) {
+    const buffer = practice.buffers.get(t.element);
+    if (!buffer) continue;
+    const source = practice.ctx.createBufferSource();
+    source.buffer = buffer;
+    const gain = practice.ctx.createGain();
+    const analyser = practice.ctx.createAnalyser();
+    analyser.fftSize = 512;
+    source.connect(gain).connect(analyser).connect(practice.master);
+    gain.gain.value = 0;
+    source.start(when, Math.min(practice.offset, buffer.duration));
+    practice.nodes.set(t.element, { source, gain, analyser });
+  }
+  practice.startedAt = when;
+  practice.playing = true;
+  practiceApplyGains();
+  const first = [...practice.nodes.values()][0];
+  if (first) first.source.onended = () => { if (practice.playing && practicePosition() >= practice.duration - 0.1) { practicePause(); practice.offset = 0; renderPracticeMultitrack(); } };
+  renderPracticeMultitrack();
+  practiceTick();
+}
+
+function practicePause() {
+  if (!practice.playing) return;
+  practice.offset = practicePosition();
+  practiceStop(false);
+  renderPracticeMultitrack();
+}
+
+function practiceStop(reset) {
+  for (const node of practice.nodes.values()) { try { node.source.onended = null; node.source.stop(); } catch { /* already stopped */ } }
+  practice.nodes = new Map();
+  practice.playing = false;
+  cancelAnimationFrame(practice.raf);
+  if (reset) practice.offset = 0;
+}
+
+function practiceSeek(seconds) {
+  const wasPlaying = practice.playing;
+  practiceStop(false);
+  practice.offset = Math.max(0, Math.min(practice.duration, seconds));
+  if (wasPlaying) practicePlay(); else renderPracticeMultitrack();
+}
+
+const practiceMeterData = new Float32Array(512);
+function practiceTick() {
+  cancelAnimationFrame(practice.raf);
+  const step = () => {
+    if (!practice.playing) return;
+    const pos = practicePosition();
+    const time = $('#practice-time');
+    if (time) time.textContent = `${practiceTime(pos)} / ${practiceTime(practice.duration)}`;
+    const seek = $('#practice-seek');
+    if (seek && !seek.matches(':active')) seek.value = pos.toFixed(2);
+    for (const [element, node] of practice.nodes) {
+      const bar = document.querySelector(`[data-practice-meter="${CSS.escape(element)}"]`);
+      if (!bar) continue;
+      node.analyser.getFloatTimeDomainData(practiceMeterData);
+      let peak = 0;
+      for (let i = 0; i < practiceMeterData.length; i += 1) peak = Math.max(peak, Math.abs(practiceMeterData[i]));
+      const dbfs = peak > 0 ? 20 * Math.log10(peak) : -60;
+      bar.style.width = `${Math.max(0, Math.min(100, (dbfs + 48) / 48 * 100))}%`;
+      bar.classList.toggle('hot', dbfs > -1);
+    }
+    if (pos >= practice.duration - 0.05) { practicePause(); practice.offset = 0; renderPracticeMultitrack(); return; }
+    practice.raf = requestAnimationFrame(step);
+  };
+  practice.raf = requestAnimationFrame(step);
+}
+
+$('#practice-song').addEventListener('change', (event) => practiceOpenSong(event.target.value));
+$('#practice-multitrack').addEventListener('click', (event) => {
+  if (event.target.closest('[data-practice-load]')) { practiceLoadTracks(); return; }
+  if (event.target.closest('[data-practice-play]')) { practice.playing ? practicePause() : practicePlay(); return; }
+  if (event.target.closest('[data-practice-rewind]')) { practiceSeek(0); return; }
+  if (event.target.closest('[data-practice-reset]')) {
+    try { sessionStorage.removeItem(PRACTICE_SETTINGS_KEY); } catch { /* ignore */ }
+    practiceApplyGains(); renderPracticeMultitrack(); return;
+  }
+  const on = event.target.closest('[data-practice-on]');
+  if (on) { const el = on.dataset.practiceOn; savePracticeTrackSetting(el, { on: !practiceTrackSetting(el).on }); practiceApplyGains(); renderPracticeMultitrack(); return; }
+  const solo = event.target.closest('[data-practice-solo]');
+  if (solo) {
+    const el = solo.dataset.practiceSolo;
+    const now = !practiceTrackSetting(el).solo;
+    // Like Ableton: plain click solos only this track; Cmd/Ctrl-click adds to the solo.
+    if (now && !(event.metaKey || event.ctrlKey)) practiceMultiTracks().forEach((t) => { if (t.element !== el && practiceTrackSetting(t.element).solo) savePracticeTrackSetting(t.element, { solo: false }); });
+    savePracticeTrackSetting(el, { solo: now });
+    practiceApplyGains(); renderPracticeMultitrack();
+  }
+});
+$('#practice-multitrack').addEventListener('input', (event) => {
+  const fader = event.target.closest('[data-practice-vol]');
+  if (fader) {
+    const el = fader.dataset.practiceVol;
+    const vol = Number(fader.value);
+    savePracticeTrackSetting(el, { vol });
+    practiceApplyGains();
+    const label = fader.parentElement.querySelector('.ab-db');
+    if (label) label.textContent = vol > 0 ? (20 * Math.log10(vol)).toFixed(1) : '-inf';
+    return;
+  }
+  if (event.target.id === 'practice-seek' && !practice.playing) {
+    practice.offset = Number(event.target.value);
+    const time = $('#practice-time');
+    if (time) time.textContent = `${practiceTime(practice.offset)} / ${practiceTime(practice.duration)}`;
+  }
+});
+$('#practice-multitrack').addEventListener('change', (event) => {
+  if (event.target.id === 'practice-seek') practiceSeek(Number(event.target.value));
+});
+$('#practice-multitrack').addEventListener('dblclick', (event) => {
+  const fader = event.target.closest('[data-practice-vol]');
+  if (fader) { savePracticeTrackSetting(fader.dataset.practiceVol, { vol: 1 }); practiceApplyGains(); renderPracticeMultitrack(); }
+});
+
+// --- Admin upload: drop the TSP Exports folder (or song folders / MP3s). Files
+// named "<SONG ID> - <Element>.mp3" go to R2 and are listed in practice_tracks.
+const PRACTICE_FILE_RE = /^([A-Z]{1,4}\d{1,3}) - ((?:Stem|Part) - [A-Za-z][A-Za-z ]{0,29}|Backing|CPC|Mixdown)\.mp3$/i;
+
+function renderPracticeUpload() {
+  const box = $('#practice-upload');
+  if (!box || !state.member?.is_admin) return;
+  const up = practice.upload;
+  const done = up.items.filter((i) => i.state === 'done').length;
+  const failed = up.items.filter((i) => i.state === 'error');
+  const listed = up.items.slice(-12).map((i) => `<li class="${i.state}">${i.state === 'done' ? '✓' : i.state === 'error' ? '✕' : i.state === 'uploading' ? '●' : '·'} ${escapeHtml(i.songId)} · ${escapeHtml(i.element)}${i.error ? ` <small>${escapeHtml(i.error)}</small>` : ''}</li>`).join('');
+  box.innerHTML = `<header><h2>Upload practice audio</h2><span class="muted">Admin only</span></header>
+    <p class="muted">Drop your <b>TSP Exports</b> folder (or some song folders) here, or choose it. Files named like <code>E7 - Part - Guitar.mp3</code> are uploaded and replace older versions.</p>
+    <label class="practice-drop" id="practice-drop"><input type="file" id="practice-files" multiple webkitdirectory accept=".mp3,audio/mpeg">
+      <span>${up.running ? `Uploading… ${done} of ${up.items.length}` : 'Drop folder here or click to choose'}</span></label>
+    ${up.items.length ? `<p class="muted">${done} of ${up.items.length} uploaded${failed.length ? ` · ${failed.length} failed` : ''}.</p><ul class="export-files">${listed}</ul>` : ''}`;
+}
+
+async function practiceUploadFiles(files) {
+  if (practice.upload.running) return;
+  const songIds = new Set(state.songs.map((song) => song.id));
+  const items = [];
+  for (const file of files) {
+    const m = PRACTICE_FILE_RE.exec(file.name);
+    if (!m) continue;
+    const songId = m[1].toUpperCase();
+    const element = m[2].replace(/\b\w/g, (c) => c.toUpperCase()).replace(/^Cpc$/i, 'CPC');
+    if (!songIds.has(songId)) continue;
+    items.push({ file, songId, element, state: 'waiting' });
+  }
+  if (!items.length) { showNotice('No practice MP3s found. Files must be named like "E7 - Part - Guitar.mp3".', true); return; }
+  practice.upload = { items, running: true };
+  renderPracticeUpload();
+  for (const item of items) {
+    item.state = 'uploading';
+    renderPracticeUpload();
+    try {
+      const { data, error } = await db.functions.invoke('practice-audio', { body: { action: 'upload', song_id: item.songId, element: item.element, bytes: item.file.size } });
+      if (error || !data?.ok) throw new Error(data?.error || error?.message || 'no upload link');
+      const put = await fetch(data.url, { method: 'PUT', body: item.file, headers: { 'Content-Type': 'audio/mpeg' } });
+      if (!put.ok) throw new Error(`storage HTTP ${put.status}`);
+      const { error: rowError } = await db.from('practice_tracks').upsert({ song_id: item.songId, element: item.element, object_key: data.object_key, bytes: item.file.size, uploaded_at: new Date().toISOString() }, { onConflict: 'song_id,element' });
+      if (rowError) throw rowError;
+      item.state = 'done';
+    } catch (error) {
+      item.state = 'error';
+      item.error = error.message === 'r2_not_configured' ? 'storage not set up' : String(error.message || error).slice(0, 80);
+    }
+    renderPracticeUpload();
+  }
+  practice.upload.running = false;
+  renderPracticeUpload();
+  const failed = items.filter((i) => i.state === 'error').length;
+  showNotice(failed ? `Uploaded ${items.length - failed} files; ${failed} failed.` : `Uploaded ${items.length} files.`, !!failed);
+  await practiceLoadAvailable().catch(() => {});
+  practice.tracks.songId = null; // refresh the open song
+  renderPracticePage();
+}
+
+$('#practice-upload').addEventListener('change', (event) => {
+  if (event.target.id === 'practice-files') practiceUploadFiles([...event.target.files]);
+});
+$('#practice-upload').addEventListener('dragover', (event) => { event.preventDefault(); $('#practice-drop')?.classList.add('over'); });
+$('#practice-upload').addEventListener('dragleave', () => $('#practice-drop')?.classList.remove('over'));
+$('#practice-upload').addEventListener('drop', async (event) => {
+  event.preventDefault();
+  $('#practice-drop')?.classList.remove('over');
+  const files = [];
+  const walk = (entry) => new Promise((resolve) => {
+    if (entry.isFile) { entry.file((f) => { files.push(f); resolve(); }, resolve); return; }
+    if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const readAll = () => reader.readEntries(async (entries) => {
+        if (!entries.length) { resolve(); return; }
+        await Promise.all(entries.map(walk));
+        readAll();
+      }, resolve);
+      readAll();
+      return;
+    }
+    resolve();
+  });
+  const entries = [...(event.dataTransfer.items || [])].map((i) => i.webkitGetAsEntry?.()).filter(Boolean);
+  if (entries.length) await Promise.all(entries.map(walk)); else files.push(...event.dataTransfer.files);
+  practiceUploadFiles(files);
 });
