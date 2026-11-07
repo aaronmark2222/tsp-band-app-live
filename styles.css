@@ -1052,7 +1052,7 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .ly-size[data-lyrics-size="s"] { font-size: 11px; } .ly-size[data-lyrics-size="m"] { font-size: 14px; } .ly-size[data-lyrics-size="l"] { font-size: 18px; }
 .ly-size.on { background: #f39a26; color: #1c1c1c; }
 .ly-missing { margin: 0 0 8px; font-size: 12px; }
-.ly-scroll { position: relative; height: min(64vh, 640px); overflow-y: auto; background: #111; border-radius: 4px; padding: 30% 16px 45%; scroll-behavior: smooth; }
+.ly-scroll { position: relative; height: min(64vh, 640px); overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; background: #111; border-radius: 4px; padding: 25vh 16px 45vh; }
 .ly-size-s { font-size: 16px; } .ly-size-m { font-size: 21px; } .ly-size-l { font-size: 28px; }
 .ly-line { padding: .35em .4em; margin: .1em 0; border-radius: 4px; color: #8d8d8d; line-height: 1.25; cursor: pointer; transition: color .15s, background .15s; }
 .ly-line.past { color: #555; }

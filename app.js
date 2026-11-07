@@ -3657,11 +3657,30 @@ function practiceLyricsTick(force) {
     el.classList.toggle('past', i < idx || (!inside && i === idx));
   });
   const target = scroll.querySelector(`.ly-line[data-line="${inside ? idx : Math.max(0, idx + 1)}"]`);
-  if (target) {
-    const top = target.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop - scroll.clientHeight * 0.35;
-    scroll.scrollTo({ top: Math.max(0, top), behavior: force ? 'auto' : 'smooth' });
-  }
+  // Don't fight the reader: after they scroll the lyrics by hand, wait 4 s.
+  if (target && (force || Date.now() - (practice.lyricsTouchedAt || 0) > 4000)) lyricsScrollTo(scroll, target, force);
 }
+
+// Puts a line about a third of the way down the lyrics box. Measured with
+// getBoundingClientRect so it is right whatever the page layout, zoom or
+// device; only the lyrics box scrolls, never the page.
+function lyricsScrollTo(scroll, target, instant) {
+  const top = target.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop - scroll.clientHeight * 0.35;
+  const max = scroll.scrollHeight - scroll.clientHeight;
+  const goal = Math.max(0, Math.min(max, Math.round(top)));
+  if (Math.abs(scroll.scrollTop - goal) < 2) return;
+  practice.lyricsAutoScrolling = Date.now();
+  if (instant || typeof scroll.scrollTo !== 'function') scroll.scrollTop = goal;
+  else scroll.scrollTo({ top: goal, behavior: 'smooth' });
+}
+
+// A hand scroll (touch, wheel, keys) pauses autoscroll briefly.
+['touchstart', 'wheel', 'keydown', 'pointerdown'].forEach((type) => {
+  document.addEventListener(type, (event) => {
+    if (event.target.closest?.('#practice-lyrics-scroll')) practice.lyricsTouchedAt = Date.now();
+  }, { passive: true });
+});
+window.addEventListener('resize', () => { if (state.view === 'practice') practiceLyricsTick(true); });
 
 // One loop keeps lyrics in step with whichever player is running.
 (function lyricsLoop() {
