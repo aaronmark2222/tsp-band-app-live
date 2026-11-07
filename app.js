@@ -147,7 +147,7 @@ async function loadAllSongTasks() {
 
 async function loadData() {
   const [songs, tasks, taskTypes, languages, languageOptions, setlists, gigs, members] = await Promise.all([
-    db.from('songs').select('id,name,type,is_medley,keys,tempo_start,tempo_end,tempo_change,tempo_segments,duration_seconds,backing_track_manual,sort_order').order('sort_order'),
+    db.from('songs').select('id,name,type,is_medley,keys,key_segments,tempo_start,tempo_end,tempo_change,tempo_segments,duration_seconds,backing_track_manual,sort_order').order('sort_order'),
     loadAllSongTasks(),
     db.from('task_types').select('key,label,category,owner_member_id,allowed_statuses,done_statuses,sort_order').order('sort_order'),
     db.from('song_languages').select('song_id,language_code,position,languages(code,short_label)').order('position'),
@@ -2459,7 +2459,7 @@ const SYNC_MIXED_STEMS = {
   backing_music: ['mx_music', 'MUSIC'], backing_vocals_dale: ['mx_bgv', 'BACKING VOCALS'],
   backing_vocals_anston: ['mx_bgv', 'BACKING VOCALS'], backing_percussion: ['mx_perc', 'PERCUSSION'], backing_sfx: ['mx_sfx', 'SFX']
 };
-const SYNC_AUTO_FIELDS = ['duration_seconds', 'tempo'];
+const SYNC_AUTO_FIELDS = ['duration_seconds', 'tempo', 'keys'];
 const SYNC_FIELD_LABELS = { name: 'Name', duration_seconds: 'Duration', tempo: 'Tempo', keys: 'Key' };
 const sync = { snapshot: null, readAt: null, reading: false, applying: new Set(), snoozes: new Map(), snoozesLoaded: false, showSnoozed: false, dismissed: new Set() };
 
@@ -2633,10 +2633,17 @@ function computeSyncDiff(snapshot) {
       meta.push({ songId, songName: song.name, field: 'tempo', from: song.tempo_segments, to: data.tempo_segments,
         update: { tempo_segments: data.tempo_segments, tempo_start: data.tempo_start, tempo_end: data.tempo_end, tempo_change: data.tempo_change } });
     }
+    // Keys come from the set: the [Key:] markers on the Chords track, with the
+    // bar each one starts on.
     const keys = [...(song.keys || [])];
-    if (data.start_key && !keys.includes(data.start_key)) {
-      const next = [data.start_key, ...keys.slice(1)];
-      meta.push({ songId, songName: song.name, field: 'keys', from: keys, to: next, update: { keys: next } });
+    const segs = Array.isArray(data.key_segments) ? data.key_segments : [];
+    if (segs.length) {
+      const next = [...new Set(segs.map((seg) => seg.key))];
+      const segsJson = JSON.stringify(segs.map(({ key, bar, beat }) => [key, bar, beat]));
+      const haveJson = JSON.stringify((song.key_segments || []).map(({ key, bar, beat }) => [key, bar, beat]));
+      if (JSON.stringify(next) !== JSON.stringify(keys) || segsJson !== haveJson) {
+        meta.push({ songId, songName: song.name, field: 'keys', from: keys, to: next, update: { keys: next, key_segments: segs } });
+      }
     } else if (!data.start_key && evidence.chords) {
       notices.push(`${songId} ${song.name}: no [Key:] marker found on the Chords track.`);
     }
@@ -3719,7 +3726,7 @@ function saveLyricsPrefs(patch) {
 async function practiceLoadLyrics(songId) {
   practice.lyrics = null;
   renderPracticeLyrics();
-  const { data, error } = await db.from('song_lyrics').select('tracks, sections, tempo, duration_seconds, updated_at').eq('song_id', songId).maybeSingle();
+  const { data, error } = await db.from('song_lyrics').select('tracks, sections, tempo, bars, duration_seconds, updated_at').eq('song_id', songId).maybeSingle();
   if (practice.songId !== songId) return;
   practice.lyrics = error ? { error: error.message } : (data || { tracks: [], sections: [] });
   practice.lyricIndex = -2;
@@ -3948,7 +3955,7 @@ async function saveSongLyrics(snapshot) {
   const known = new Set(state.songs.map((song) => song.id));
   const rows = Object.entries(snapshot?.songs || {})
     .filter(([id, data]) => known.has(id) && data.lyrics)
-    .map(([id, data]) => ({ song_id: id, tracks: data.lyrics.tracks || [], sections: data.lyrics.sections || [], tempo: data.lyrics.tempo || [],
+    .map(([id, data]) => ({ song_id: id, tracks: data.lyrics.tracks || [], sections: data.lyrics.sections || [], tempo: data.lyrics.tempo || [], bars: data.bars || [],
       duration_seconds: data.duration_seconds, als_modified_at: snapshot.als_modified_at, updated_at: new Date().toISOString() }));
   for (let i = 0; i < rows.length; i += 20) {
     const { error } = await db.from('song_lyrics').upsert(rows.slice(i, i + 20), { onConflict: 'song_id' });
@@ -4112,6 +4119,8 @@ function ptTick() {
   const live = ptLive(pos);
   const keyEl = $('#pt-key');
   if (keyEl && keyEl.textContent !== live.key) keyEl.textContent = live.key;
+  const barEl = $('#pt-bar');
+  if (barEl && barEl.textContent !== live.bar) barEl.textContent = live.bar;
   const bpmEl = $('#pt-bpm');
   if (bpmEl && bpmEl.textContent !== live.bpm) bpmEl.textContent = live.bpm;
   const seek = $('#pt-seek');
@@ -4126,11 +4135,30 @@ function ptLive(pos) {
   const song = state.songs.find((item) => item.id === practice.songId);
   const ly = practice.lyrics || {};
   let key = Array.isArray(song?.keys) && song.keys.length ? song.keys[0] : '—';
-  const keyTrack = (ly.tracks || []).find((t) => t.slug === 'chords') || (ly.tracks || [])[0];
-  for (const line of keyTrack?.lines || []) {
-    if (line.t > pos + 0.05) break;
-    const m = String(line.text || '').match(/\[Key:\]\s*\[([^\]]+)\]/);
-    if (m) key = m[1].trim();
+  const segs = Array.isArray(song?.key_segments) ? song.key_segments : [];
+  if (segs.length) {
+    for (const seg of segs) { if (seg.t <= pos + 0.05) key = seg.key; else break; }
+  } else {
+    const keyTrack = (ly.tracks || []).find((t) => t.slug === 'chords') || (ly.tracks || [])[0];
+    for (const line of keyTrack?.lines || []) {
+      if (line.t > pos + 0.05) break;
+      const m = String(line.text || '').match(/\[Key:\]\s*\[([^\]]+)\]/);
+      if (m) key = m[1].trim();
+    }
+  }
+  // Bar counter: bar.beat at the playhead, from the set's bar map (tempo
+  // automation and time-signature changes are already in its timings).
+  let bar = '—';
+  const bars = Array.isArray(ly.bars) ? ly.bars : [];
+  if (bars.length) {
+    let lo = 0;
+    let hi = bars.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (bars[mid][0] <= pos + 1e-3) lo = mid; else hi = mid - 1; }
+    const [t0, num, den] = bars[lo];
+    const t1 = bars[lo + 1]?.[0] ?? Math.max(t0 + 0.01, ptDuration());
+    const beat = Math.min(num, Math.floor(((pos - t0) / Math.max(0.01, t1 - t0)) * num) + 1);
+    bar = `${lo + 1}.${Math.max(1, beat)}`;
+    if (bars.some((b) => b[1] !== num || b[2] !== den) || num !== 4 || den !== 4) bar += ` · ${num}/${den}`;
   }
   let bpm = Number(song?.tempo_start) || null;
   const map = Array.isArray(ly.tempo) ? ly.tempo : [];
@@ -4146,7 +4174,7 @@ function ptLive(pos) {
       bpm = map[i][1];
     }
   }
-  return { key, bpm: bpm ? `${Math.round(bpm)} BPM` : '— BPM' };
+  return { key, bar, bpm: bpm ? `${Math.round(bpm)} BPM` : '— BPM' };
 }
 function ptInfoHtml(song) {
   if (!song) return '';
@@ -4159,7 +4187,8 @@ function ptInfoHtml(song) {
   const readiness = (state.readiness || []).find((row) => row.song_id === song.id);
   const ready = !!readiness?.ready;
   const bandLeft = remainingWork(song.id);
-  return `<span class="pt-chip">Key <b id="pt-key">${escapeHtml(live.key)}</b></span>
+  return `<span class="pt-chip pt-barchip">Bar <b id="pt-bar">${escapeHtml(live.bar)}</b></span>
+    <span class="pt-chip">Key <b id="pt-key">${escapeHtml(live.key)}</b></span>
     <span class="pt-chip"><b id="pt-bpm">${escapeHtml(live.bpm)}</b></span>
     <span class="pt-chip pt-work ${open.length ? 'open' : ''}" title="${escapeHtml(work)}">${escapeHtml(work)}</span>
     <span class="pt-chip pt-ready ${ready ? 'is-ready' : ''}">${ready ? 'Ready' : `Not ready${bandLeft ? ` · ${bandLeft} left` : ''}`}</span>`;

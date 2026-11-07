@@ -353,6 +353,42 @@ def _key_from(name):
     return root + m.group(3)
 
 
+def _bar_starts(tl, a, b):
+    """[seconds_from_start, numerator, denominator] for every bar of [a, b),
+    starting a new bar at each time-signature change like Ableton does; plus
+    the numbers of bars cut short by a change landing mid-bar."""
+    def sig_at(t):
+        code = 201
+        for t0, v in tl.timesig:
+            if t0 <= t + EPS:
+                code = v
+            else:
+                break
+        return tl._sig(code)
+    changes = [t for t, _ in tl.timesig if a + EPS < t < b - EPS]
+    out, short, pos, guard = [], [], a, 0
+    while pos < b - EPS and guard < 5000:
+        num, den = sig_at(pos)
+        nxt = pos + num * 4.0 / den
+        cut = [t for t in changes if pos + EPS < t < nxt - EPS]
+        out.append([round(tl.seconds(a, pos), 3) if pos > a else 0.0, num, den])
+        if cut:
+            short.append(len(out))
+        pos = cut[0] if cut else nxt
+        guard += 1
+    return out, short
+
+
+def _key_marks(clips, a, b, tl):
+    """[(bar, key, beat)] of every [Key:] clip in the song, same key repeats dropped."""
+    marks = []
+    for c in _in(clips, a, b):
+        k = _key_from(c['name'])
+        if k and (not marks or marks[-1][1] != k):
+            marks.append((tl.bar_of(max(a, c['start']), a), k, max(a, c['start'])))
+    return marks
+
+
 def _lyrics_for(lyric_tracks, section_clips, a, b, tl):
     """Each +LYRICS clip in the song as a timed line (seconds from the song
     start, through the tempo map), like AbleSet shows them; plus sections."""
@@ -510,6 +546,25 @@ def build_snapshot(als_path):
             warnings.append({'kind': 'locator_missing', 'msg': f'{s["id"]} has no locator at its start ({where(a)}).'})
         ch = _in(clips['chords'], a, b)
         key = next((k for k in (_key_from(c['name']) for c in ch) if k), None)
+        # Key changes (from the Chords track), with the bar they start on.
+        marks = _key_marks(clips['chords'], a, b, tl)
+        key_segments = [{'key': k, 'bar': bar, 'beat': _num(beat - a), 't': round(tl.seconds(a, beat), 2) if beat > a else 0.0}
+                        for bar, k, beat in marks]
+        label = f'{s["id"]} ({loc_at.get(round(a, 2)) or "?"})'
+        if marks and marks[0][0] != 1:
+            warnings.append({'kind': 'key_late', 'msg': f'{label}: the first [Key:] marker on the Chords track is at bar {marks[0][0]}, not bar 1.'})
+        ref = [(bar, k) for bar, k, _ in marks]
+        for lt in lyric_tracks:
+            if lt['slug'] not in ('guitar', 'keyboard', 'lyrics'):
+                continue
+            other = [(bar, k) for bar, k, _ in _key_marks(lt['clips'], a, b, tl)]
+            if ref and other != ref:
+                fmt = lambda xs: ', '.join(f'{k} @ bar {bar}' for bar, k in xs) or 'none'
+                warnings.append({'kind': 'key_mismatch', 'msg': f'{label}: {lt["label"]} track key markers ({fmt(other)}) differ from the Chords track ({fmt(ref)}).'})
+        # Time-signature changes that land mid-bar cut the bar short.
+        bars, short = _bar_starts(tl, a, b)
+        for bar_no in short:
+            warnings.append({'kind': 'timesig_midbar', 'msg': f'{label}: a time-signature change lands in the middle of bar {bar_no}, so that bar is cut short.'})
         tmap = tl.tempo_map(a, b)
         ev = {
             'sections': len(_in(clips['sections'], a, b)) >= 2,
@@ -543,10 +598,12 @@ def build_snapshot(als_path):
             'tempo_end': int(round(tmap[-1]['bpm'])) if len(tmap) > 1 else None,
             'tempo_change': 'none' if len(tmap) == 1 else ('ramp' if tmap[0]['transition_to_next'] == 'gradual' else 'jump'),
             'start_key': key,
+            'key_segments': key_segments,
             'evidence': ev,
             'fingerprints': fp,
             'chord_mismatches': mism,
             'lyrics': _lyrics_for(lyric_tracks, clips['sections'], a, b, tl),
+            'bars': bars,
         }
     return {
         'als_path': os.path.abspath(als_path),
