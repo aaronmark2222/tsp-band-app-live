@@ -3763,9 +3763,17 @@ function lyricInk(hex) {
 const LYRICS_STANDARD = [['chords', 'Chords'], ['guitar', 'Guitar'], ['keyboard', 'Keyboard'], ['lyrics', 'Lyrics'], ['drums', 'Drums']];
 
 function lyricLineHtml(text) {
-  const raw = String(text || '');
-  const keyMatch = raw.match(/^\s*\[Key:\]\s*\[([^\]]+)\]\s*$/);
-  if (keyMatch) return `<span class="ly-key">Key:&nbsp; <b>${escapeHtml(keyMatch[1])}</b></span>`;
+  let raw = String(text || '');
+  // "[Key:] [E]" (possibly followed by more, e.g. "\\ [(RetroSynth)]") shows as "Key: E".
+  let keyHtml = '';
+  const keyMatch = raw.match(/^\s*\[Key:\]\s*\[([^\]]+)\]\s*/);
+  if (keyMatch) {
+    keyHtml = `<span class="ly-key">Key:&nbsp; <b>${escapeHtml(keyMatch[1])}</b></span>`;
+    raw = raw.slice(keyMatch[0].length);
+    if (!raw.trim()) return keyHtml;
+    raw = raw.replace(/^\s*\\{1,2}\s*/, '');
+    keyHtml += '<span class="ly-br"></span>';
+  }
   const parts = [];
   let last = 0;
   let pendingChord = null;
@@ -3798,11 +3806,11 @@ function lyricLineHtml(text) {
   if (pendingChord !== null) parts.push({ chord: pendingChord, text: '' });
   const chordOnly = parts.every((p) => p.br || p.label !== undefined || !String(p.text || '').trim());
   const fmt = (str) => escapeHtml(str).replace(/\(([^)]*)\)/g, '<span class="ly-note">($1)</span>');
-  return parts.map((p) => {
+  return keyHtml + parts.map((p) => {
     if (p.br) return '<span class="ly-br"></span>';
     if (p.label !== undefined) return p.label ? `<span class="ly-label">${escapeHtml(p.label)}</span>` : '';
     if (p.chord === null || p.chord === undefined) return `<span class="ly-seg"><span class="ly-word">${fmt(p.text)}</span></span>`;
-    return `<span class="ly-seg ${chordOnly ? 'ly-chord-only' : ''}"><span class="ly-chord">${escapeHtml(p.chord)}</span><span class="ly-word">${fmt(p.text) || '&nbsp;'}</span></span>`;
+    return `<span class="ly-seg ${chordOnly || !String(p.text || '').trim() ? 'ly-chord-only' : ''}"><span class="ly-chord">${escapeHtml(p.chord)}</span><span class="ly-word">${fmt(p.text) || '&nbsp;'}</span></span>`;
   }).join('');
 }
 
