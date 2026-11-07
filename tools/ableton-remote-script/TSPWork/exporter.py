@@ -43,6 +43,9 @@ BACKING = ['MUSIC', 'BACKING VOCALS', 'PERCUSSION', 'SFX']
 # PARTS tracks that must be soloed too (not just on): Drums Midi Part only
 # feeds Drums Part (which feeds DRUMS Live) when it is soloed itself.
 EXTRA_SOLO = {'drums': ['Drums Midi Part']}
+# A track is exported only if it has an active (not deactivated) clip with at
+# least this much inside the song; muted-only or sliver-only tracks are skipped.
+MIN_CLIP_BEATS = 0.25
 
 # Fixed AppleScripts: data (folder, file name) is passed as arguments, never
 # pasted into the script text.
@@ -264,7 +267,11 @@ class ExportJob(object):
         for t in pool:
             try:
                 for c in t.arrangement_clips:
-                    if not c.muted and c.end_time > s + 0.5 and c.start_time < e - 0.5:
+                    # Only active clips count, and only if more than a sliver of
+                    # them (a quarter beat) falls inside the song.
+                    if c.muted:
+                        continue
+                    if min(e, c.end_time) - max(s, c.start_time) >= MIN_CLIP_BEATS:
                         return True
             except Exception:
                 continue
