@@ -1661,6 +1661,8 @@ function setView(view) {
   $('#practice-view').classList.toggle('hidden', view !== 'practice');
   if (view === 'sync') renderSyncPage();
   if (view === 'practice') renderPracticePage();
+  document.body.classList.toggle('view-practice', view === 'practice');
+  renderReviewBar();
   if (view === 'setlists') renderActiveSetlist();
   if (view === 'gigs') renderGigs();
   if (view === 'dashboard') renderDashboard();
@@ -2298,7 +2300,7 @@ function reviewTaskLabel(songId, taskKey) {
 function renderReviewBar() {
   let bar = $('#review-bar');
   const rv = review.state;
-  if (!rv?.active) { bar?.remove(); return; }
+  if (!rv?.active || state.view === 'practice') { bar?.remove(); return; }
   if (!bar) {
     bar = document.createElement('div');
     bar.id = 'review-bar';
@@ -2394,6 +2396,7 @@ document.addEventListener('click', (event) => {
 // while typing). Captured so a focused button (e.g. the song title you just
 // clicked) isn't pressed again by the Space key.
 function spaceForAbleton(event) {
+  if (state.view === 'practice') return false; // the Practice page's own transport takes Space
   if (!abletonBridge.connected || event.code !== 'Space' || event.metaKey || event.ctrlKey || event.altKey) return false;
   return !event.target.closest?.('input, textarea, select, [contenteditable="true"]');
 }
@@ -3106,7 +3109,8 @@ async function practiceOpenSong(songId) {
   practice.loadState = new Map();
   practice.duration = 0;
   practice.offset = 0;
-  practice.lastActive = 'mix';
+  practice.position = 0;
+  practice.loop = null;
   practice.error = '';
   practice.lyrics = null;
   practice.lyricIndex = -2;
@@ -3172,22 +3176,16 @@ function renderPracticePlayers() {
   }
   const mix = practice.tracks.find((t) => t.element === 'Mixdown');
   mixBox.innerHTML = `<header><h2>Mixdown</h2><span class="muted">${escapeHtml(song.id)} · ${escapeHtml(song.name)}</span></header>
-    ${mix ? `<audio id="practice-mix-audio" controls preload="metadata" src="${escapeHtml(mix.url)}"></audio>` : '<p class="muted">No mixdown for this song.</p>'}`;
+    ${mix ? `<audio id="practice-mix-audio" preload="auto" src="${escapeHtml(mix.url)}"></audio>
+      <button type="button" class="pt-pick ${ptMode() === 'mix' ? 'on' : ''}" data-pt-mode="mix">${ptMode() === 'mix' ? '● Playing from the Mixdown' : 'Play the Mixdown'}</button>
+      <span class="muted">Use the transport at the bottom of the page.</span>` : '<p class="muted">No mixdown for this song.</p>'}`;
   const audio = $('#practice-mix-audio');
   if (audio) {
-    // Linked playback: whichever player you start picks up where the other was.
-    audio.addEventListener('play', () => {
-      if (practice.lastActive === 'multi') {
-        const pos = practicePosition();
-        if (Math.abs(audio.currentTime - pos) > 0.25) audio.currentTime = pos;
-      }
-      practice.lastActive = 'mix';
-      practicePause();
-    });
-    audio.addEventListener('seeked', () => { if (!practice.playing) { practice.offset = audio.currentTime; practice.lastActive = 'mix'; } });
-    audio.addEventListener('ended', () => { practice.offset = 0; });
+    audio.addEventListener('ended', () => { practice.position = 0; audio.currentTime = 0; ptRender(); });
+    audio.addEventListener('loadedmetadata', ptRender);
   }
   renderPracticeMultitrack();
+  ptRender();
   const files = practice.tracks.slice().sort((a, b) => (a.element === 'Mixdown' ? -1 : b.element === 'Mixdown' ? 1 : practiceRank(a.element) - practiceRank(b.element)));
   dlBox.innerHTML = `<header><h2>Download</h2><span class="muted">Full-length MP3s for practising offline</span><button type="button" class="button quiet" data-practice-dl-all title="Download every file of this song">Download all (${files.length})</button></header>
     <ul class="practice-dl-list">${files.map((t) => `<li><span class="practice-dl-dot" style="background:${t.element === 'Mixdown' ? '#f39a26' : practiceColor(t.element)}"></span><span>${escapeHtml(t.element)}</span><small class="muted">${t.bytes ? `${(t.bytes / 1048576).toFixed(1)} MB` : ''}</small><a class="button quiet" href="${escapeHtml(t.download || t.url)}" ${t.download ? '' : 'target="_blank" rel="noopener"'}>Download</a></li>`).join('')}</ul>`;
@@ -3223,13 +3221,9 @@ function renderPracticeMultitrack() {
         <a class="ab-dl" href="${escapeHtml(t.url)}" target="_blank" rel="noopener" title="Download ${escapeHtml(t.element)}">↓</a>
       </div></li>`;
   }).join('');
-  const pos = practicePosition();
   box.innerHTML = `<header><h2>Multitrack</h2><span class="muted">${tracks.length} tracks · ${totalMb.toFixed(0)} MB</span></header>
     ${loaded ? `<div class="ab-transport">
-        <button type="button" class="ab-play" data-practice-play title="Play / pause">${practice.playing ? '❚❚' : '▶'}</button>
-        <button type="button" data-practice-rewind title="Back to start">⏮</button>
-        <span class="ab-time" id="practice-time">${practiceTime(pos)} / ${practiceTime(practice.duration)}</span>
-        <input type="range" class="ab-seek" id="practice-seek" min="0" max="${practice.duration.toFixed(2)}" step="0.1" value="${pos.toFixed(2)}" aria-label="Position">
+        <button type="button" class="pt-pick ${ptMode() === 'multi' ? 'on' : ''}" data-pt-mode="multi">${ptMode() === 'multi' ? '● Playing from the Multitrack' : 'Play the Multitrack'}</button>
         <button type="button" class="button quiet" data-practice-reset title="Reset all tracks: on, no solo, 0 dB (stems off)">Reset mix</button>
       </div>`
     : `<div class="ab-transport"><button type="button" class="button primary" data-practice-load ${loading ? 'disabled' : ''}>${loading ? 'Loading tracks…' : `Load multitrack (${totalMb.toFixed(0)} MB)`}</button><span class="muted">Downloads every track once so they play in sync.</span></div>`}
@@ -3276,6 +3270,7 @@ async function practiceLoadTracks() {
   practice.tracks = practice.tracks.filter((t) => t.element === 'Mixdown' || practice.buffers.has(t.element));
   practice.tracks.songId = practice.songId;
   renderPracticeMultitrack();
+  ptRender();
 }
 
 function practicePosition() {
@@ -3297,10 +3292,7 @@ function practiceApplyGains() {
 
 function practicePlay() {
   if (!practice.ctx || practice.playing) return;
-  const mixAudio = $('#practice-mix-audio');
-  if (mixAudio && practice.lastActive === 'mix') practice.offset = Math.min(mixAudio.currentTime || 0, practice.duration);
-  mixAudio?.pause();
-  practice.lastActive = 'multi';
+  $('#practice-mix-audio')?.pause();
   practice.ctx.resume().catch(() => {});
   if (practice.offset >= practice.duration - 0.05) practice.offset = 0;
   const when = practice.ctx.currentTime + 0.08;
@@ -3411,8 +3403,6 @@ $('#practice-downloads').addEventListener('click', async (event) => {
 $('#practice-next').addEventListener('click', () => practiceStepSong(1));
 $('#practice-multitrack').addEventListener('click', (event) => {
   if (event.target.closest('[data-practice-load]')) { practiceLoadTracks(); return; }
-  if (event.target.closest('[data-practice-play]')) { practice.playing ? practicePause() : practicePlay(); return; }
-  if (event.target.closest('[data-practice-rewind]')) { practiceSeek(0); return; }
   if (event.target.closest('[data-practice-reset]')) {
     try { sessionStorage.removeItem(PRACTICE_SETTINGS_KEY); } catch { /* ignore */ }
     practiceApplyGains(); renderPracticeMultitrack(); return;
@@ -3687,9 +3677,7 @@ function practiceCheckLyricsLength() {
 }
 
 function practiceNow() {
-  const audio = $('#practice-mix-audio');
-  if (practice.playing || practice.lastActive === 'multi') return practicePosition();
-  return audio ? audio.currentTime || 0 : practicePosition();
+  return ptPosition();
 }
 
 function practiceLyricsTick(force) {
@@ -3749,11 +3737,7 @@ $('#practice-lyrics').addEventListener('click', (event) => {
   if (size) { saveLyricsPrefs({ size: size.dataset.lyricsSize }); renderPracticeLyrics(); return; }
   const line = event.target.closest('.ly-line, .ly-section');
   if (line) {
-    const t = Math.max(0, Number(line.dataset.t) - 0.05);
-    const audio = $('#practice-mix-audio');
-    if (practice.playing || (practice.lastActive === 'multi' && practice.buffers.size)) practiceSeek(t);
-    else if (audio) { audio.currentTime = t; practice.offset = t; }
-    else practice.offset = t;
+    ptSeek(Math.max(0, Number(line.dataset.t) - 0.05));
     practice.lyricIndex = -2;
   }
 });
@@ -3771,3 +3755,184 @@ async function saveSongLyrics(snapshot) {
   }
   return rows.length;
 }
+
+
+// ---------------------------------------------------------------------------
+// Practice transport: one Ableton-style bar at the bottom drives whichever
+// player is chosen (Mixdown or Multitrack); both follow its single playhead.
+const PT_MODE_KEY = 'tsp-practice-mode';
+function ptMode() {
+  let mode = 'mix';
+  try { mode = sessionStorage.getItem(PT_MODE_KEY) || 'mix'; } catch { /* ignore */ }
+  return mode === 'multi' ? 'multi' : 'mix';
+}
+function ptMultiReady() {
+  const tracks = practiceMultiTracks();
+  return tracks.length > 0 && tracks.every((t) => practice.buffers.has(t.element));
+}
+function ptEngine() {
+  const audio = $('#practice-mix-audio');
+  if (ptMode() === 'multi' && ptMultiReady()) return 'multi';
+  return audio ? 'mix' : (ptMultiReady() ? 'multi' : null);
+}
+function ptDuration() {
+  const audio = $('#practice-mix-audio');
+  return Math.max(practice.duration || 0, Number.isFinite(audio?.duration) ? audio.duration : 0);
+}
+function ptIsPlaying() {
+  const audio = $('#practice-mix-audio');
+  return practice.playing || (audio && !audio.paused && !audio.ended);
+}
+function ptPosition() {
+  const audio = $('#practice-mix-audio');
+  if (practice.playing) return practicePosition();
+  if (audio && !audio.paused) return audio.currentTime || 0;
+  return practice.position || 0;
+}
+function ptPlay() {
+  const t = ptPosition();
+  const engine = ptEngine();
+  const audio = $('#practice-mix-audio');
+  if (engine === 'multi') {
+    audio?.pause();
+    practice.offset = Math.min(t, practice.duration);
+    practicePlay();
+  } else if (engine === 'mix') {
+    practicePause();
+    audio.currentTime = Math.min(t, ptDuration());
+    audio.play().catch(() => {});
+  }
+  ptRender();
+}
+function ptPause() {
+  practice.position = ptPosition();
+  practicePause();
+  $('#practice-mix-audio')?.pause();
+  ptRender();
+}
+function ptStop() {
+  ptPause();
+  ptSeek(0);
+}
+function ptSeek(t) {
+  const target = Math.max(0, Math.min(ptDuration() || t, t));
+  const audio = $('#practice-mix-audio');
+  practice.position = target;
+  if (practice.playing) { practiceSeek(target); }
+  else {
+    practice.offset = target;
+    if (audio) audio.currentTime = target;
+  }
+  practice.lyricIndex = -2;
+  ptRender();
+}
+function ptSetMode(mode) {
+  const wasPlaying = ptIsPlaying();
+  const t = ptPosition();
+  practicePause();
+  $('#practice-mix-audio')?.pause();
+  try { sessionStorage.setItem(PT_MODE_KEY, mode); } catch { /* ignore */ }
+  practice.position = t;
+  practice.offset = t;
+  if (mode === 'multi' && !ptMultiReady() && practiceMultiTracks().length) {
+    showNotice('Load the multitrack first; playing the Mixdown until it is ready.');
+    if (!practiceMultiTracks().some((tr) => practice.loadState.get(tr.element) === 'loading')) practiceLoadTracks();
+  }
+  renderPracticePlayers();
+  if (wasPlaying) ptPlay();
+}
+// Loop the lyrics section the playhead is in (from SECTIONS in the set).
+function ptToggleLoop() {
+  if (practice.loop) { practice.loop = null; ptRender(); return; }
+  const sections = (practice.lyrics?.sections || []).slice().sort((a, b) => a.t - b.t);
+  const t = ptPosition();
+  const dur = ptDuration();
+  let start = 0;
+  let end = dur;
+  for (let i = 0; i < sections.length; i += 1) {
+    if (sections[i].t <= t + 0.05) { start = sections[i].t; end = sections[i + 1]?.t ?? dur; }
+  }
+  if (!sections.length || end - start < 1) { showNotice('No sections to loop in this song.', true); return; }
+  practice.loop = { start, end, name: sections.find((sec) => sec.t === start)?.name || '' };
+  ptRender();
+}
+const ptIcons = {
+  start: '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M3 3h2v10H3zM13 3v10L6 8z" fill="currentColor"/></svg>',
+  play: '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M4 2.5v11L13.5 8z" fill="currentColor"/></svg>',
+  pause: '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M4 3h3v10H4zM9 3h3v10H9z" fill="currentColor"/></svg>',
+  stop: '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M3.5 3.5h9v9h-9z" fill="currentColor"/></svg>',
+  loop: '<svg viewBox="0 0 16 16" width="16" height="14"><path d="M4 5h7.5l-1.8-1.8L11 2l4 4-4 4-1.3-1.2L11.5 7H4a1.5 1.5 0 0 0-1.5 1.5V9H1v-.5A3 3 0 0 1 4 5zm8 6H4.5l1.8 1.8L5 14l-4-4 4-4 1.3 1.2L4.5 9H12a1.5 1.5 0 0 0 1.5-1.5V7H15v.5A3 3 0 0 1 12 11z" fill="currentColor"/></svg>'
+};
+function ptTime(seconds) {
+  const s = Math.max(0, seconds || 0);
+  return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}.${Math.floor((s % 1) * 10)}`;
+}
+function ptRender() {
+  const bar = $('#practice-transport');
+  if (!bar) return;
+  const song = state.songs.find((item) => item.id === practice.songId);
+  const engine = ptEngine();
+  if (!engine) { bar.classList.add('hidden'); return; }
+  bar.classList.remove('hidden');
+  const playing = ptIsPlaying();
+  const dur = ptDuration();
+  const multiAvailable = practiceMultiTracks().length > 0;
+  bar.innerHTML = `
+    <div class="pt-group pt-modes" role="radiogroup" aria-label="Play from">
+      <button type="button" data-pt-mode="mix" class="${engine === 'mix' ? 'on' : ''}" ${$('#practice-mix-audio') ? '' : 'disabled'}>Mixdown</button>
+      <button type="button" data-pt-mode="multi" class="${engine === 'multi' ? 'on' : ''}" ${multiAvailable ? '' : 'disabled'}>Multitrack</button>
+    </div>
+    <div class="pt-group">
+      <button type="button" data-pt="start" title="Back to start">${ptIcons.start}</button>
+      <button type="button" data-pt="play" class="pt-play ${playing ? 'on' : ''}" title="Play / pause (Space)">${playing ? ptIcons.pause : ptIcons.play}</button>
+      <button type="button" data-pt="stop" title="Stop">${ptIcons.stop}</button>
+      <button type="button" data-pt="loop" class="pt-loop ${practice.loop ? 'on' : ''}" title="Loop the section you're in">${ptIcons.loop}</button>
+    </div>
+    <div class="pt-lcd" id="pt-pos">${ptTime(ptPosition())}</div>
+    <input type="range" id="pt-seek" class="pt-seek" min="0" max="${dur.toFixed(2)}" step="0.05" value="${ptPosition().toFixed(2)}" aria-label="Position">
+    <div class="pt-lcd pt-dim">${ptTime(dur)}</div>
+    <div class="pt-song">${song ? `<b>${escapeHtml(song.id)}</b> ${escapeHtml(song.name)}` : ''}${practice.loop ? ` <span class="pt-loopname">⟲ ${escapeHtml(practice.loop.name)}</span>` : ''}</div>`;
+}
+function ptTick() {
+  const bar = $('#practice-transport');
+  if (!bar || bar.classList.contains('hidden')) return;
+  const pos = ptPosition();
+  const lcd = $('#pt-pos');
+  if (lcd) lcd.textContent = ptTime(pos);
+  const seek = $('#pt-seek');
+  if (seek && !seek.matches(':active')) seek.value = pos.toFixed(2);
+  const playBtn = bar.querySelector('[data-pt="play"]');
+  const playing = ptIsPlaying();
+  if (playBtn && playBtn.classList.contains('on') !== playing) ptRender();
+  if (practice.loop && playing && pos >= practice.loop.end - 0.03) ptSeek(practice.loop.start);
+}
+(function ptLoop() {
+  if (state.view === 'practice' && !document.hidden) ptTick();
+  requestAnimationFrame(ptLoop);
+})();
+document.addEventListener('click', (event) => {
+  const modeBtn = event.target.closest('[data-pt-mode]');
+  if (modeBtn && event.target.closest('#practice-view')) { ptSetMode(modeBtn.dataset.ptMode); return; }
+  const btn = event.target.closest('#practice-transport [data-pt]');
+  if (!btn) return;
+  const action = btn.dataset.pt;
+  if (action === 'play') { ptIsPlaying() ? ptPause() : ptPlay(); }
+  else if (action === 'stop') ptStop();
+  else if (action === 'start') ptSeek(0);
+  else if (action === 'loop') ptToggleLoop();
+});
+document.addEventListener('input', (event) => {
+  if (event.target.id === 'pt-seek' && !ptIsPlaying()) { practice.position = Number(event.target.value); const lcd = $('#pt-pos'); if (lcd) lcd.textContent = ptTime(practice.position); }
+});
+document.addEventListener('change', (event) => {
+  if (event.target.id === 'pt-seek') ptSeek(Number(event.target.value));
+});
+document.addEventListener('keydown', (event) => {
+  if (state.view !== 'practice' || event.code !== 'Space' || event.metaKey || event.ctrlKey || event.altKey) return;
+  if (event.target.closest?.('input[type="text"], input[type="search"], textarea, select, [contenteditable="true"]')) return;
+  event.preventDefault();
+  if (!event.repeat) { ptIsPlaying() ? ptPause() : ptPlay(); }
+}, true);
+document.addEventListener('keyup', (event) => {
+  if (state.view === 'practice' && event.code === 'Space' && !event.target.closest?.('input[type="text"], textarea, select')) event.preventDefault();
+}, true);
