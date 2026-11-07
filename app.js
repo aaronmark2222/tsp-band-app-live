@@ -3785,13 +3785,11 @@ function lyricLineHtml(text) {
     // A chord, or a chord with an instruction like "A(stop)" / "E x2": shown above the words.
     // Chords, chords with an instruction ("A(stop)", "E x2") and bracketed
     // instructions like "[(stop)]" all sit above the words, in chord colour.
-    if (LYRIC_CHORD_RE.test(token) || LYRIC_CHORD_RE.test(token.split(/[\s(]/)[0]) || /^\(.*\)$/.test(token)) {
-      pushText(before);
-      pendingChord = token.replace(/-$/, '');
-    } else {
-      pushText(before);
-      parts.push({ label: token });
-    }
+    // Everything in [] (chords, "A(stop)", "[(stop)]", "[-E]", ...) sits above
+    // the words in chord colour, like AbleSet.
+    pushText(before);
+    if (pendingChord !== null) parts.push({ chord: pendingChord, text: '' });
+    pendingChord = token.length > 1 ? token.replace(/-$/, '') : token;
     last = re.lastIndex;
   }
   pushText(raw.slice(last));
