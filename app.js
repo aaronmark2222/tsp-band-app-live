@@ -2437,6 +2437,7 @@ const SYNC_MIXED_STEMS = {
   backing_music: ['mx_music', 'MUSIC'], backing_vocals_dale: ['mx_bgv', 'BACKING VOCALS'],
   backing_vocals_anston: ['mx_bgv', 'BACKING VOCALS'], backing_percussion: ['mx_perc', 'PERCUSSION'], backing_sfx: ['mx_sfx', 'SFX']
 };
+const SYNC_AUTO_FIELDS = ['duration_seconds', 'tempo'];
 const SYNC_FIELD_LABELS = { name: 'Name', duration_seconds: 'Duration', tempo: 'Tempo', keys: 'Key' };
 const sync = { snapshot: null, readAt: null, reading: false, applying: new Set(), snoozes: new Map(), snoozesLoaded: false, showSnoozed: false, dismissed: new Set() };
 
@@ -2679,7 +2680,7 @@ function renderSyncPage() {
       ${!sync.snapshot.songs || Object.values(sync.snapshot.songs).some((d) => d.chord_mismatches) ? (chordOpen.length ? `<ul class="sync-list">${chordOpen.map(chordRow).join('')}</ul>` : '<p class="sync-empty">Guitar and Keyboard chords match the Chords track.</p>') : '<p class="sync-empty">Press Read Ableton set again (TSPWork 1.10.1 or later is needed to check chords).</p>'}
       ${chordAllowed.length ? `<button type="button" class="sync-snoozed-toggle" data-sync-toggle-allowed aria-expanded="${!!sync.showAllowed}">${sync.showAllowed ? 'Hide' : 'Show'} ${chordAllowed.length} allowed</button>${sync.showAllowed ? `<ul class="sync-list">${chordAllowed.map(chordRow).join('')}</ul>` : ''}` : ''}</section>
     <section class="sync-card"><header><h2>Song details <span>${meta.length}</span></h2>${meta.length ? '<button type="button" class="button" data-sync-all="meta">Apply all</button>' : ''}</header>
-      <p class="muted">Name, duration, tempo and starting key read from Ableton. Ableton's spelling wins; TSP Work keeps Title Case.</p>
+      <p class="muted">Name and starting key read from Ableton. Duration and tempo are updated automatically on every read. Ableton's spelling wins; TSP Work keeps Title Case.</p>
       ${meta.length ? `<ul class="sync-list">${metaRows}</ul>` : '<p class="sync-empty">Everything matches.</p>'}</section>
     <section class="sync-card"><header><h2>Ableton housekeeping <span>${warnings.length}</span></h2></header>
       <p class="muted">Things to tidy in the Ableton set. Nothing here changes TSP Work.</p>
@@ -2700,12 +2701,20 @@ async function readAbletonSet() {
     sync.snapshot = result.snapshot;
     sync.readAt = new Date();
     sync.dismissed.clear();
+    // Duration and tempo always follow Ableton: apply them straight away.
+    const autoMeta = computeSyncDiff(sync.snapshot).meta.filter((item) => SYNC_AUTO_FIELDS.includes(item.field));
+    if (autoMeta.length) sync.autoApply = autoMeta;
     try { await loadSyncSnoozes(); } catch (error) { console.warn('Snoozes not loaded', error); }
   } catch (error) {
     fail(`Could not read the Ableton set: ${error.message || error}`, error);
   } finally {
     sync.reading = false;
     renderSyncPage();
+  }
+  if (sync.autoApply?.length) {
+    const items = sync.autoApply;
+    sync.autoApply = null;
+    await runSyncApply([], items, `Applied ${items.length} duration/tempo ${items.length === 1 ? 'update' : 'updates'} from Ableton: ${[...new Set(items.map((i) => i.songId))].join(', ')}.`);
   }
 }
 
@@ -2743,7 +2752,7 @@ async function recordSyncRun(taskItems, metaItems) {
   });
 }
 
-async function runSyncApply(taskItems, metaItems) {
+async function runSyncApply(taskItems, metaItems, doneMessage) {
   const keys = [...taskItems.map((i) => `t:${i.songId}:${i.taskKey}`), ...metaItems.map((i) => `m:${i.songId}:${i.field}`)];
   keys.forEach((key) => sync.applying.add(key));
   renderSyncPage();
@@ -2761,7 +2770,7 @@ async function runSyncApply(taskItems, metaItems) {
       try { await loadReadiness(); } catch (error) { console.warn(error); }
       renderSongs();
       const count = doneTasks.length + doneMeta.length;
-      showNotice(`Updated ${count} ${count === 1 ? 'item' : 'items'} in TSP Work.`);
+      showNotice(doneMessage || `Updated ${count} ${count === 1 ? 'item' : 'items'} in TSP Work.`);
     }
     renderSyncPage();
   }
