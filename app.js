@@ -4121,8 +4121,6 @@ function ptTick() {
   const live = ptLive(pos);
   const keyEl = $('#pt-key');
   if (keyEl && keyEl.textContent !== live.key) keyEl.textContent = live.key;
-  const barEl = $('#pt-bar');
-  if (barEl && barEl.textContent !== live.bar) barEl.textContent = live.bar;
   const bpmEl = $('#pt-bpm');
   if (bpmEl && bpmEl.textContent !== live.bpm) bpmEl.textContent = live.bpm;
   const seek = $('#pt-seek');
@@ -4181,18 +4179,11 @@ function ptLive(pos) {
 function ptInfoHtml(song) {
   if (!song) return '';
   const live = ptLive(ptPosition());
-  const mine = songWorkItems(song.id, true).filter((item) => item.owner_member_id === state.member?.id);
-  const open = mine.filter((item) => !isWorkItemDone(item));
-  const work = !mine.length ? 'No tasks for you'
-    : open.length ? `You: ${open.map((item) => item.type.label).join(', ')}`
-    : 'Your work is done';
   const readiness = (state.readiness || []).find((row) => row.song_id === song.id);
   const ready = !!readiness?.ready;
   const bandLeft = remainingWork(song.id);
-  return `<span class="pt-chip pt-barchip">Bar <b id="pt-bar">${escapeHtml(live.bar)}</b></span>
-    <span class="pt-chip">Key <b id="pt-key">${escapeHtml(live.key)}</b></span>
+  return `<span class="pt-chip">Key <b id="pt-key">${escapeHtml(live.key)}</b></span>
     <span class="pt-chip"><b id="pt-bpm">${escapeHtml(live.bpm)}</b></span>
-    <span class="pt-chip pt-work ${open.length ? 'open' : ''}" title="${escapeHtml(work)}">${escapeHtml(work)}</span>
     <span class="pt-chip pt-ready ${ready ? 'is-ready' : ''}">${ready ? 'Ready' : `Not ready${bandLeft ? ` · ${bandLeft} left` : ''}`}</span>`;
 }
 function ptQueueLabel() {

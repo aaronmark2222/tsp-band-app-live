@@ -1142,9 +1142,9 @@ body.view-practice .shell { padding-bottom: 124px; }
 /* Transport: song title + info strip (key, live tempo, your work, ready). */
 .pt-bar { flex-wrap: wrap; row-gap: 6px; padding-bottom: max(10px, calc(6px + env(safe-area-inset-bottom))); }
 .pt-song { order: 20; flex: 0 1 260px; font-size: 13px; }
-.pt-info { order: 30; flex-basis: 100%; display: flex; gap: 6px; align-items: center; min-width: 0; overflow: hidden; }
-.pt-chip { flex: none; padding: 3px 8px; border-radius: 999px; background: #121212; color: #9a9a9a; font-size: 11px; white-space: nowrap; }
-.pt-chip b { color: #e6e6e6; font: 600 11px var(--mono); }
+.pt-info { order: 15; display: flex; gap: 6px; align-items: center; flex: none; }
+.pt-chip { flex: none; padding: 5px 10px; border-radius: 999px; background: #121212; color: #9a9a9a; font-size: 12px; white-space: nowrap; }
+.pt-chip b { color: #f0f0f0; font: 600 13px var(--mono); }
 .pt-work { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: #7fc98a; }
 .pt-work.open { color: #f3a447; }
 .pt-ready { color: #bdbdbd; }
@@ -1159,7 +1159,7 @@ body { padding-top: env(safe-area-inset-top); }
   #pt-pos { order: 5; }
   .pt-lcd.pt-dim { order: 6; margin-left: auto; }
   .pt-seek { order: 7; flex: 1 1 100% !important; height: 28px; }
-  .pt-info { order: 8; padding-top: 2px; }
+  .pt-info { order: 8; flex-basis: 100%; padding-top: 2px; }
   .pt-group button { height: 30px; min-width: 0; width: 29px; padding: 0; }
   .pt-bar { column-gap: 6px; }
   .pt-lcd { padding: 4px 4px; font-size: 11px; letter-spacing: 0; }
