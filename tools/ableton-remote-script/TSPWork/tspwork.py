@@ -31,7 +31,7 @@ from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
 TLS_PORT = 47711
-VERSION = '1.16'
+VERSION = '1.17'
 DEBUG_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requests.log')
 # https listener for the live site in Safari. Certificate made for 127.0.0.1 /
 # localhost only, trusted once in this Mac's Keychain. Files sit next to this
@@ -567,7 +567,12 @@ class TSPWork(ControlSurface):
             return {'ok': True, 'job': job.state if job else None}
         if path.startswith('/export/cancel'):
             if job and job.state['state'] in ('starting', 'running', 'uploading'):
-                job.cancelled = True
+                if payload.get('after_song'):
+                    # Finish the song being exported, then stop (1.17).
+                    job.stop_after_song = not bool(payload.get('undo'))
+                    job.state['stop_after_song'] = job.stop_after_song
+                else:
+                    job.cancelled = True
             return {'ok': True, 'job': job.state if job else None}
         if job and job.state['state'] in ('starting', 'running', 'uploading'):
             return {'ok': False, 'error': 'export_running', 'job': job.state}

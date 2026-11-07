@@ -277,6 +277,7 @@ class ExportJob(object):
                       'started_at': time.time()}
         self._saved = None
         self.cancelled = False
+        self.stop_after_song = False  # set by TSPWork 1.17's /export/cancel {after_song: true}
         self.thread = threading.Thread(target=self.run, name='TSPWorkExport')
         self.thread.daemon = True
 
@@ -672,6 +673,10 @@ class ExportJob(object):
                 if self.cancelled:
                     st['results'].append({'song_id': song['song_id'], 'state': 'cancelled', 'files': 0})
                     continue
+                if self.stop_after_song:
+                    # Stopped by Aaron after the previous song: the rest are left for another run.
+                    st['results'].append({'song_id': song['song_id'], 'state': 'stopped', 'files': 0})
+                    continue
                 song_started = time.time()
                 self._select_song(song)
                 st.update({'song_index': index, 'song_id': self.song_id, 'error': None,
@@ -691,7 +696,8 @@ class ExportJob(object):
                                           'error': st['error'], 'started_at': song_started, 'finished_at': time.time(),
                                           'seconds': round(time.time() - song_started, 1)})
                     osascript(CLOSE_DIALOGS, timeout=20)  # don't leave Export/Save open
-            failed = [r for r in st['results'] if r['state'] != 'done']
+            failed = [r for r in st['results'] if r['state'] not in ('done', 'stopped')]
+            st['stopped_early'] = any(r['state'] == 'stopped' for r in st['results'])
             st['state'] = 'error' if failed else 'done'
             if failed and not st.get('error'):
                 st['error'] = '%d song(s) not exported' % len(failed)

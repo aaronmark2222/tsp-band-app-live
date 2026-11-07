@@ -2919,13 +2919,15 @@ function renderExportPanel() {
     const now = running && job.current ? `<li class="export-now">● Exporting ${escapeHtml(job.current)}… (${(job.done || []).length + 1} of ${job.total || '?'})</li>` : '';
     const songLine = queue.length > 1 ? `<ul class="export-queue">${queue.map((id, i) => {
       const r = results.get(id);
-      const mark = r ? (r.state === 'done' ? '✓' : r.state === 'cancelled' ? '–' : '✕') : (running && i === job.song_index ? '●' : '·');
-      return `<li class="${r ? r.state : (running && i === job.song_index ? 'now' : '')}" title="${escapeHtml(r?.error || '')}">${mark} ${escapeHtml(id)}${r ? ` <small>${r.files} files${r.skipped?.length ? ` · skipped ${escapeHtml(r.skipped.join(', '))}` : ''}${r.error ? ` · ${escapeHtml(r.error)}` : ''}</small>` : ''}</li>`;
+      const mark = r ? (r.state === 'done' ? '✓' : r.state === 'cancelled' || r.state === 'stopped' ? '–' : '✕') : (running && i === job.song_index ? '●' : '·');
+      return `<li class="${r ? r.state : (running && i === job.song_index ? 'now' : '')}" title="${escapeHtml(r?.error || '')}">${mark} ${escapeHtml(id)}${r?.state === 'stopped' ? ' <small>not exported (stopped)</small>' : r ? ` <small>${r.files} files${r.skipped?.length ? ` · skipped ${escapeHtml(r.skipped.join(', '))}` : ''}${r.error ? ` · ${escapeHtml(r.error)}` : ''}</small>` : ''}</li>`;
     }).join('')}</ul>` : '';
     const doneCount = (job.results || []).filter((r) => r.state === 'done').length;
-    const head = job.state === 'done' ? `Done: ${queue.length > 1 ? `${doneCount} songs` : `${(job.done || []).length} files for ${escapeHtml(job.song_id)}`}.`
+    const stoppedCount = (job.results || []).filter((r) => r.state === 'stopped').length;
+    const head = job.state === 'done' && job.stopped_early ? `Stopped as asked: ${doneCount} song${doneCount === 1 ? '' : 's'} exported, ${stoppedCount} left for another run.`
+      : job.state === 'done' ? `Done: ${queue.length > 1 ? `${doneCount} songs` : `${(job.done || []).length} files for ${escapeHtml(job.song_id)}`}.`
       : job.state === 'error' ? (queue.length > 1 ? `Finished with problems: ${doneCount} of ${queue.length} songs exported.` : `Stopped on ${escapeHtml(job.song_id)}: ${escapeHtml(job.error || 'error')}`)
-      : `Exporting ${escapeHtml(job.song_id)}${queue.length > 1 ? ` (song ${job.song_index + 1} of ${queue.length})` : ''}. Don't touch Ableton until it finishes.`;
+      : `Exporting ${escapeHtml(job.song_id)}${queue.length > 1 ? ` (song ${job.song_index + 1} of ${queue.length})` : ''}. Don't touch Ableton until it finishes.${job.stop_after_song ? ` Stopping after ${escapeHtml(job.song_id)}.` : ''}`;
     const mix = job.mix && running ? `<p class="muted">Mixdown uses ${job.mix.instrumental ? 'no vocals (instrumental)' : job.mix.vocal_parts_used ? 'the vocal parts' : 'the VOCALS stem for vocals'}${job.mix.stems_used?.length ? `; stems filling gaps: ${escapeHtml(job.mix.stems_used.join(', '))}` : ''}.</p>` : '';
     const upLine = job.upload ? `<p class="muted">Uploaded ${job.uploaded || 0} files (${((job.uploaded_bytes || 0) / 1048576).toFixed(0)} MB)${job.upload_pending ? `, ${job.upload_pending} waiting` : ''}${job.upload_failed?.length ? ` · <span class="error">${job.upload_failed.length} failed: ${escapeHtml(job.upload_failed.slice(0, 3).map((f) => `${f.song_id} ${f.label}`).join(', '))}</span>` : ''}.</p>` : '';
     const headNow = job.state === 'uploading' ? 'All songs exported; finishing the last uploads…' : head;
@@ -2936,6 +2938,11 @@ function renderExportPanel() {
     status = `<div class="export-status ${job.state}"><p><b>${headNow}</b></p>${bar}${upLine.replace('.</p>', `${storage}.</p>`)}${job.folder && running ? `<p class="muted">Folder: ${escapeHtml(job.folder)}</p>` : ''}${mix}${running && job.skipped?.length ? `<p class="muted">Skipped: ${escapeHtml(job.skipped.join(', '))}</p>` : ''}${songLine}${running ? `<ul class="export-files">${files}${now}</ul>` : ''}</div>`;
   }
   const prefs = exportPrefs();
+  // The panel is redrawn on every poll and click: keep the song list where it was scrolled.
+  const listScroll = box.querySelector('.export-pick')?.scrollTop || 0;
+  const pageScroll = window.scrollY;
+  const canStopAfter = running && job.state !== 'uploading' && (job.queue || []).length > 1 && job.song_index < (job.queue || []).length - 1;
+  const stopSupported = exportVersionAtLeast('1.17');
   box.innerHTML = `<header><h2>Practice audio</h2></header>
     <p class="muted">Exports Stems, Parts, Backing, CPC and a Mixdown per song as MP3s, and uploads each song to the Practice page while the next one renders. A few minutes per song: start it at night, leave the Mac plugged in with the lid open, and don't use it until it finishes.</p>
     <div class="export-row export-opts">
@@ -2949,7 +2956,8 @@ function renderExportPanel() {
       </select>
       <button class="button quiet" type="button" data-export-none ${running || !count ? 'disabled' : ''}>Clear</button>
       <button id="export-start" class="button primary" type="button" ${running || !count || !abletonBridge.connected ? 'disabled' : ''}>${running ? 'Exporting…' : `Export ${count ? `${count} song${count === 1 ? '' : 's'}` : 'songs'}`}</button>
-      ${running ? '<button id="export-cancel" class="button quiet" type="button" title="Stop after the current step and put Ableton back">Cancel</button>' : ''}
+      ${canStopAfter ? `<button id="export-stop-after" class="button ${job.stop_after_song ? 'primary' : 'quiet'}" type="button" ${stopSupported ? '' : 'disabled'} title="${stopSupported ? (job.stop_after_song ? 'Keep exporting the rest of the songs' : 'Finish the song being exported, then stop') : 'Needs TSPWork 1.17: in Live, set the TSPWork control surface to None and back to TSPWork'}">${job.stop_after_song ? `Keep going after ${escapeHtml(job.song_id)}` : 'Stop after this song'}</button>` : ''}
+      ${running ? '<button id="export-cancel" class="button quiet" type="button" title="Stop right away (the current song is left unfinished) and put Ableton back">Cancel now</button>' : ''}
     </div>
     <p class="muted export-legend"><span class="export-up">●</span> already on the band app${practice.available ? ` (${practice.available.size} songs)` : ''}</p>
     <ul class="export-pick">${songs.map((song) => {
@@ -2957,6 +2965,17 @@ function renderExportPanel() {
       return `<li class="${up ? 'uploaded' : ''}"><label title="${up ? `${up.length} files on the band app` : 'Not uploaded yet'}"><input type="checkbox" data-export-song="${escapeHtml(song.id)}" ${exportJob.selected.has(song.id) ? 'checked' : ''} ${running ? 'disabled' : ''}><span class="song-id">${escapeHtml(song.id)}</span> <span class="export-name">${escapeHtml(song.name)}</span>${up ? ' <span class="export-up">●</span>' : ''}</label></li>`;
     }).join('')}</ul>
     ${status}`;
+  const list = box.querySelector('.export-pick');
+  if (list && listScroll) list.scrollTop = listScroll;
+  if (Math.abs(window.scrollY - pageScroll) > 1) window.scrollTo(0, pageScroll);
+}
+function exportVersionAtLeast(want) {
+  const have = String(abletonBridge.status?.version || '0').split('.').map(Number);
+  const need = want.split('.').map(Number);
+  for (let i = 0; i < need.length; i += 1) {
+    if ((have[i] || 0) !== need[i]) return (have[i] || 0) > need[i];
+  }
+  return true;
 }
 
 // Progress weighs every file by its song's length: done songs count their
@@ -3079,7 +3098,8 @@ async function pollExport() {
     exportJob.timer = null;
     const job = exportJob.state;
     practice.available = null;
-    if (job?.state === 'done') showNotice(`Export finished: ${(job.queue || []).length > 1 ? `${job.results.length} songs` : `${job.done.length} files for ${job.song_id}`}.`);
+    if (job?.state === 'done' && job.stopped_early) showNotice(`Export stopped as asked: ${job.results.filter((r) => r.state === 'done').length} songs exported.`);
+    else if (job?.state === 'done') showNotice(`Export finished: ${(job.queue || []).length > 1 ? `${job.results.length} songs` : `${job.done.length} files for ${job.song_id}`}.`);
     if (job?.state === 'error') showNotice(`Export finished with problems: ${job.error}`, true);
   }
 }
@@ -3138,6 +3158,12 @@ document.addEventListener('click', (event) => {
   if (event.target.closest('[data-export-all]')) { state.songs.forEach((song) => exportJob.selected.add(song.id)); renderExportPanel(); }
   if (event.target.closest('[data-export-none]')) { exportJob.selected.clear(); renderExportPanel(); }
   if (event.target.closest('#export-cancel')) abletonRequest('/export/cancel', {}, 3000).then(pollExport).catch(() => {});
+  if (event.target.closest('#export-stop-after')) {
+    const undo = !!exportJob.state?.stop_after_song;
+    abletonRequest('/export/cancel', { after_song: true, undo }, 3000)
+      .then((result) => { if (result?.job) exportJob.state = result.job; renderExportPanel(); })
+      .catch(() => showNotice('Could not reach TSPWork; try again.', true));
+  }
 });
 $('#sync-content').addEventListener('click', (event) => {
   const jump = event.target.closest('[data-sync-jump]');
