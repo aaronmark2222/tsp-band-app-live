@@ -3101,7 +3101,9 @@ async function audioStateAfterRead(snapshot, { seed = true } = {}) {
   for (const [id, data] of Object.entries(snapshot?.songs || {})) if (data.audio_fp) songs[id] = data.audio_fp;
   if (!Object.keys(songs).length) return; // TSPWork older than the fingerprint update
   await db.from('app_meta').upsert({ key: 'audio_fingerprints', value: { songs, als_modified_at: snapshot.als_modified_at }, updated_at: new Date().toISOString() }, { onConflict: 'key' });
-  if (!exportJob.audioState) await audioStateLoad(); else exportJob.currentFp = songs;
+  // Always reload the stored upload fingerprints: they may have changed since
+  // this page loaded (another export, another device, a manual fix).
+  await audioStateLoad();
   exportJob.currentFp = songs;
   // Songs uploaded before fingerprints existed: take this read as their baseline.
   if (seed) {
