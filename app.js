@@ -2722,14 +2722,40 @@ function renderSyncPage() {
 // Practice audio vs the set: a Mixdown whose length differs from the song in
 // the last read means the audio is out of date (lyrics would drift).
 async function loadSyncAudioLengths() {
-  // Mixdowns are 320 kbps CBR MP3s, so their length follows from their size.
+  // MP3 Mixdowns are 320 kbps CBR, so their length follows from their size;
+  // AAC (.m4a) ones are measured from the file itself.
   const { data, error } = await db.functions.invoke('practice-audio', { body: { action: 'list' } });
   if (error || !data?.ok) throw new Error(data?.error || error?.message || 'list failed');
   sync.audioLengths = new Map();
   for (const [songId, files] of Object.entries(data.songs || {})) {
     const mix = files.find((f) => f.element === 'Mixdown');
-    if (mix?.bytes) sync.audioLengths.set(songId, { song_id: songId, duration_seconds: Math.round(mix.bytes * 8 / 320000 * 10) / 10 });
+    if (!mix?.bytes) continue;
+    if (mix.ext !== 'm4a') { sync.audioLengths.set(songId, { song_id: songId, duration_seconds: Math.round(mix.bytes * 8 / 320000 * 10) / 10 }); continue; }
+    const cacheKey = `tsp-len-${songId}-${mix.modified}`;
+    let duration = Number(sessionStorage.getItem(cacheKey)) || null;
+    if (!duration) {
+      try {
+        const { data: links } = await db.functions.invoke('practice-audio', { body: { action: 'urls', song_id: songId } });
+        const url = links?.tracks?.find((t) => t.element === 'Mixdown')?.url;
+        if (url) duration = await audioUrlDuration(url);
+        if (duration) sessionStorage.setItem(cacheKey, String(duration));
+      } catch { /* skip */ }
+    }
+    if (duration) sync.audioLengths.set(songId, { song_id: songId, duration_seconds: duration });
   }
+}
+
+function audioUrlDuration(url) {
+  return new Promise((resolve) => {
+    const audio = new Audio();
+    let settled = false;
+    const done = (value) => { if (settled) return; settled = true; audio.removeAttribute('src'); resolve(value); };
+    audio.preload = 'metadata';
+    audio.onloadedmetadata = () => done(Number.isFinite(audio.duration) ? Math.round(audio.duration * 10) / 10 : null);
+    audio.onerror = () => done(null);
+    setTimeout(() => done(null), 15000);
+    audio.src = url;
+  });
 }
 
 function syncAudioMismatches() {
@@ -2896,7 +2922,11 @@ function renderExportPanel() {
     const mix = job.mix && running ? `<p class="muted">Mixdown uses ${job.mix.instrumental ? 'no vocals (instrumental)' : job.mix.vocal_parts_used ? 'the vocal parts' : 'the VOCALS stem for vocals'}${job.mix.stems_used?.length ? `; stems filling gaps: ${escapeHtml(job.mix.stems_used.join(', '))}` : ''}.</p>` : '';
     const upLine = job.upload ? `<p class="muted">Uploaded ${job.uploaded || 0} files (${((job.uploaded_bytes || 0) / 1048576).toFixed(0)} MB)${job.upload_pending ? `, ${job.upload_pending} waiting` : ''}${job.upload_failed?.length ? ` · <span class="error">${job.upload_failed.length} failed: ${escapeHtml(job.upload_failed.slice(0, 3).map((f) => `${f.song_id} ${f.label}`).join(', '))}</span>` : ''}.</p>` : '';
     const headNow = job.state === 'uploading' ? 'All songs exported; finishing the last uploads…' : head;
-    status = `<div class="export-status ${job.state}"><p><b>${headNow}</b></p>${upLine}${job.folder && running ? `<p class="muted">Folder: ${escapeHtml(job.folder)}</p>` : ''}${mix}${running && job.skipped?.length ? `<p class="muted">Skipped: ${escapeHtml(job.skipped.join(', '))}</p>` : ''}${songLine}${running ? `<ul class="export-files">${files}${now}</ul>` : ''}</div>`;
+    const prog = running ? exportProgress(job) : null;
+    const bar = prog ? `<div class="export-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(prog.pct)}"><span style="width:${prog.pct.toFixed(1)}%"></span></div>
+      <p class="muted export-eta">${prog.pct.toFixed(0)}% done${prog.eta ? ` · about ${prog.eta} left` : ''}</p>` : '';
+    const storage = exportJob.storageBytes != null ? ` · Cloudflare storage: <b>${(exportJob.storageBytes / 1e9).toFixed(2)} GB</b> of 10 GB` : '';
+    status = `<div class="export-status ${job.state}"><p><b>${headNow}</b></p>${bar}${upLine.replace('.</p>', `${storage}.</p>`)}${job.folder && running ? `<p class="muted">Folder: ${escapeHtml(job.folder)}</p>` : ''}${mix}${running && job.skipped?.length ? `<p class="muted">Skipped: ${escapeHtml(job.skipped.join(', '))}</p>` : ''}${songLine}${running ? `<ul class="export-files">${files}${now}</ul>` : ''}</div>`;
   }
   const prefs = exportPrefs();
   box.innerHTML = `<header><h2>Practice audio</h2></header>
@@ -2922,7 +2952,55 @@ function renderExportPanel() {
     ${status}`;
 }
 
+// Progress weighs every file by its song's length: done songs count their
+// files, the current song its finished files, and songs still to come the
+// average number of files per song so far (about 11 at the start).
+function exportProgress(job) {
+  const queue = job.queue || [job.song_id];
+  const dur = (id) => state.songs.find((song) => song.id === id)?.duration_seconds || 240;
+  const results = job.results || [];
+  const doneSongs = results.filter((r) => r.files > 0);
+  const avgFiles = doneSongs.length ? doneSongs.reduce((sum, r) => sum + r.files, 0) / doneSongs.length : 11;
+  let done = 0;
+  let total = 0;
+  queue.forEach((id, i) => {
+    const r = results.find((item) => item.song_id === id);
+    if (r) { done += r.files * dur(id); total += r.files * dur(id); }
+    else if (i === job.song_index && job.state !== 'uploading') {
+      const files = job.total || avgFiles;
+      done += (job.done || []).length * dur(id);
+      total += files * dur(id);
+    } else total += avgFiles * dur(id);
+  });
+  const pct = total ? Math.min(100, (done / total) * 100) : 0;
+  let eta = '';
+  const elapsed = Date.now() / 1000 - (job.started_at || Date.now() / 1000);
+  if (pct > 2 && elapsed > 60) {
+    const left = elapsed * (100 - pct) / pct;
+    const h = Math.floor(left / 3600);
+    const m = Math.round((left % 3600) / 60);
+    eta = h ? `${h} h ${m} min` : `${m} min`;
+  }
+  return { pct: job.state === 'uploading' ? 100 : pct, eta };
+}
+
+async function exportRefreshStorage() {
+  if (exportJob.storageLoading) return;
+  exportJob.storageLoading = true;
+  try {
+    const { data } = await db.functions.invoke('practice-audio', { body: { action: 'list' } });
+    if (data?.ok) {
+      exportJob.storageBytes = data.total_bytes;
+      practice.available = new Map(Object.entries(data.songs || {}));
+    }
+  } catch { /* try again later */ } finally {
+    exportJob.storageLoading = false;
+    exportJob.storageAt = Date.now();
+  }
+}
+
 async function pollExport() {
+  if (!exportJob.storageAt || Date.now() - exportJob.storageAt > 60000) exportRefreshStorage();
   try {
     const result = await abletonRequest('/export/state', {}, 3000);
     exportJob.state = result?.job || exportJob.state;
@@ -3075,6 +3153,7 @@ async function practiceLoadAvailable() {
   const { data, error } = await db.functions.invoke('practice-audio', { body: { action: 'list' } });
   if (error || !data?.ok) throw new Error(data?.error || error?.message || 'list failed');
   practice.available = new Map(Object.entries(data.songs || {}));
+  exportJob.storageBytes = data.total_bytes;
 }
 
 // Which songs the Practice page offers: the whole repertoire, an upcoming
@@ -3265,7 +3344,7 @@ function renderPracticeMultitrack() {
   const myTaskKeys = new Set(Object.entries(PRACTICE_TASK).filter(([, key]) => state.taskTypes.find((type) => type.key === key)?.owner_member_id === state.member?.id).map(([element]) => element));
   const rows = tracks.map((t, i) => {
     const st = practiceTrackSetting(t.element);
-    const audible = st.on && (!anySolo || st.solo);
+    const audible = anySolo ? st.solo : st.on; // solo plays a track even if it's switched off
     const ls = practice.loadState.get(t.element);
     const dbLabel = st.vol > 0 ? (20 * Math.log10(st.vol)).toFixed(1) : '-inf';
     return `<li class="ab-track ${audible ? '' : 'ab-silent'} ${myTaskKeys.has(t.element) ? 'ab-mine' : ''}" data-element="${escapeHtml(t.element)}" style="--track-color:${practiceColor(t.element)};--track-ink:${practiceInk(practiceColor(t.element))}">
@@ -3344,7 +3423,7 @@ function practiceApplyGains() {
     const node = practice.nodes.get(t.element);
     if (!node) continue;
     const st = practiceTrackSetting(t.element);
-    const target = st.on && (!anySolo || st.solo) ? st.vol : 0;
+    const target = (anySolo ? st.solo : st.on) ? st.vol : 0;
     node.gain.gain.setTargetAtTime(target, practice.ctx.currentTime, 0.015);
   }
 }
@@ -3983,6 +4062,7 @@ function ptRender() {
       <button type="button" data-pt="stop" title="Stop">${ptIcons.stop}</button>
       <button type="button" data-pt="next" title="Next song in the list">${ptIcons.next}</button>
     </div>
+    <span class="pt-break" aria-hidden="true"></span>
     <div class="pt-lcd" id="pt-pos">${ptTime(ptPosition())}</div>
     <input type="range" id="pt-seek" class="pt-seek" min="0" max="${dur.toFixed(2)}" step="0.05" value="${ptPosition().toFixed(2)}" aria-label="Position">
     <div class="pt-lcd pt-dim">${ptTime(dur)}</div>

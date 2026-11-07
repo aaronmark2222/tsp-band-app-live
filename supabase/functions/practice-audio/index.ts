@@ -92,10 +92,23 @@ async function listObjects(prefix: string) {
   return out;
 }
 
+// Files are songs/<ID>/<slug>.m4a (AAC 128 kbps, what TSPWork uploads) or
+// .mp3 (older / manual uploads). One file per song and element: an .m4a wins.
 function parseKey(key: string) {
-  const m = /^songs\/([A-Z]{1,4}\d{1,3})\/([a-z0-9-]+)\.mp3$/.exec(key);
+  const m = /^songs\/([A-Z]{1,4}\d{1,3})\/([a-z0-9-]+)\.(mp3|m4a)$/.exec(key);
   if (!m || !BY_SLUG.has(m[2])) return null;
-  return { songId: m[1], element: BY_SLUG.get(m[2])! };
+  return { songId: m[1], element: BY_SLUG.get(m[2])!, ext: m[3] };
+}
+function dedupe<T extends { key: string }>(objs: T[]) {
+  const best = new Map<string, T & { parsed: NonNullable<ReturnType<typeof parseKey>> }>();
+  for (const obj of objs) {
+    const parsed = parseKey(obj.key);
+    if (!parsed) continue;
+    const id = `${parsed.songId}|${parsed.element}`;
+    const prev = best.get(id);
+    if (!prev || (prev.parsed.ext === 'mp3' && parsed.ext === 'm4a')) best.set(id, { ...obj, parsed });
+  }
+  return [...best.values()];
 }
 
 Deno.serve(async (req) => {
@@ -112,25 +125,33 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
 
     if (body.action === 'list') {
-      const songs: Record<string, { element: string; bytes: number; modified: string }[]> = {};
-      for (const obj of await listObjects('songs/')) {
-        const parsed = parseKey(obj.key);
-        if (!parsed) continue;
-        (songs[parsed.songId] ||= []).push({ element: parsed.element, bytes: obj.size, modified: obj.modified });
+      const all = await listObjects('songs/');
+      const songs: Record<string, { element: string; bytes: number; modified: string; ext: string }[]> = {};
+      for (const obj of dedupe(all)) {
+        (songs[obj.parsed.songId] ||= []).push({ element: obj.parsed.element, bytes: obj.size, modified: obj.modified, ext: obj.parsed.ext });
       }
-      return reply(200, { ok: true, songs });
+      // Storage actually used in the bucket (everything, duplicates included).
+      const totalBytes = all.reduce((sum, obj) => sum + obj.size, 0);
+      return reply(200, { ok: true, songs, total_bytes: totalBytes, objects: all.length });
     }
 
     if (body.action === 'upload_batch') {
       const { data: isAdmin } = await db.rpc('is_admin');
       if (!isAdmin) return reply(403, { ok: false, error: 'admin_only' });
       const ids = (Array.isArray(body.song_ids) ? body.song_ids : []).map(String).filter((id: string) => SONG_RE.test(id)).slice(0, 100);
-      const urls: Record<string, Record<string, { put: string; del: string }>> = {};
+      // TSPWork uploads AAC (.m4a): put = the new file, del = its .m4a (for
+      // elements a song no longer has), del_old = any older .mp3 copy, so the
+      // bucket never holds two files for one track.
+      const urls: Record<string, Record<string, { put: string; del: string; del_old: string }>> = {};
       for (const id of ids) {
         urls[id] = {};
         for (const element of ELEMENTS) {
-          const key = `songs/${id}/${slug(element)}.mp3`;
-          urls[id][element] = { put: await presign('PUT', key, 86400), del: await presign('DELETE', key, 86400) };
+          const base = `songs/${id}/${slug(element)}`;
+          urls[id][element] = {
+            put: await presign('PUT', `${base}.m4a`, 86400),
+            del: await presign('DELETE', `${base}.m4a`, 86400),
+            del_old: await presign('DELETE', `${base}.mp3`, 86400),
+          };
         }
       }
       return reply(200, { ok: true, urls });
@@ -140,13 +161,13 @@ Deno.serve(async (req) => {
     if (!SONG_RE.test(songId)) return reply(400, { ok: false, error: 'bad_song_id' });
 
     if (body.action === 'urls') {
-      const objects = (await listObjects(`songs/${songId}/`)).map((obj) => ({ ...obj, parsed: parseKey(obj.key) })).filter((obj) => obj.parsed);
+      const objects = dedupe(await listObjects(`songs/${songId}/`));
       const tracks = await Promise.all(objects.map(async (obj) => ({
-        element: obj.parsed!.element, bytes: obj.size, uploaded_at: obj.modified,
+        element: obj.parsed.element, bytes: obj.size, uploaded_at: obj.modified, ext: obj.parsed.ext,
         url: await presign('GET', obj.key, 3 * 3600),
         // Same file, but the browser saves it instead of playing it.
         download: await presign('GET', obj.key, 3 * 3600, {
-          'response-content-disposition': `attachment; filename="${songId} - ${obj.parsed!.element}.mp3"`,
+          'response-content-disposition': `attachment; filename="${songId} - ${obj.parsed.element}.${obj.parsed.ext}"`,
         }),
       })));
       return reply(200, { ok: true, tracks });
@@ -160,6 +181,8 @@ Deno.serve(async (req) => {
       const bytes = Number(body.bytes || 0);
       if (!(bytes > 0 && bytes < 60 * 1024 * 1024)) return reply(400, { ok: false, error: 'bad_size' });
       const objectKey = `songs/${songId}/${slug(element)}.mp3`;
+      // A manual upload replaces any AAC copy of the same track (no duplicates).
+      await fetch(await presign('DELETE', `songs/${songId}/${slug(element)}.m4a`, 300), { method: 'DELETE' }).catch(() => {});
       return reply(200, { ok: true, object_key: objectKey, url: await presign('PUT', objectKey, 900) });
     }
     return reply(400, { ok: false, error: 'unknown_action' });

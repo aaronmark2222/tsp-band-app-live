@@ -30,6 +30,8 @@ except ImportError:  # pragma: no cover
     import Queue as queue
 
 EXPORT_ROOT = os.path.expanduser('~/Music/TSP Exports')
+UPLOAD_TMP = os.path.join('/tmp', 'tspwork-upload')
+AAC_BITRATE = 128000
 
 STEMS = [('BASS', 'Bass'), ('DRUMS', 'Drums'), ('OTHER', 'Other'), ('VOCALS', 'Vocals')]
 # key, label, PARTS source track names, LIVE CHANNELS track, TSP Work task key
@@ -590,9 +592,12 @@ class ExportJob(object):
         links = self.uploads.get(self.song_id) or {}
         made = set(el[0] for el in self.elements)
         for label, link in links.items():
-            if label not in made and link.get('del'):
-                self.upload_queue.put(('delete', self.song_id, label, None, link['del']))
-                st['upload_pending'] += 1
+            if label in made:
+                continue
+            for key in ('del', 'del_old'):
+                if link.get(key):
+                    self.upload_queue.put(('delete', self.song_id, label, None, link[key]))
+                    st['upload_pending'] += 1
 
     # ------------------------------------------------------------ uploads (own thread)
     def _queue_upload(self, label, path):
@@ -600,7 +605,7 @@ class ExportJob(object):
         if not link or not link.get('put'):
             return
         self.state['upload_pending'] += 1
-        self.upload_queue.put(('put', self.song_id, label, path, link['put']))
+        self.upload_queue.put(('put', self.song_id, label, path, link['put'], link.get('del_old')))
 
     def _upload_worker(self):
         st = self.state
@@ -608,11 +613,21 @@ class ExportJob(object):
             job = self.upload_queue.get()
             if job is None:
                 return
-            kind, song_id, label, path, url = job
+            kind, song_id, label, path, url = job[:5]
+            del_old = job[5] if len(job) > 5 else None
+            tmp = None
             try:
                 if kind == 'put':
+                    # The band app gets AAC 128 kbps (~40% of the 320 kbps MP3):
+                    # macOS's own afconvert, so nothing to install.
+                    tmp = os.path.join(UPLOAD_TMP, '%s-%d.m4a' % (re.sub(r'[^A-Za-z0-9]+', '-', '%s %s' % (song_id, label)), int(time.time() * 1000)))
+                    os.makedirs(UPLOAD_TMP, exist_ok=True)
+                    conv = subprocess.run(['/usr/bin/afconvert', '-f', 'm4af', '-d', 'aac', '-b', str(AAC_BITRATE), '-s', '0', path, tmp],
+                                          capture_output=True, text=True, timeout=600)
+                    if conv.returncode != 0 or not os.path.exists(tmp):
+                        raise RuntimeError('convert failed: ' + (conv.stderr or '').strip()[:120])
                     cmd = ['/usr/bin/curl', '-sS', '-f', '--retry', '3', '--retry-delay', '5', '-X', 'PUT',
-                           '-H', 'Content-Type: audio/mpeg', '-T', path, url]
+                           '-H', 'Content-Type: audio/mp4', '-T', tmp, url]
                 else:
                     cmd = ['/usr/bin/curl', '-sS', '-f', '--retry', '2', '-X', 'DELETE', url]
                 out = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
@@ -620,11 +635,18 @@ class ExportJob(object):
                     raise RuntimeError((out.stderr or 'curl %d' % out.returncode).strip()[:160])
                 if kind == 'put':
                     st['uploaded'] += 1
-                    st['uploaded_bytes'] += os.path.getsize(path)
+                    st['uploaded_bytes'] += os.path.getsize(tmp)
+                    if del_old:   # an older MP3 of the same track: remove it (no duplicates)
+                        subprocess.run(['/usr/bin/curl', '-sS', '-X', 'DELETE', del_old], capture_output=True, timeout=120)
             except Exception as err:
                 st['upload_failed'].append({'song_id': song_id, 'label': label, 'error': str(err)[:160]})
             finally:
                 st['upload_pending'] = max(0, st['upload_pending'] - 1)
+                if tmp and os.path.exists(tmp):
+                    try:
+                        os.remove(tmp)
+                    except Exception:
+                        pass
 
     def _keep_awake(self, on):
         # Stops the Mac idle-sleeping during an overnight run (screen may sleep).
