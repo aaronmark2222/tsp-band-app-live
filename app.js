@@ -4101,9 +4101,11 @@ function ptRender() {
     <div class="pt-song" title="${song ? escapeHtml(`${song.id} ${song.name}`) : ''}">${song ? `<b>${escapeHtml(song.id)}</b> ${escapeHtml(song.name)}` : ''}${ptQueueLabel()}</div>
     <span class="pt-break" aria-hidden="true"></span>
     <div class="pt-group pt-buttons">
+      <button type="button" data-pt="prev" title="Previous song in the list">${ptIcons.prev}</button>
       <button type="button" data-pt="start" title="Back to start">${ptIcons.start}</button>
       <button type="button" data-pt="play" class="pt-play ${playing ? 'on' : ''}" title="Play / pause (Space)">${playing ? ptIcons.pause : ptIcons.play}</button>
       <button type="button" data-pt="stop" title="Stop">${ptIcons.stop}</button>
+      <button type="button" data-pt="next" title="Next song in the list">${ptIcons.next}</button>
     </div>
     <div class="pt-lcd" id="pt-pos">${ptTime(ptPosition())}</div>
     <input type="range" id="pt-seek" class="pt-seek" min="0" max="${dur.toFixed(2)}" step="0.05" value="${ptPosition().toFixed(2)}" aria-label="Position">
