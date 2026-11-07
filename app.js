@@ -2811,14 +2811,14 @@ function renderExportPanel() {
     const songLine = queue.length > 1 ? `<ul class="export-queue">${queue.map((id, i) => {
       const r = results.get(id);
       const mark = r ? (r.state === 'done' ? '✓' : r.state === 'cancelled' ? '–' : '✕') : (running && i === job.song_index ? '●' : '·');
-      return `<li class="${r ? r.state : (running && i === job.song_index ? 'now' : '')}" title="${escapeHtml(r?.error || '')}">${mark} ${escapeHtml(id)}${r ? ` <small>${r.files} files${r.error ? ` · ${escapeHtml(r.error)}` : ''}</small>` : ''}</li>`;
+      return `<li class="${r ? r.state : (running && i === job.song_index ? 'now' : '')}" title="${escapeHtml(r?.error || '')}">${mark} ${escapeHtml(id)}${r ? ` <small>${r.files} files${r.skipped?.length ? ` · skipped ${escapeHtml(r.skipped.join(', '))}` : ''}${r.error ? ` · ${escapeHtml(r.error)}` : ''}</small>` : ''}</li>`;
     }).join('')}</ul>` : '';
     const doneCount = (job.results || []).filter((r) => r.state === 'done').length;
     const head = job.state === 'done' ? `Done: ${queue.length > 1 ? `${doneCount} songs` : `${(job.done || []).length} files for ${escapeHtml(job.song_id)}`}.`
       : job.state === 'error' ? (queue.length > 1 ? `Finished with problems: ${doneCount} of ${queue.length} songs exported.` : `Stopped on ${escapeHtml(job.song_id)}: ${escapeHtml(job.error || 'error')}`)
       : `Exporting ${escapeHtml(job.song_id)}${queue.length > 1 ? ` (song ${job.song_index + 1} of ${queue.length})` : ''}. Don't touch Ableton until it finishes.`;
     const mix = job.mix && running ? `<p class="muted">Mixdown uses ${job.mix.instrumental ? 'no vocals (instrumental)' : job.mix.vocal_parts_used ? 'the vocal parts' : 'the VOCALS stem for vocals'}${job.mix.stems_used?.length ? `; stems filling gaps: ${escapeHtml(job.mix.stems_used.join(', '))}` : ''}.</p>` : '';
-    status = `<div class="export-status ${job.state}"><p><b>${head}</b></p>${job.folder && running ? `<p class="muted">Folder: ${escapeHtml(job.folder)}</p>` : ''}${mix}${songLine}${running ? `<ul class="export-files">${files}${now}</ul>` : ''}</div>`;
+    status = `<div class="export-status ${job.state}"><p><b>${head}</b></p>${job.folder && running ? `<p class="muted">Folder: ${escapeHtml(job.folder)}</p>` : ''}${mix}${running && job.skipped?.length ? `<p class="muted">Skipped: ${escapeHtml(job.skipped.join(', '))}</p>` : ''}${songLine}${running ? `<ul class="export-files">${files}${now}</ul>` : ''}</div>`;
   }
   box.innerHTML = `<header><h2>Practice audio</h2></header>
     <p class="muted">Exports Stems, Parts, Backing, CPC and a Mixdown per song as MP3s into Music › TSP Exports on this Mac. A few minutes per song; leave Ableton alone while it runs.</p>

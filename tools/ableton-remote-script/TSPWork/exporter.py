@@ -46,6 +46,9 @@ EXTRA_SOLO = {'drums': ['Drums Midi Part']}
 # A track is exported only if it has an active (not deactivated) clip with at
 # least this much inside the song; muted-only or sliver-only tracks are skipped.
 MIN_CLIP_BEATS = 0.25
+# A part whose active clips cover less than this share of the song (e.g. one
+# stray bar) counts as missing: no part file, and its stem fills the mixdown.
+MIN_PART_COVERAGE = 0.25
 
 # Fixed AppleScripts: data (folder, file name) is passed as arguments, never
 # pasted into the script text.
@@ -285,6 +288,27 @@ class ExportJob(object):
                 continue
         return False
 
+    def _coverage(self, tracks, s, e):
+        spans = []
+        for track in tracks:
+            pool = self.s._descendants(track) if getattr(track, 'is_foldable', False) else [track]
+            for t in pool:
+                try:
+                    for c in t.arrangement_clips:
+                        if not c.muted:
+                            a, b = max(s, c.start_time), min(e, c.end_time)
+                            if b - a >= MIN_CLIP_BEATS:
+                                spans.append((a, b))
+                except Exception:
+                    continue
+        total, end = 0.0, s
+        for a, b in sorted(spans):
+            if b <= end:
+                continue
+            total += b - max(a, end)
+            end = b
+        return total / max(1e-6, e - s)
+
     def _ancestors(self, track):
         out = []
         parent = track.group_track
@@ -311,6 +335,9 @@ class ExportJob(object):
             src = [x for x in (self._named(n, 'PARTS') for n in sources) if x is not None]
             live = self._named(live_name, 'LIVE CHANNELS')
             if live is None or not any(self._has_clips(x, s, e) for x in src):
+                continue
+            if self._coverage(src, s, e) < MIN_PART_COVERAGE:
+                self.state['skipped'].append('Part - %s (only stray clips)' % label)
                 continue
             extra = [x for x in src if x.name.strip() in EXTRA_SOLO.get(key, [])]
             parts[key] = (live, src, task_key, extra)
@@ -528,10 +555,11 @@ class ExportJob(object):
                     continue
                 self._select_song(song)
                 st.update({'song_index': index, 'song_id': self.song_id, 'error': None,
-                           'done': [], 'total': 0, 'current': None, 'folder': None})
+                           'done': [], 'skipped': [], 'total': 0, 'current': None, 'folder': None})
                 try:
                     self._export_song()
-                    st['results'].append({'song_id': self.song_id, 'state': 'done', 'files': len(st['done'])})
+                    st['results'].append({'song_id': self.song_id, 'state': 'done', 'files': len(st['done']),
+                                          'skipped': list(st['skipped'])})
                 except Exception as err:
                     st['error'] = str(err)[:300]
                     st['results'].append({'song_id': self.song_id, 'state': 'error', 'files': len(st['done']),
