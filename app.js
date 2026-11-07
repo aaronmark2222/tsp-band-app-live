@@ -4226,7 +4226,13 @@ function toneOutput() {
   const name = tonePrefs().output;
   return toneOutputs().find((o) => o.name === name) || null;
 }
+// Only songs whose Guitar Tone MIDI task is complete send tones.
+function toneSongReady(songId = practice.songId) {
+  const status = state.tasks.find((task) => task.song_id === songId && task.task_key === 'guitar_tone_midi')?.status;
+  return status === 'Completed' || status === 'Finished';
+}
 function toneEvents() {
+  if (!toneSongReady()) return [];
   return Array.isArray(practice.lyrics?.tone) ? practice.lyrics.tone : [];
 }
 async function toneConnect() {
@@ -4316,7 +4322,8 @@ function renderTonePanel() {
   const outputs = toneOutputs();
   const ready = !!(tone.access && toneOutput());
   const song = state.songs.find((item) => item.id === practice.songId);
-  const count = !practice.songId ? '' : !practice.lyrics ? 'Loading this song’s tones…'
+  const count = !practice.songId ? '' : !toneSongReady() ? `${song ? escapeHtml(song.id) : 'This song'}’s guitar tone MIDI isn’t marked complete yet, so no tones are sent for it.`
+    : !practice.lyrics ? 'Loading this song’s tones…'
     : events.length ? `${song ? escapeHtml(song.id) : 'This song'} has ${events.length} tone change${events.length === 1 ? '' : 's'}: ${events.map((ev) => `bar ${ev.bar}`).join(', ')}.`
     : `${song ? escapeHtml(song.id) : 'This song'} has no tone changes on the GUITAR TONE Midi track.`;
   let body;
