@@ -3806,11 +3806,21 @@ function lyricLineHtml(text) {
   if (pendingChord !== null) parts.push({ chord: pendingChord, text: '' });
   const chordOnly = parts.every((p) => p.br || p.label !== undefined || !String(p.text || '').trim());
   const fmt = (str) => escapeHtml(str).replace(/\(([^)]*)\)/g, '<span class="ly-note">($1)</span>');
+  // A row (between line breaks) with no words is chords only: no empty word row under its chords.
+  let rowStart = 0;
+  for (let i = 0; i <= parts.length; i += 1) {
+    if (i === parts.length || parts[i].br) {
+      const row = parts.slice(rowStart, i);
+      const noWords = row.every((p) => p.label !== undefined || !String(p.text || '').trim());
+      row.forEach((p) => { p.rowChordOnly = noWords; });
+      rowStart = i + 1;
+    }
+  }
   return keyHtml + parts.map((p) => {
     if (p.br) return '<span class="ly-br"></span>';
     if (p.label !== undefined) return p.label ? `<span class="ly-label">${escapeHtml(p.label)}</span>` : '';
     if (p.chord === null || p.chord === undefined) return `<span class="ly-seg"><span class="ly-word">${fmt(p.text)}</span></span>`;
-    return `<span class="ly-seg ${chordOnly || !String(p.text || '').trim() ? 'ly-chord-only' : ''}"><span class="ly-chord">${escapeHtml(p.chord)}</span><span class="ly-word">${fmt(p.text) || '&nbsp;'}</span></span>`;
+    return `<span class="ly-seg ${chordOnly || p.rowChordOnly ? 'ly-chord-only' : ''}"><span class="ly-chord">${escapeHtml(p.chord)}</span><span class="ly-word">${fmt(p.text) || '&nbsp;'}</span></span>`;
   }).join('');
 }
 
