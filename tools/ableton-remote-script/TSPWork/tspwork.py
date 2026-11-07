@@ -31,7 +31,7 @@ from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
 TLS_PORT = 47711
-VERSION = '1.13.3'
+VERSION = '1.13.4'
 DEBUG_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requests.log')
 # https listener for the live site in Safari. Certificate made for 127.0.0.1 /
 # localhost only, trusted once in this Mac's Keychain. Files sit next to this
@@ -202,6 +202,15 @@ class TSPWork(ControlSurface):
         self._stop = True
         try:
             self._end_review()
+        except Exception:
+            pass
+        # Stopping TSPWork mid-export: cancel it and put Live's state back now
+        # (this runs on Live's main thread).
+        try:
+            job = self._export
+            if job and job.state['state'] in ('starting', 'running'):
+                job.cancelled = True
+                job.restore_state()
         except Exception:
             pass
         for srv in self._servers:
@@ -555,6 +564,10 @@ class TSPWork(ControlSurface):
     def _export_request(self, path, payload):
         job = self._export
         if path.startswith('/export/state'):
+            return {'ok': True, 'job': job.state if job else None}
+        if path.startswith('/export/cancel'):
+            if job and job.state['state'] in ('starting', 'running'):
+                job.cancelled = True
             return {'ok': True, 'job': job.state if job else None}
         if job and job.state['state'] in ('starting', 'running'):
             return {'ok': False, 'error': 'export_running', 'job': job.state}

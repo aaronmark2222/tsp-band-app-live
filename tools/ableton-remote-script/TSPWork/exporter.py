@@ -155,10 +155,11 @@ on run argv
         keystroke folderPath
         delay 0.3
         key code 36
-        delay 0.8
+        delay 1.0
         keystroke "a" using command down
+        delay 0.3
         keystroke fileName
-        delay 0.2
+        delay 0.4
         key code 36
     end tell
     return "ok"
@@ -240,6 +241,7 @@ class ExportJob(object):
                       'current': None, 'total': 0, 'error': None, 'folder': None,
                       'started_at': time.time()}
         self._saved = None
+        self.cancelled = False
         self.thread = threading.Thread(target=self.run, name='TSPWorkExport')
         self.thread.daemon = True
 
@@ -445,23 +447,36 @@ class ExportJob(object):
             raise RuntimeError((result or {}).get('error') or (result or {}).get('detail') or 'live_timeout')
         return result
 
-    def _wait_for_file(self, folder, base, timeout=1200):
+    def _wait_for_file(self, folder, base, before, timeout=900):
+        """Wait for the new audio file to appear and stop growing. Typed file
+        names can lose characters, so any new file in the folder counts; it
+        is then renamed to the intended name."""
         started = time.time()
-        last, stable = -1, 0
+        last, stable, found = -1, 0, None
         while time.time() - started < timeout:
             time.sleep(1.0)
-            found = [f for f in os.listdir(folder) if f.startswith(base + '.') and not f.startswith('.')]
-            if not found:
+            if self.cancelled:
+                raise RuntimeError('cancelled')
+            new = [f for f in os.listdir(folder)
+                   if not f.startswith('.') and f not in before and os.path.isfile(os.path.join(folder, f))]
+            if not new:
                 continue
-            size = os.path.getsize(os.path.join(folder, found[0]))
+            found = sorted(new, key=lambda f: os.path.getmtime(os.path.join(folder, f)))[-1]
+            size = os.path.getsize(os.path.join(folder, found))
             if size > 0 and size == last:
                 stable += 1
                 if stable >= 3:
-                    return found[0]
+                    ext = os.path.splitext(found)[1] or '.mp3'
+                    target = base + ext
+                    if found != target:
+                        if os.path.exists(os.path.join(folder, target)):
+                            os.remove(os.path.join(folder, target))
+                        os.rename(os.path.join(folder, found), os.path.join(folder, target))
+                    return target
             else:
                 stable = 0
             last = size
-        raise RuntimeError('export_timeout')
+        raise RuntimeError('export_timeout (no new file in %s; check the Save window)' % folder)
 
     def run(self):
         st = self.state
@@ -472,12 +487,19 @@ class ExportJob(object):
             st.update({'state': 'running', 'folder': folder, 'total': len(plan['elements']),
                        'elements': plan['elements'], 'mix': self.mix_notes})
             self._main(self.save_state)
+            # Clean up a file left with a damaged name by an earlier run.
+            for f in os.listdir(folder):
+                if f.startswith(' - ') or f.startswith('- '):
+                    os.remove(os.path.join(folder, f))
             for i, (label, _, _) in enumerate(self.elements):
+                if self.cancelled:
+                    raise RuntimeError('cancelled')
                 base = safe_name('%s - %s' % (self.song_id, label))
                 st['current'] = label
                 for f in os.listdir(folder):
                     if f.startswith(base + '.'):
                         os.remove(os.path.join(folder, f))
+                before = set(os.listdir(folder))
                 self._main(self.setup_element, i)
                 time.sleep(0.3)
                 out = osascript(SELECT_LOOP)
@@ -487,7 +509,7 @@ class ExportJob(object):
                 out = osascript(OPEN_AND_EXPORT, folder, base, timeout=60)
                 if out != 'ok':
                     raise RuntimeError(out)
-                name = self._wait_for_file(folder, base)
+                name = self._wait_for_file(folder, base, before)
                 st['done'].append({'label': label, 'file': name})
             st['current'] = None
             st['state'] = 'done'

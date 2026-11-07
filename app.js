@@ -2811,7 +2811,8 @@ function renderExportPanel() {
   box.innerHTML = `<header><h2>Practice audio</h2></header>
     <p class="muted">Exports Stems, Parts, Backing, CPC and a Mixdown for one song as MP3s into Music › TSP Exports on this Mac. Takes a few minutes; leave Ableton alone while it runs.</p>
     <div class="export-row"><select id="export-song" class="wide-select" ${running ? 'disabled' : ''}>${songs.map((song) => `<option value="${escapeHtml(song.id)}" ${song.id === exportJob.songId ? 'selected' : ''}>${escapeHtml(song.id)} · ${escapeHtml(song.name)}</option>`).join('')}</select>
-    <button id="export-start" class="button primary" type="button" ${running || !abletonBridge.connected ? 'disabled' : ''}>${running ? 'Exporting…' : 'Export song'}</button></div>
+    <button id="export-start" class="button primary" type="button" ${running || !abletonBridge.connected ? 'disabled' : ''}>${running ? 'Exporting…' : 'Export song'}</button>
+    ${running ? '<button id="export-cancel" class="button quiet" type="button" title="Stop after the current step and put Ableton back">Cancel</button>' : ''}</div>
     ${status}`;
 }
 
@@ -2850,6 +2851,7 @@ document.addEventListener('change', (event) => {
 });
 document.addEventListener('click', (event) => {
   if (event.target.closest('#export-start')) startExport();
+  if (event.target.closest('#export-cancel')) abletonRequest('/export/cancel', {}, 3000).then(pollExport).catch(() => {});
 });
 $('#sync-content').addEventListener('click', (event) => {
   const jump = event.target.closest('[data-sync-jump]');
