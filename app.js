@@ -3342,6 +3342,7 @@ function renderPracticeMultitrack() {
   const totalMb = tracks.reduce((sum, t) => sum + (t.bytes || 0), 0) / 1048576;
   const anySolo = tracks.some((t) => practiceTrackSetting(t.element).solo);
   const myTaskKeys = new Set(Object.entries(PRACTICE_TASK).filter(([, key]) => state.taskTypes.find((type) => type.key === key)?.owner_member_id === state.member?.id).map(([element]) => element));
+  const lock = loaded ? '' : 'disabled';
   const rows = tracks.map((t, i) => {
     const st = practiceTrackSetting(t.element);
     const audible = anySolo ? st.solo : st.on; // solo plays a track even if it's switched off
@@ -3350,9 +3351,9 @@ function renderPracticeMultitrack() {
     return `<li class="ab-track ${audible ? '' : 'ab-silent'} ${myTaskKeys.has(t.element) ? 'ab-mine' : ''}" data-element="${escapeHtml(t.element)}" style="--track-color:${practiceColor(t.element)};--track-ink:${practiceInk(practiceColor(t.element))}">
       <div class="ab-title"><span class="ab-name">${escapeHtml(t.element)}${myTaskKeys.has(t.element) ? ' <small>yours</small>' : ''}</span>${ls === 'error' ? '<small class="ab-err">failed</small>' : ls === 'loading' ? '<small>loading…</small>' : ''}</div>
       <div class="ab-controls">
-        <button type="button" class="ab-activator ${st.on ? 'on' : ''}" data-practice-on="${escapeHtml(t.element)}" aria-pressed="${st.on}" title="Track on/off">${i + 1}</button>
-        <button type="button" class="ab-solo ${st.solo ? 'on' : ''}" data-practice-solo="${escapeHtml(t.element)}" aria-pressed="${st.solo}" title="Solo (Cmd/Ctrl-click to add)">S</button>
-        <input type="range" class="ab-fader" min="0" max="1.413" step="0.001" value="${st.vol}" data-practice-vol="${escapeHtml(t.element)}" aria-label="${escapeHtml(t.element)} volume">
+        <button type="button" class="ab-activator ${st.on ? 'on' : ''}" data-practice-on="${escapeHtml(t.element)}" aria-pressed="${st.on}" title="${loaded ? 'Track on/off' : 'Load the multitrack first'}" ${lock}>${i + 1}</button>
+        <button type="button" class="ab-solo ${st.solo ? 'on' : ''}" data-practice-solo="${escapeHtml(t.element)}" aria-pressed="${st.solo}" title="${loaded ? 'Solo (Cmd/Ctrl-click to add)' : 'Load the multitrack first'}" ${lock}>S</button>
+        <input type="range" class="ab-fader" min="0" max="1.413" step="0.001" value="${st.vol}" data-practice-vol="${escapeHtml(t.element)}" aria-label="${escapeHtml(t.element)} volume" ${lock}>
         <span class="ab-db">${dbLabel}</span>
         <span class="ab-meter"><span data-practice-meter="${escapeHtml(t.element)}"></span></span>
         <a class="ab-dl" href="${escapeHtml(t.url)}" target="_blank" rel="noopener" title="Download ${escapeHtml(t.element)}">↓</a>
@@ -3364,7 +3365,7 @@ function renderPracticeMultitrack() {
         <button type="button" class="button quiet" data-practice-reset title="Reset all tracks: on, no solo, 0 dB (stems off)">Reset mix</button>
       </div>`
     : `<div class="ab-transport"><button type="button" class="button primary" data-practice-load ${loading ? 'disabled' : ''}>${loading ? 'Loading tracks…' : `Load multitrack (${totalMb.toFixed(0)} MB)`}</button><span class="muted">Downloads every track once so they play in sync.</span></div>`}
-    <ul class="ab-tracks">${rows}</ul>`;
+    <ul class="ab-tracks ${loaded ? '' : 'ab-locked'}">${rows}</ul>`;
 }
 
 async function practiceLoadTracks() {
@@ -3689,11 +3690,27 @@ $('#practice-upload').addEventListener('drop', async (event) => {
 // clips are headings. Saved by the admin's last "Read Ableton set" (song_lyrics),
 // timed in seconds from the song start, so they follow the practice audio.
 // The chosen lyrics track and text size are kept on this device across songs.
-const LYRICS_PREFS_KEY = 'tsp-practice-lyrics-v1';
+const LYRICS_PREFS_KEY = 'tsp-practice-lyrics-v2';
 const LYRIC_CHORD_RE = /^(?:Key:|[A-G][#b]?(?:maj|min|m|dim|aug|sus|add|M|\+|°|ø)?[0-9]*(?:(?:sus|add|maj|b|#)?[0-9]+)*(?:\/[A-G][#b]?)?(?:-[A-G][#b]?(?:maj|min|m|dim|aug|sus|add|M|\+|°|ø)?[0-9]*(?:(?:sus|add|maj|b|#)?[0-9]+)*(?:\/[A-G][#b]?)?)*-?)$/;
 
 function lyricsPrefs() {
-  try { return { track: 'lyrics', size: 'm', ...JSON.parse(localStorage.getItem(LYRICS_PREFS_KEY) || '{}') }; } catch { return { track: 'lyrics', size: 'm' }; }
+  // `track` is only set once someone picks a chip; until then each member
+  // gets the track for their instrument (lyricsDefaultTrack).
+  let old = {};
+  try { old = JSON.parse(localStorage.getItem('tsp-practice-lyrics-v1') || '{}'); } catch { /* ignore */ }
+  try { return { size: old.size || 'm', ...JSON.parse(localStorage.getItem(LYRICS_PREFS_KEY) || '{}') }; } catch { return { size: 'm' }; }
+}
+// Guitar -> Guitar, keys -> Keyboard, drums/percussion -> Drums, singers
+// (Dale, Anston) -> Lyrics; anyone else, or a song without that track -> Chords.
+function lyricsDefaultTrack() {
+  const member = state.member || {};
+  const slug = String(member.slug || '').toLowerCase();
+  const instrument = String(member.instrument || '').toLowerCase();
+  if (slug === 'dale' || slug === 'anston') return 'lyrics';
+  if (/guitar/.test(instrument)) return 'guitar';
+  if (/key/.test(instrument)) return 'keyboard';
+  if (/drum|percussion/.test(instrument)) return 'drums';
+  return 'chords';
 }
 function saveLyricsPrefs(patch) {
   try { localStorage.setItem(LYRICS_PREFS_KEY, JSON.stringify({ ...lyricsPrefs(), ...patch })); } catch { /* ignore */ }
@@ -3702,7 +3719,7 @@ function saveLyricsPrefs(patch) {
 async function practiceLoadLyrics(songId) {
   practice.lyrics = null;
   renderPracticeLyrics();
-  const { data, error } = await db.from('song_lyrics').select('tracks, sections, duration_seconds, updated_at').eq('song_id', songId).maybeSingle();
+  const { data, error } = await db.from('song_lyrics').select('tracks, sections, tempo, duration_seconds, updated_at').eq('song_id', songId).maybeSingle();
   if (practice.songId !== songId) return;
   practice.lyrics = error ? { error: error.message } : (data || { tracks: [], sections: [] });
   practice.lyricIndex = -2;
@@ -3710,10 +3727,28 @@ async function practiceLoadLyrics(songId) {
 }
 
 function lyricsTrack() {
-  const tracks = practice.lyrics?.tracks || [];
-  const want = lyricsPrefs().track;
-  // The chosen track is kept across songs; a song without it shows just its sections.
-  return tracks.find((t) => t.slug === want) || null;
+  const tracks = (practice.lyrics?.tracks || []).filter((t) => t.lines?.length);
+  const picked = lyricsPrefs().track;
+  // A track someone picked is kept across songs; a song without it shows just its sections.
+  if (picked) return tracks.find((t) => t.slug === picked) || null;
+  // Otherwise: their instrument's track, or Chords when this song doesn't have it.
+  return tracks.find((t) => t.slug === lyricsDefaultTrack()) || tracks.find((t) => t.slug === 'chords') || null;
+}
+function lyricsShownSlug() {
+  return lyricsPrefs().track || lyricsTrack()?.slug || lyricsDefaultTrack();
+}
+// Clip colours from the set; very dark ones are lifted so they read on black.
+function lyricInk(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if (!m) return '';
+  const n = parseInt(m[1], 16);
+  let [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  if (lum < 0.45) {
+    const k = Math.min(0.75, (0.45 - lum) / (1 - lum) + 0.15);
+    [r, g, b] = [r, g, b].map((v) => Math.round(v + (255 - v) * k));
+  }
+  return `rgb(${r}, ${g}, ${b})`;
 }
 // Always offered (in this order), plus any other +LYRICS track a song has.
 const LYRICS_STANDARD = [['chords', 'Chords'], ['guitar', 'Guitar'], ['keyboard', 'Keyboard'], ['lyrics', 'Lyrics'], ['drums', 'Drums']];
@@ -3774,23 +3809,24 @@ function renderPracticeLyrics() {
   const tracks = ly.tracks || [];
   if (!tracks.length) { box.innerHTML = '<header><h2>Lyrics</h2></header><p class="muted">No lyrics saved for this song yet. They come from the admin\'s last Ableton Sync read.</p>'; return; }
   const current = lyricsTrack();
+  const shown = lyricsShownSlug();
   const chipList = [...LYRICS_STANDARD, ...tracks.filter((t) => !LYRICS_STANDARD.some(([slug]) => slug === t.slug)).map((t) => [t.slug, t.label])];
   const chips = chipList.map(([slug, label]) => {
     const has = tracks.some((t) => t.slug === slug && t.lines?.length);
-    return `<button type="button" class="ly-chip ${slug === prefs.track ? 'on' : ''} ${has ? '' : 'empty'}" data-lyrics-track="${escapeHtml(slug)}" title="${has ? '' : 'Nothing on this track for this song'}">${escapeHtml(label)}</button>`;
+    return `<button type="button" class="ly-chip ${slug === shown ? 'on' : ''} ${has ? '' : 'empty'}" data-lyrics-track="${escapeHtml(slug)}" title="${has ? '' : 'Nothing on this track for this song'}">${escapeHtml(label)}</button>`;
   }).join('');
-  const chosenLabel = chipList.find(([slug]) => slug === prefs.track)?.[1] || prefs.track;
+  const chosenLabel = chipList.find(([slug]) => slug === shown)?.[1] || shown;
   const missing = !current ? `<p class="muted ly-missing">No ${escapeHtml(chosenLabel)} notes in this song; showing its sections.</p>` : '';
   // Merge section headings into the line list by time.
   const items = [];
-  for (const sec of ly.sections || []) items.push({ type: 'section', t: sec.t, name: sec.name });
-  (current?.lines || []).forEach((line, i) => items.push({ type: 'line', t: line.t, e: line.e, text: line.text, i }));
+  for (const sec of ly.sections || []) items.push({ type: 'section', t: sec.t, name: sec.name, c: sec.c });
+  (current?.lines || []).forEach((line, i) => items.push({ type: 'line', t: line.t, e: line.e, text: line.text, c: line.c, i }));
   items.sort((a, b) => a.t - b.t || (a.type === 'section' ? -1 : 1));
   box.innerHTML = `<header><h2>Lyrics</h2><span class="ly-sizes">${['s', 'm', 'l'].map((size) => `<button type="button" class="ly-size ${prefs.size === size ? 'on' : ''}" data-lyrics-size="${size}">${size === 's' ? 'A' : size === 'm' ? 'A' : 'A'}</button>`).join('')}</span></header>
     <div class="ly-chips">${chips}</div>${missing}
     <div class="ly-scroll ly-size-${prefs.size}" id="practice-lyrics-scroll">${items.map((it) => it.type === 'section'
-      ? `<div class="ly-section" data-t="${it.t}">${escapeHtml(it.name)}</div>`
-      : `<div class="ly-line" data-line="${it.i}" data-t="${it.t}" data-e="${it.e}">${lyricLineHtml(it.text)}</div>`).join('')}</div>
+      ? `<div class="ly-section" data-t="${it.t}"${/^#[0-9a-f]{6}$/i.test(it.c || '') ? ` style="--sec-color:${it.c};--sec-ink:${practiceInk(it.c)}"` : ''}>${escapeHtml(it.name)}</div>`
+      : `<div class="ly-line" data-line="${it.i}" data-t="${it.t}" data-e="${it.e}"${lyricInk(it.c) ? ` style="--ly-ink:${lyricInk(it.c)}"` : ''}>${lyricLineHtml(it.text)}</div>`).join('')}</div>
     <p class="muted ly-foot">From the Ableton set read ${ly.updated_at ? new Date(ly.updated_at).toLocaleDateString() : ''}. Click a line to jump there.</p>`;
   practice.lyricIndex = -2;
   practiceLyricsTick(true);
@@ -3912,7 +3948,7 @@ async function saveSongLyrics(snapshot) {
   const known = new Set(state.songs.map((song) => song.id));
   const rows = Object.entries(snapshot?.songs || {})
     .filter(([id, data]) => known.has(id) && data.lyrics)
-    .map(([id, data]) => ({ song_id: id, tracks: data.lyrics.tracks || [], sections: data.lyrics.sections || [],
+    .map(([id, data]) => ({ song_id: id, tracks: data.lyrics.tracks || [], sections: data.lyrics.sections || [], tempo: data.lyrics.tempo || [],
       duration_seconds: data.duration_seconds, als_modified_at: snapshot.als_modified_at, updated_at: new Date().toISOString() }));
   for (let i = 0; i < rows.length; i += 20) {
     const { error } = await db.from('song_lyrics').upsert(rows.slice(i, i + 20), { onConflict: 'song_id' });
@@ -4055,18 +4091,17 @@ function ptRender() {
       <button type="button" data-pt-mode="mix" class="${engine === 'mix' ? 'on' : ''}" ${$('#practice-mix-audio') ? '' : 'disabled'}>Mixdown</button>
       <button type="button" data-pt-mode="multi" class="pt-multi ${engine === 'multi' ? 'on' : ''}" ${multiAvailable ? '' : 'disabled'} title="${ptMultiReady() ? 'Play from the multitrack' : 'Download the multitrack tracks first'}">Multitrack${multiAvailable && !ptMultiReady() ? (ptMultiLoading() ? ` <span class="pt-spin" aria-label="Downloading"></span><small>${practiceMultiTracks().filter((t) => practice.buffers.has(t.element)).length}/${practiceMultiTracks().length}</small>` : ` <span class="pt-dl" aria-hidden="true">${ptIcons.download}</span>`) : ''}</button>
     </div>
-    <div class="pt-group">
-      <button type="button" data-pt="prev" title="Previous song in the list">${ptIcons.prev}</button>
+    <div class="pt-song" title="${song ? escapeHtml(`${song.id} ${song.name}`) : ''}">${song ? `<b>${escapeHtml(song.id)}</b> ${escapeHtml(song.name)}` : ''}${ptQueueLabel()}</div>
+    <span class="pt-break" aria-hidden="true"></span>
+    <div class="pt-group pt-buttons">
       <button type="button" data-pt="start" title="Back to start">${ptIcons.start}</button>
       <button type="button" data-pt="play" class="pt-play ${playing ? 'on' : ''}" title="Play / pause (Space)">${playing ? ptIcons.pause : ptIcons.play}</button>
       <button type="button" data-pt="stop" title="Stop">${ptIcons.stop}</button>
-      <button type="button" data-pt="next" title="Next song in the list">${ptIcons.next}</button>
     </div>
-    <span class="pt-break" aria-hidden="true"></span>
     <div class="pt-lcd" id="pt-pos">${ptTime(ptPosition())}</div>
     <input type="range" id="pt-seek" class="pt-seek" min="0" max="${dur.toFixed(2)}" step="0.05" value="${ptPosition().toFixed(2)}" aria-label="Position">
     <div class="pt-lcd pt-dim">${ptTime(dur)}</div>
-    <div class="pt-song">${song ? `<b>${escapeHtml(song.id)}</b> ${escapeHtml(song.name)}` : ''}${ptQueueLabel()}</div>`;
+    <div class="pt-info">${ptInfoHtml(song)}</div>`;
 }
 function ptTick() {
   const bar = $('#practice-transport');
@@ -4074,11 +4109,60 @@ function ptTick() {
   const pos = ptPosition();
   const lcd = $('#pt-pos');
   if (lcd) lcd.textContent = ptTime(pos);
+  const live = ptLive(pos);
+  const keyEl = $('#pt-key');
+  if (keyEl && keyEl.textContent !== live.key) keyEl.textContent = live.key;
+  const bpmEl = $('#pt-bpm');
+  if (bpmEl && bpmEl.textContent !== live.bpm) bpmEl.textContent = live.bpm;
   const seek = $('#pt-seek');
   if (seek && !seek.matches(':active')) seek.value = pos.toFixed(2);
   const playBtn = bar.querySelector('[data-pt="play"]');
   const playing = ptIsPlaying();
   if (playBtn && playBtn.classList.contains('on') !== playing) ptRender();
+}
+// Live key and tempo at the playhead: key from the "[Key:] [X]" clips on the
+// lyrics tracks, tempo from the set's tempo automation (saved with the lyrics).
+function ptLive(pos) {
+  const song = state.songs.find((item) => item.id === practice.songId);
+  const ly = practice.lyrics || {};
+  let key = Array.isArray(song?.keys) && song.keys.length ? song.keys[0] : '—';
+  const keyTrack = (ly.tracks || []).find((t) => t.slug === 'chords') || (ly.tracks || [])[0];
+  for (const line of keyTrack?.lines || []) {
+    if (line.t > pos + 0.05) break;
+    const m = String(line.text || '').match(/\[Key:\]\s*\[([^\]]+)\]/);
+    if (m) key = m[1].trim();
+  }
+  let bpm = Number(song?.tempo_start) || null;
+  const map = Array.isArray(ly.tempo) ? ly.tempo : [];
+  if (map.length) {
+    bpm = map[0][1];
+    for (let i = 0; i < map.length; i++) {
+      if (map[i][0] > pos) {
+        const [t0, v0] = map[i - 1] || map[0];
+        const [t1, v1] = map[i];
+        bpm = t1 > t0 ? v0 + (v1 - v0) * (pos - t0) / (t1 - t0) : v1;
+        break;
+      }
+      bpm = map[i][1];
+    }
+  }
+  return { key, bpm: bpm ? `${Math.round(bpm)} BPM` : '— BPM' };
+}
+function ptInfoHtml(song) {
+  if (!song) return '';
+  const live = ptLive(ptPosition());
+  const mine = songWorkItems(song.id, true).filter((item) => item.owner_member_id === state.member?.id);
+  const open = mine.filter((item) => !isWorkItemDone(item));
+  const work = !mine.length ? 'No tasks for you'
+    : open.length ? `You: ${open.map((item) => item.type.label).join(', ')}`
+    : 'Your work is done';
+  const readiness = (state.readiness || []).find((row) => row.song_id === song.id);
+  const ready = !!readiness?.ready;
+  const bandLeft = remainingWork(song.id);
+  return `<span class="pt-chip">Key <b id="pt-key">${escapeHtml(live.key)}</b></span>
+    <span class="pt-chip"><b id="pt-bpm">${escapeHtml(live.bpm)}</b></span>
+    <span class="pt-chip pt-work ${open.length ? 'open' : ''}" title="${escapeHtml(work)}">${escapeHtml(work)}</span>
+    <span class="pt-chip pt-ready ${ready ? 'is-ready' : ''}">${ready ? 'Ready' : `Not ready${bandLeft ? ` · ${bandLeft} left` : ''}`}</span>`;
 }
 function ptQueueLabel() {
   const list = practice.songList || state.songs;

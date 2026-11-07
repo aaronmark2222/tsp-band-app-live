@@ -1054,11 +1054,11 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .ly-missing { margin: 0 0 8px; font-size: 12px; }
 .ly-scroll { position: relative; height: min(64vh, 640px); overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; background: #111; border-radius: 4px; padding: 25vh 16px 45vh; }
 .ly-size-s { font-size: 16px; } .ly-size-m { font-size: 21px; } .ly-size-l { font-size: 28px; }
-.ly-line { padding: .35em .4em; margin: .1em 0; border-radius: 4px; color: #8d8d8d; line-height: 1.25; cursor: pointer; transition: color .15s, background .15s; }
-.ly-line.past { color: #555; }
-.ly-line.next { color: #c9c9c9; }
-.ly-line.current { color: #fff; background: #262626; box-shadow: inset 3px 0 #f39a26; }
-.ly-section { display: table; margin: 1em 0 .3em; padding: .15em .6em; border-radius: 3px; background: #2f4f7a; color: #e8f0ff; font-size: .62em; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; cursor: pointer; }
+.ly-line { padding: .35em .4em; margin: .1em 0; border-radius: 4px; color: var(--ly-ink, #c9c9c9); opacity: .62; line-height: 1.25; cursor: pointer; transition: opacity .15s, background .15s; }
+.ly-line.past { opacity: .32; }
+.ly-line.next { opacity: .85; }
+.ly-line.current { opacity: 1; color: var(--ly-ink, #fff); background: #262626; box-shadow: inset 3px 0 #f39a26; }
+.ly-section { display: table; margin: 1em 0 .3em; padding: .2em .85em; border-radius: 999px; background: var(--sec-color, #2f4f7a); color: var(--sec-ink, #e8f0ff); font-size: .62em; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; cursor: pointer; }
 .ly-seg { display: inline-flex; flex-direction: column; vertical-align: bottom; }
 .ly-chord { color: #f3b04d; font-weight: 700; font-size: .72em; line-height: 1.1; min-height: 1.1em; padding-right: .25em; }
 .ly-line.current .ly-chord { color: #ffc566; }
@@ -1081,7 +1081,7 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 #practice-downloads header .button { padding: 5px 10px; font-size: 12px; }
 
 /* Practice transport (Ableton-style) */
-body.view-practice .shell { padding-bottom: 96px; }
+body.view-practice .shell { padding-bottom: 124px; }
 .pt-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 70; display: flex; align-items: center; gap: 12px; padding: 8px 16px calc(8px + env(safe-area-inset-bottom)); background: #1e1e1e; border-top: 1px solid #0c0c0c; box-shadow: 0 -6px 24px rgba(0,0,0,.35); font-size: 12px; color: #d6d6d6; }
 .pt-group { display: flex; gap: 2px; background: #121212; padding: 2px; border-radius: 3px; }
 .pt-group button { display: grid; place-items: center; min-width: 34px; height: 26px; padding: 0 8px; border: 0; border-radius: 2px; background: #3a3a3a; color: #cfcfcf; font: 600 11px var(--sans); cursor: pointer; }
@@ -1117,7 +1117,7 @@ body.view-practice .shell { padding-bottom: 96px; }
 .ly-chip.empty { opacity: .5; }
 .ly-chip.empty.on { opacity: 1; }
 .ly-section { transition: background .15s, box-shadow .15s, color .15s; opacity: .75; }
-.ly-section.current { opacity: 1; background: #3d6aa8; box-shadow: 0 0 0 2px rgba(243,154,38,.55); }
+.ly-section.current { opacity: 1; box-shadow: 0 0 0 2px #111, 0 0 0 4px rgba(255,255,255,.75); }
 .ly-section:hover { opacity: 1; }
 
 .export-pick li { break-inside: avoid; }
@@ -1135,4 +1135,31 @@ body.view-practice .shell { padding-bottom: 96px; }
   .tabs { justify-content: safe center; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; -webkit-overflow-scrolling: touch; max-width: 100%; }
   .tabs::-webkit-scrollbar { display: none; }
   .tab { flex: 0 0 auto; padding: 8px 10px; }
+}
+
+/* Multitrack controls stay locked until every track is downloaded. */
+.ab-locked .ab-activator, .ab-locked .ab-solo, .ab-locked .ab-fader { opacity: .35; cursor: not-allowed; pointer-events: none; }
+/* Transport: song title + info strip (key, live tempo, your work, ready). */
+.pt-bar { flex-wrap: wrap; row-gap: 6px; padding-bottom: max(10px, calc(6px + env(safe-area-inset-bottom))); }
+.pt-song { order: 20; flex: 0 1 260px; font-size: 13px; }
+.pt-info { order: 30; flex-basis: 100%; display: flex; gap: 6px; align-items: center; min-width: 0; overflow: hidden; }
+.pt-chip { flex: none; padding: 3px 8px; border-radius: 999px; background: #121212; color: #9a9a9a; font-size: 11px; white-space: nowrap; }
+.pt-chip b { color: #e6e6e6; font: 600 11px var(--mono); }
+.pt-work { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: #7fc98a; }
+.pt-work.open { color: #f3a447; }
+.pt-ready { color: #bdbdbd; }
+.pt-ready.is-ready { background: #1f4d2a; color: #b8f5c4; }
+body { padding-top: env(safe-area-inset-top); }
+@media (max-width: 760px) {
+  .pt-bar { padding-top: 8px; padding-bottom: max(18px, calc(10px + env(safe-area-inset-bottom))); }
+  .pt-song { display: block; order: 1; flex: 1 1 0; min-width: 0; max-width: none; }
+  .pt-modes { order: 2; }
+  .pt-break { display: block; order: 3; flex-basis: 100%; height: 0; }
+  .pt-buttons { order: 4; }
+  #pt-pos { order: 5; }
+  .pt-seek { order: 6; height: 28px; }
+  .pt-lcd.pt-dim { order: 7; }
+  .pt-info { order: 8; padding-top: 2px; }
+  .pt-group button { height: 30px; }
+  body.view-practice .shell { padding-bottom: 170px; }
 }

@@ -67,6 +67,7 @@ def _clips(track_el):
                 'end': float(end.get('Value')),
                 'name': _val(c, 'Name', '') or '',
                 'disabled': _val(c, 'Disabled', 'false') == 'true',
+                'color': _val(c, 'Color', None),
                 'notes': notes,
                 'file': (_val(c, 'SampleRef/FileRef/Path', '') or _val(c, 'SampleRef/FileRef/RelativePath', '') or '')
                         if c.tag == 'AudioClip' else '',
@@ -359,16 +360,33 @@ def _lyrics_for(lyric_tracks, section_clips, a, b, tl):
         return round(tl.seconds(a, beat), 3) if beat > a else 0.0
     out = {'tracks': [], 'sections': []}
     for c in _in(section_clips, a, b):
-        out['sections'].append({'t': sec(max(a, c['start'])), 'name': c['name']})
+        out['sections'].append({'t': sec(max(a, c['start'])), 'name': c['name'], 'c': _hex(c.get('color'))})
     for lt in lyric_tracks:
         lines = []
         for c in _in(lt['clips'], a, b):
             if not c['name'].strip():
                 continue
             start = max(a, c['start'])
-            lines.append({'t': sec(start), 'e': sec(min(b, c['end'])), 'text': c['name']})
+            lines.append({'t': sec(start), 'e': sec(min(b, c['end'])), 'text': c['name'], 'c': _hex(c.get('color'))})
         if lines:
             out['tracks'].append({'slug': lt['slug'], 'label': lt['label'], 'lines': lines})
+    # Tempo in seconds from the song start (automation breakpoints, ramps
+    # sampled every beat) so the practice player can show the live tempo.
+    pts = [(0.0, tl.bpm_at(a + 1e-7))]
+    events = [t for t, _ in tl.tempo if a < t < b]
+    for t, v in tl.tempo:
+        if a < t < b:
+            pts.append((sec(t), v))
+    beat = math.floor(a) + 1.0
+    while beat < b:
+        if any(abs(beat - t) < 1e-6 for t in events) is False:
+            v0 = tl.bpm_at(beat - 1e-7)
+            v1 = tl.bpm_at(beat + 1e-7)
+            if abs(v1 - v0) < 1e-6 and abs(v0 - pts[-1][1]) > 0.05:
+                pts.append((sec(beat), v0))
+        beat += 1.0
+    pts.sort(key=lambda p: p[0])
+    out['tempo'] = [[round(t, 2), round(v, 2)] for t, v in pts]
     return out
 
 
@@ -389,6 +407,14 @@ COLOR_SOURCES = {
     'Stem - Bass': ('STEMS', 'BASS'), 'Stem - Drums': ('STEMS', 'DRUMS'), 'Stem - Other': ('STEMS', 'OTHER'),
     'Stem - Vocals': ('STEMS', 'VOCALS'), 'Backing': (None, 'MIXED BACKING'), 'CPC': (None, 'CPC'),
 }
+
+
+def _hex(index):
+    """Live palette index -> '#RRGGBB' (None if unknown)."""
+    try:
+        return '#' + LIVE_PALETTE[int(index)]
+    except (TypeError, ValueError, IndexError):
+        return None
 
 
 def _track_colors(tracks):
