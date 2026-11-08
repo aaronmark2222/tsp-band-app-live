@@ -4200,7 +4200,7 @@ function practiceLyricsDots(scroll, t) {
     const t0 = Number(row.dataset.t);
     const t1 = Number(row.dataset.t1);
     const dots = row.children;
-    const phase = t < t0 ? 'before' : t >= t1 ? 'after' : 'live';
+    const phase = t < t0 ? 'before' : t >= t1 - 0.08 ? 'after' : 'live';
     const lit = phase === 'live' ? Math.floor(((t - t0) / (t1 - t0)) * dots.length) + 1 : 0;
     const key = `${phase}${lit}`;
     if (row.dataset.lit === key) return;
@@ -4303,7 +4303,8 @@ $('#practice-lyrics').addEventListener('click', (event) => {
   if (size) { saveLyricsPrefs({ size: size.dataset.lyricsSize }); renderPracticeLyrics(); return; }
   const line = event.target.closest('.ly-line, .ly-section');
   if (line) {
-    ptSeek(Math.max(0, Number(line.dataset.t) - 0.05));
+    // Land just after the start, so the previous section's count dots stay off.
+    ptSeek(Math.max(0, Number(line.dataset.t) + 0.02));
     practice.lyricIndex = -2;
   }
 });
