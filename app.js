@@ -4833,15 +4833,18 @@ function lyricsFsExit(skipFade) {
   renderPracticeLyrics();
   practice.lyricIndex = -2;
   // Back on the page with the lyrics card at the top of the screen.
+  // The big "Lyrics" title lands at the top, clear of the iPhone status bar
+  // (the Home Screen app draws the page under it).
   const bringLyricsUp = () => {
-    const card = document.getElementById('practice-lyrics');
-    if (!card) return;
-    const top = card.getBoundingClientRect().top + window.scrollY - 8;
-    window.scrollTo(0, Math.max(0, top));
+    const title = document.querySelector('#practice-lyrics > header') || document.getElementById('practice-lyrics');
+    if (!title) return;
+    const top = title.getBoundingClientRect().top + window.scrollY - safeAreaTop() - 10;
+    window.scrollTo({ top: Math.max(0, top), behavior: 'instant' });
     lyricsFit();
   };
   setTimeout(() => { bringLyricsUp(); practiceLyricsTick(true); }, 60);
   setTimeout(bringLyricsUp, 400); // again once the browser has left full screen
+  setTimeout(bringLyricsUp, 900); // and after the phone's toolbars have settled
 }
 document.addEventListener('click', (event) => {
   if (event.target.closest('[data-lyrics-fs]')) { lyricsFs.on ? lyricsFsExit() : lyricsFsEnter(); }
@@ -5845,3 +5848,13 @@ document.addEventListener('click', (event) => {
   ptMixer.open ? ptMixerClose() : ptMixerOpen();
 });
 window.addEventListener('resize', () => { if (ptMixer.open) ptMixerPlace(); });
+
+// Height of the iPhone status bar / notch area (0 elsewhere).
+function safeAreaTop() {
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:fixed;top:0;left:0;height:env(safe-area-inset-top);width:0;visibility:hidden;pointer-events:none';
+  document.body.append(probe);
+  const h = probe.getBoundingClientRect().height || 0;
+  probe.remove();
+  return h;
+}
