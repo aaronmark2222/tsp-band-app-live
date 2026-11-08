@@ -1301,3 +1301,7 @@ body { padding-top: env(safe-area-inset-top); }
   .practice-layout>.practice-pick #practice-source{flex:0 0 210px}
   .practice-layout>.practice-pick #practice-song{flex:1 1 auto;min-width:0;max-width:none}
 }
+/* Full song names on Songs and Setlists: long names wrap onto a second line. */
+.song-summary-toggle .song-title-container,.setlist-song-toggle .song-title-container{white-space:normal!important;overflow:visible!important}
+.song-summary-toggle .song-title-full{display:inline!important;white-space:normal;overflow-wrap:anywhere}
+.song-summary-toggle .song-title-initials{display:none!important}

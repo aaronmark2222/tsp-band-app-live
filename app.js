@@ -334,10 +334,8 @@ function updateSongTitleAbbreviations() {
   document.querySelectorAll('.song-summary-toggle').forEach((button) => {
     const fullTitle = button.querySelector('[data-title-full]');
     if (!fullTitle) return;
+    // Full song names everywhere: long names wrap instead of turning into initials.
     button.classList.remove('song-title-abbreviated');
-    if (state.expandedSongIds.has(button.dataset.songId)) return;
-    const overflows = fullTitle.scrollWidth > fullTitle.clientWidth + 1;
-    button.classList.toggle('song-title-abbreviated', overflows);
   });
 }
 
