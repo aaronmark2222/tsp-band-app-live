@@ -3408,13 +3408,343 @@ function savePracticeTrackSetting(element, patch) {
   practice.memory = all;
 }
 
+// ---------------------------------------------------------------------------
+// Offline audio: practice files saved on this device so they download once.
+// Two places, chosen by the member:
+//   folder  - a folder they pick (Chrome/Edge on a computer: File System Access)
+//   browser - this browser's own storage (Cache Storage; works on iPhone too)
+// A manifest records each saved file's version (size + upload time); a newer
+// upload on the band app shows up as an update to download.
+const OFFLINE_PREF_KEY = 'tsp-offline-v1';
+const OFFLINE_MANIFEST_KEY = 'tsp-offline-manifest-v1';
+const OFFLINE_CACHE = 'tsp-practice-audio-v1';
+const offline = { mode: 'none', dir: null, folderName: '', manifest: {}, ready: false, needsPermission: false, job: null, urls: new Map(), initPromise: null };
+
+function offlineVersion(t) { return `${t.bytes || 0}|${t.uploaded_at || t.modified || ''}`; }
+function offlinePrefsGet() { try { return JSON.parse(localStorage.getItem(OFFLINE_PREF_KEY) || '{}'); } catch { return {}; } }
+function offlinePrefsSet(patch) { try { localStorage.setItem(OFFLINE_PREF_KEY, JSON.stringify({ ...offlinePrefsGet(), ...patch })); } catch { /* ignore */ } }
+function offlineFolderSupported() { return typeof window.showDirectoryPicker === 'function'; }
+function offlineBrowserSupported() { return typeof caches !== 'undefined'; }
+
+// Tiny IndexedDB key/value store (the chosen folder's handle lives here).
+function offlineIdb(mode, fn) {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('tsp-offline', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('kv');
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const tx = req.result.transaction('kv', mode);
+      const r = fn(tx.objectStore('kv'));
+      tx.oncomplete = () => resolve(r?.result);
+      tx.onerror = () => reject(tx.error);
+    };
+  });
+}
+
+function offlineInit() {
+  if (offline.initPromise) return offline.initPromise;
+  offline.initPromise = (async () => {
+    const prefs = offlinePrefsGet();
+    offline.mode = prefs.mode || 'none';
+    try { offline.manifest = JSON.parse(localStorage.getItem(OFFLINE_MANIFEST_KEY) || '{}'); } catch { offline.manifest = {}; }
+    if (offline.mode === 'folder') {
+      try {
+        const handle = await offlineIdb('readonly', (store) => store.get('folder'));
+        if (!handle) { offline.mode = 'none'; }
+        else {
+          offline.folderName = handle.name;
+          const perm = await handle.queryPermission({ mode: 'readwrite' });
+          if (perm === 'granted') { offline.dir = handle; await offlineReadFolderManifest(); }
+          else offline.needsPermission = true;
+          offline.handle = handle;
+        }
+      } catch (error) { console.warn('Offline folder not available', error); offline.mode = 'none'; }
+    }
+    if (offline.mode === 'browser' && !offlineBrowserSupported()) offline.mode = 'none';
+    offline.ready = true;
+  })();
+  return offline.initPromise;
+}
+async function offlineReadFolderManifest() {
+  try {
+    const fh = await offline.dir.getFileHandle('tsp-audio-manifest.json');
+    offline.manifest = JSON.parse(await (await fh.getFile()).text()) || {};
+  } catch { /* new folder: keep the local copy of the manifest */ }
+}
+let offlineManifestTimer = null;
+function offlineSaveManifest() {
+  try { localStorage.setItem(OFFLINE_MANIFEST_KEY, JSON.stringify(offline.manifest)); } catch { /* ignore */ }
+  if (offline.mode !== 'folder' || !offline.dir) return;
+  clearTimeout(offlineManifestTimer);
+  offlineManifestTimer = setTimeout(async () => {
+    try {
+      const fh = await offline.dir.getFileHandle('tsp-audio-manifest.json', { create: true });
+      const w = await fh.createWritable();
+      await w.write(JSON.stringify(offline.manifest, null, 1));
+      await w.close();
+    } catch (error) { console.warn('Manifest not written', error); }
+  }, 400);
+}
+function offlineFileName(element, ext) { return `${element}.${ext || 'm4a'}`; }
+const offlineCacheKey = (songId, element) => `https://tsp-offline.local/${encodeURIComponent(songId)}/${encodeURIComponent(element)}`;
+
+async function offlineRead(songId, element) {
+  const m = offline.manifest[songId]?.[element];
+  if (!m) return null;
+  try {
+    if (offline.mode === 'folder' && offline.dir) {
+      const dir = await offline.dir.getDirectoryHandle(songId);
+      return await (await dir.getFileHandle(m.file)).getFile();
+    }
+    if (offline.mode === 'browser') {
+      const res = await (await caches.open(OFFLINE_CACHE)).match(offlineCacheKey(songId, element));
+      return res ? await res.blob() : null;
+    }
+  } catch { /* missing on disk */ }
+  return null;
+}
+async function offlineWrite(songId, element, track, blob) {
+  const ext = track.ext || 'm4a';
+  if (offline.mode === 'folder' && offline.dir) {
+    const dir = await offline.dir.getDirectoryHandle(songId, { create: true });
+    const name = offlineFileName(element, ext);
+    const fh = await dir.getFileHandle(name, { create: true });
+    const w = await fh.createWritable();
+    await w.write(blob);
+    await w.close();
+    const old = offline.manifest[songId]?.[element]?.file;
+    if (old && old !== name) { try { await dir.removeEntry(old); } catch { /* ignore */ } }
+    (offline.manifest[songId] ||= {})[element] = { v: offlineVersion(track), file: name, ext, bytes: blob.size, modified: track.uploaded_at || track.modified || '' };
+  } else if (offline.mode === 'browser') {
+    const cache = await caches.open(OFFLINE_CACHE);
+    await cache.put(offlineCacheKey(songId, element), new Response(blob, { headers: { 'Content-Type': ext === 'mp3' ? 'audio/mpeg' : 'audio/mp4' } }));
+    (offline.manifest[songId] ||= {})[element] = { v: offlineVersion(track), file: offlineFileName(element, ext), ext, bytes: blob.size, modified: track.uploaded_at || track.modified || '' };
+  } else return;
+  offlineSaveManifest();
+}
+function offlineObjectUrl(key, blob) {
+  const old = offline.urls.get(key);
+  if (old) URL.revokeObjectURL(old);
+  const url = URL.createObjectURL(blob);
+  offline.urls.set(key, url);
+  return url;
+}
+// The audio for a track: the saved copy if it's the current version (or if
+// we're offline), otherwise download it (and save it when saving is on).
+async function offlineTrackBlob(songId, track, onStatus) {
+  await offlineInit();
+  const saved = offline.manifest[songId]?.[track.element];
+  const current = saved && (track.offline || saved.v === offlineVersion(track));
+  if (offline.mode !== 'none' && (offline.dir || offline.mode === 'browser') && (current || (saved && !track.url))) {
+    const blob = await offlineRead(songId, track.element);
+    if (blob) return blob;
+  }
+  if (!track.url) throw new Error('not saved on this device and no connection');
+  onStatus?.(offline.mode === 'none' ? 'Loading…' : 'Downloading and saving on this device…');
+  const response = await fetch(track.url);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const blob = await response.blob();
+  if (offline.mode !== 'none' && (offline.dir || offline.mode === 'browser')) {
+    try { await offlineWrite(songId, track.element, track, blob); } catch (error) { console.warn('Not saved on this device', error); }
+  }
+  return blob;
+}
+function offlineSavedSongs() {
+  const map = new Map();
+  for (const [songId, files] of Object.entries(offline.manifest)) {
+    map.set(songId, Object.entries(files).map(([element, m]) => ({ element, bytes: m.bytes, modified: m.modified, ext: m.ext })));
+  }
+  return map;
+}
+function offlineStats() {
+  let files = 0;
+  let bytes = 0;
+  for (const songFiles of Object.values(offline.manifest)) for (const m of Object.values(songFiles)) { files += 1; bytes += m.bytes || 0; }
+  return { songs: Object.keys(offline.manifest).length, files, bytes };
+}
+// Saved files whose upload on the band app is newer.
+function offlineUpdates() {
+  const out = [];
+  if (!practice.available || practice.availableFromDevice) return out;
+  for (const [songId, files] of Object.entries(offline.manifest)) {
+    const now = practice.available.get(songId) || [];
+    for (const [element, m] of Object.entries(files)) {
+      const up = now.find((f) => f.element === element);
+      if (up && m.v !== offlineVersion(up)) out.push({ songId, element, bytes: up.bytes || 0 });
+    }
+  }
+  return out;
+}
+const mb = (bytes) => `${(bytes / 1048576).toFixed(bytes > 1048576 * 100 ? 0 : 1)} MB`;
+
+async function offlineChooseFolder() {
+  try {
+    const handle = await window.showDirectoryPicker({ id: 'tsp-practice-audio', mode: 'readwrite' });
+    await offlineIdb('readwrite', (store) => store.put(handle, 'folder'));
+    offline.mode = 'folder'; offline.dir = handle; offline.handle = handle; offline.folderName = handle.name; offline.needsPermission = false;
+    offlinePrefsSet({ mode: 'folder' });
+    await offlineReadFolderManifest();
+    offlineSaveManifest();
+    showNotice(`Practice audio will be saved in “${handle.name}”.`);
+  } catch (error) { if (error?.name !== 'AbortError') showNotice(`Could not use that folder: ${error.message}`, true); }
+  renderOfflinePanel();
+}
+async function offlineUseBrowser() {
+  try { await navigator.storage?.persist?.(); } catch { /* ignore */ }
+  offline.mode = 'browser';
+  offlinePrefsSet({ mode: 'browser' });
+  showNotice('Practice audio will be saved in this browser on this device.');
+  renderOfflinePanel();
+}
+async function offlineReconnect() {
+  try {
+    const perm = await offline.handle.requestPermission({ mode: 'readwrite' });
+    if (perm === 'granted') { offline.dir = offline.handle; offline.needsPermission = false; await offlineReadFolderManifest(); }
+  } catch (error) { showNotice(`Could not open the folder: ${error.message}`, true); }
+  renderOfflinePanel();
+}
+async function offlineTurnOff(removeSaved) {
+  if (removeSaved && offline.mode === 'browser') { try { await caches.delete(OFFLINE_CACHE); } catch { /* ignore */ } offline.manifest = {}; offlineSaveManifest(); }
+  offline.mode = 'none'; offline.dir = null;
+  offlinePrefsSet({ mode: 'none' });
+  renderOfflinePanel();
+}
+// Download (or update) many songs for offline use.
+async function offlineDownload(songIds, { everything, onlyUpdates } = {}) {
+  if (offline.job) return;
+  const job = { done: 0, total: 0, bytes: 0, totalBytes: 0, songs: songIds.length, current: '', cancelled: false, failed: 0 };
+  offline.job = job;
+  const plan = [];
+  for (const id of songIds) {
+    const files = practice.available?.get(id) || [];
+    for (const f of files) {
+      if (!everything && !onlyUpdates && f.element !== 'Mixdown') continue;
+      const saved = offline.manifest[id]?.[f.element];
+      if (saved && saved.v === offlineVersion(f)) continue;
+      if (onlyUpdates && !saved) continue;
+      plan.push({ id, element: f.element, bytes: f.bytes || 0 });
+    }
+  }
+  job.total = plan.length;
+  job.totalBytes = plan.reduce((sum, p) => sum + p.bytes, 0);
+  renderOfflinePanel();
+  const bySong = new Map();
+  for (const p of plan) (bySong.get(p.id) || bySong.set(p.id, []).get(p.id)).push(p);
+  for (const [id, items] of bySong) {
+    if (job.cancelled) break;
+    let tracks = [];
+    try {
+      const { data, error } = await db.functions.invoke('practice-audio', { body: { action: 'urls', song_id: id } });
+      if (error || !data?.ok) throw new Error(data?.error || error?.message || 'links');
+      tracks = data.tracks;
+    } catch { job.failed += items.length; job.done += items.length; continue; }
+    for (const item of items) {
+      if (job.cancelled) break;
+      const t = tracks.find((x) => x.element === item.element);
+      job.current = `${id} ${item.element}`;
+      renderOfflinePanel();
+      try {
+        if (!t) throw new Error('missing');
+        const res = await fetch(t.url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        await offlineWrite(id, item.element, t, blob);
+        job.bytes += blob.size;
+      } catch (error) { job.failed += 1; console.warn('Offline download failed', id, item.element, error); }
+      job.done += 1;
+      renderOfflinePanel();
+    }
+  }
+  offline.job = null;
+  showNotice(job.cancelled ? 'Stopped saving audio.' : `Saved ${job.done - job.failed} file${job.done - job.failed === 1 ? '' : 's'} on this device${job.failed ? ` (${job.failed} failed; try again on a better connection)` : ''}.`, !!job.failed);
+  renderOfflinePanel();
+}
+
+function renderOfflinePanel() {
+  const box = $('#practice-offline');
+  if (!box) return;
+  if (!offline.ready) { offlineInit().then(renderOfflinePanel); return; }
+  const stats = offlineStats();
+  const updates = offlineUpdates();
+  const upBytes = updates.reduce((sum, u) => sum + u.bytes, 0);
+  const updSongs = [...new Set(updates.map((u) => u.songId))];
+  const list = practice.songList || state.songs;
+  const scopeIds = list.map((song) => song.id).filter((id) => practice.available?.has(id));
+  const sourceLabel = $('#practice-source')?.selectedOptions?.[0]?.textContent || 'these songs';
+  const need = (everything) => {
+    let bytes = 0;
+    for (const id of scopeIds) for (const f of practice.available.get(id) || []) {
+      if (!everything && f.element !== 'Mixdown') continue;
+      if (offline.manifest[id]?.[f.element]?.v === offlineVersion(f)) continue;
+      bytes += f.bytes || 0;
+    }
+    return bytes;
+  };
+  const job = offline.job;
+  let body;
+  if (offline.mode === 'none') {
+    body = `<p class="muted">Save the practice audio on this device so it downloads only once — handy on a slow or limited connection. Songs you play are saved automatically, and you can save a whole setlist in one go on Wi-Fi.</p>
+      <div class="offline-row">
+        ${offlineFolderSupported() ? '<button type="button" class="button primary" data-offline-folder>Save in a folder…</button>' : ''}
+        ${offlineBrowserSupported() ? `<button type="button" class="button ${offlineFolderSupported() ? 'quiet' : 'primary'}" data-offline-browser>Save on this device${offlineFolderSupported() ? ' (in the browser)' : ''}</button>` : ''}
+      </div>
+      ${offlineFolderSupported() ? '' : '<p class="muted offline-small">On iPhone/iPad and in Safari the audio is kept inside the app (a folder can only be chosen in Chrome or Edge on a computer). Add TSP Work to your Home Screen so iOS keeps it.</p>'}`;
+  } else if (offline.needsPermission) {
+    body = `<p>Saved audio is in the folder <b>${escapeHtml(offline.folderName)}</b>. Allow access again to use it.</p>
+      <div class="offline-row"><button type="button" class="button primary" data-offline-reconnect>Open folder “${escapeHtml(offline.folderName)}”</button><button type="button" class="button quiet" data-offline-off>Stop saving</button></div>`;
+  } else {
+    const where = offline.mode === 'folder' ? `the folder <b>${escapeHtml(offline.folderName)}</b>` : 'this browser on this device';
+    const mixNeed = need(false);
+    const allNeed = need(true);
+    body = `<p>Saving in ${where} · <b>${stats.songs}</b> song${stats.songs === 1 ? '' : 's'}, ${mb(stats.bytes)} saved.${practice.availableFromDevice ? ' <span class="offline-badge">Offline: playing saved audio</span>' : ''}</p>
+      ${updates.length ? `<div class="offline-update"><b>Newer audio for ${updSongs.length} song${updSongs.length === 1 ? '' : 's'}</b> (${escapeHtml(updSongs.slice(0, 8).join(', '))}${updSongs.length > 8 ? '…' : ''}) · ${mb(upBytes)} <button type="button" class="button primary" data-offline-update ${job ? 'disabled' : ''}>Update</button></div>` : ''}
+      ${job ? `<div class="export-progress"><span style="width:${job.total ? (job.done / job.total) * 100 : 0}%"></span></div>
+        <p class="muted">Saving ${job.done} of ${job.total} files (${mb(job.bytes)} of ${mb(job.totalBytes)})${job.current ? ` · ${escapeHtml(job.current)}` : ''} <button type="button" class="button quiet" data-offline-cancel>Stop</button></p>`
+      : `<div class="offline-row">
+          <span class="muted">Save “${escapeHtml(sourceLabel)}” (${scopeIds.length} songs):</span>
+          <button type="button" class="button quiet" data-offline-dl="mix" ${mixNeed ? '' : 'disabled'}>Mixdowns${mixNeed ? ` · ${mb(mixNeed)}` : ' · saved'}</button>
+          <button type="button" class="button quiet" data-offline-dl="all" ${allNeed ? '' : 'disabled'}>Everything${allNeed ? ` · ${mb(allNeed)}` : ' · saved'}</button>
+        </div>`}
+      <p class="muted offline-small">Songs you open are saved as you play them. <button type="button" class="linklike" data-offline-off>Stop saving</button>${offline.mode === 'browser' ? ' · <button type="button" class="linklike" data-offline-clear>Delete saved audio</button>' : ''}</p>`;
+  }
+  box.innerHTML = `<header><h2>Offline audio</h2>${offline.mode !== 'none' && !offline.needsPermission ? '<span class="offline-on">● On</span>' : ''}</header>${body}`;
+}
+document.addEventListener('click', (event) => {
+  if (!event.target.closest('#practice-offline')) return;
+  if (event.target.closest('[data-offline-folder]')) offlineChooseFolder();
+  else if (event.target.closest('[data-offline-browser]')) offlineUseBrowser();
+  else if (event.target.closest('[data-offline-reconnect]')) offlineReconnect();
+  else if (event.target.closest('[data-offline-cancel]')) { if (offline.job) offline.job.cancelled = true; }
+  else if (event.target.closest('[data-offline-clear]')) { if (window.confirm('Delete all practice audio saved in this browser?')) offlineTurnOff(true); }
+  else if (event.target.closest('[data-offline-off]')) offlineTurnOff(false);
+  else if (event.target.closest('[data-offline-update]')) offlineDownload([...new Set(offlineUpdates().map((u) => u.songId))], { onlyUpdates: true });
+  else {
+    const dl = event.target.closest('[data-offline-dl]');
+    if (dl) {
+      const list = practice.songList || state.songs;
+      offlineDownload(list.map((song) => song.id).filter((id) => practice.available?.has(id)), { everything: dl.dataset.offlineDl === 'all' });
+    }
+  }
+});
+
 // What's uploaded comes straight from the R2 bucket (files from the app's
 // upload and from TSPWork's overnight export alike).
 async function practiceLoadAvailable() {
-  const { data, error } = await db.functions.invoke('practice-audio', { body: { action: 'list' } });
-  if (error || !data?.ok) throw new Error(data?.error || error?.message || 'list failed');
-  practice.available = new Map(Object.entries(data.songs || {}));
-  exportJob.storageBytes = data.total_bytes;
+  await offlineInit();
+  try {
+    const { data, error } = await db.functions.invoke('practice-audio', { body: { action: 'list' } });
+    if (error || !data?.ok) throw new Error(data?.error || error?.message || 'list failed');
+    practice.available = new Map(Object.entries(data.songs || {}));
+    practice.availableFromDevice = false;
+    exportJob.storageBytes = data.total_bytes;
+  } catch (error) {
+    // No connection: offer what is saved on this device.
+    const saved = offlineSavedSongs();
+    if (!saved.size) throw error;
+    practice.available = saved;
+    practice.availableFromDevice = true;
+  }
+  renderOfflinePanel();
 }
 
 // Which songs the Practice page offers: the whole repertoire, an upcoming
@@ -3514,14 +3844,22 @@ async function practiceOpenSong(songId) {
   const select = $('#practice-song');
   if (select && select.value !== songId) select.value = songId;
   practiceLoadLyrics(songId);
-  if (!practice.available?.has(songId)) { renderPracticePlayers(); return; }
+  if (!practice.available?.has(songId) && !offline.manifest[songId]) { renderPracticePlayers(); return; }
   practice.loadingSong = true;
   renderPracticePlayers();
   try {
-    const { data, error } = await db.functions.invoke('practice-audio', { body: { action: 'urls', song_id: songId } });
-    if (error || !data?.ok) throw new Error(data?.error || error?.message || 'could not get the audio links');
+    let tracks;
+    try {
+      const { data, error } = await db.functions.invoke('practice-audio', { body: { action: 'urls', song_id: songId } });
+      if (error || !data?.ok) throw new Error(data?.error || error?.message || 'could not get the audio links');
+      tracks = data.tracks;
+    } catch (error) {
+      // Offline: play what is saved on this device.
+      if (!offline.manifest[songId]) throw error;
+      tracks = Object.entries(offline.manifest[songId]).map(([element, m]) => ({ element, bytes: m.bytes, uploaded_at: m.modified, ext: m.ext, url: null, offline: true }));
+    }
     if (practice.songId !== songId) return;
-    const tracks = data.tracks.slice().sort((a, b) => practiceRank(a.element) - practiceRank(b.element));
+    tracks = tracks.slice().sort((a, b) => practiceRank(a.element) - practiceRank(b.element));
     tracks.songId = songId;
     practice.tracks = tracks;
   } catch (error) {
@@ -3571,10 +3909,26 @@ function renderPracticePlayers() {
   }
   const mix = practice.tracks.find((t) => t.element === 'Mixdown');
   mixBox.innerHTML = `<header><h2>Mixdown</h2><span class="muted">${escapeHtml(song.id)} · ${escapeHtml(song.name)}</span></header>
-    ${mix ? `<audio id="practice-mix-audio" preload="auto" src="${escapeHtml(mix.url)}"></audio>
+    ${mix ? `<audio id="practice-mix-audio" preload="auto" ${offline.mode === 'none' && mix.url ? `src="${escapeHtml(mix.url)}"` : ''}></audio><p class="muted offline-note" id="practice-mix-note"></p>
       <button type="button" class="pt-pick ${ptMode() === 'mix' ? 'on' : ''}" data-pt-mode="mix">${ptMode() === 'mix' ? '● Playing from the Mixdown' : 'Play the Mixdown'}</button>
       <span class="muted">Use the transport at the bottom of the page.</span>` : '<p class="muted">No mixdown for this song.</p>'}`;
   const audio = $('#practice-mix-audio');
+  if (audio && mix && !audio.getAttribute('src')) {
+    // Saved on this device: play the local copy (downloads once, then reuses it).
+    const songId = practice.songId;
+    const note = $('#practice-mix-note');
+    offlineTrackBlob(songId, mix, (msg) => { if (note) note.textContent = msg; })
+      .then((blob) => {
+        if (practice.songId !== songId || !document.body.contains(audio)) return;
+        audio.src = offlineObjectUrl(`${songId}|Mixdown`, blob);
+        if (note) note.textContent = '';
+        renderOfflinePanel();
+      })
+      .catch((error) => {
+        if (note) note.textContent = `Could not load the mixdown: ${error.message}`;
+        if (mix.url && practice.songId === songId) audio.src = mix.url;
+      });
+  }
   if (audio) {
     audio.addEventListener('ended', () => { practice.position = 0; audio.currentTime = 0; ptRender(); });
     audio.addEventListener('loadedmetadata', ptRender);
@@ -3584,6 +3938,7 @@ function renderPracticePlayers() {
     }
   }
   renderPracticeMultitrack();
+  renderOfflinePanel();
   ptRender();
   const files = practice.tracks.slice().sort((a, b) => (a.element === 'Mixdown' ? -1 : b.element === 'Mixdown' ? 1 : practiceRank(a.element) - practiceRank(b.element)));
   dlBox.innerHTML = `<header><h2>Download</h2><span class="muted">Full-length MP3s for practising offline</span><button type="button" class="button quiet" data-practice-dl-all title="Download every file of this song">Download all (${files.length})</button></header>
@@ -3648,9 +4003,8 @@ async function practiceLoadTracks() {
     while (queue.length) {
       const t = queue.shift();
       try {
-        const response = await fetch(t.url);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.arrayBuffer();
+        const blob = await offlineTrackBlob(practice.songId, t);
+        const data = await blob.arrayBuffer();
         const buffer = await practice.ctx.decodeAudioData(data);
         if (token !== practice.loadToken) return;
         practice.buffers.set(t.element, buffer);
