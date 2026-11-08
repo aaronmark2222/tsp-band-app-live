@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-07** · App version marker `?v=20261108-pwa2` · TSPWork remote script **1.17** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `223967ff…`) · Supabase ledger head `20261107190244_practice_audio_state` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
+_Last updated: **2026-11-08** · App version marker `?v=20261108-pwa2` · TSPWork remote script **1.17** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `223967ff…`) · Supabase ledger head `20261107190244_practice_audio_state` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -142,8 +142,8 @@ Aaron is the owner and the only person who runs Ableton Sync and exports. He mos
 | `practice_tracks` | 10 | **legacy**: early manual-upload index. The bucket listing is now the truth; kept for history |
 | `song_lyrics` | 62 | per song from the last Read set: `tracks` (+LYRICS lines `{t,e,text,c}`), `sections` (`{t,name,c}`), `tempo` (`[[sec,bpm]]`), `bars` (`[[sec,num,den]]`), `tone` (`{t,bar,n,v,d}`), duration_seconds, als_modified_at |
 | `app_meta` | 1 | key/value; `practice_track_colors` (element → hex from the set) |
-| `practice_audio_state` | — | per uploaded file (song × element): fingerprint of its Ableton tracks when exported; compared with app_meta `audio_fingerprints` (the set as last read) → yellow "changed since upload" in the export checklist |
-| `practice_export_log` | 0 | one row per exported song: export_seconds, files, song_seconds, per-file seconds; feeds the export time-left estimate |
+| `practice_audio_state` | 655 (all 62 songs) | per uploaded file (song × element): fingerprint of its Ableton tracks when exported; compared with app_meta `audio_fingerprints` (the set as last read) → yellow "changed since upload" in the export checklist |
+| `practice_export_log` | 60 | one row per exported song: export_seconds, files, song_seconds, per-file seconds; feeds the export time-left estimate |
 
 Song ID families now: E 15, EM 11, I 9, HM 9, H 7, EHM 5, K 3, KM 2, EHKM 1.
 
@@ -386,7 +386,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 
 ## 13. Roadmap and open items
 
-**Built (Oct–Nov 2026):** core tracker; member logins; gigs/setlists/dashboard; Ableton Sync with auto-metadata, evidence, snooze, chord mismatches and review mode; overnight practice export to R2; Practice page with multitrack, transport, AbleSet lyrics, live key/BPM and guitar-tone MIDI.
+**Built (Oct–Nov 2026):** core tracker; member logins; gigs/setlists/dashboard; Ableton Sync with auto-metadata, evidence, snooze, chord mismatches and review mode; overnight practice export to R2 (all 62 songs uploaded 2026-11-08, 3.14 GB; timing log, stop-after-song, auto-retry, freshness fingerprints); Practice page with multitrack, transport, AbleSet lyrics, live key/BPM, guitar-tone MIDI, offline audio and a fully offline (read-only) app.
 
 **Next / ideas (not started unless Aaron asks):**
 - App setlist → AbleSet setlist (planned third step of the Ableton integration).
@@ -456,6 +456,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 ---
 
 ## 17. Changelog of this plan
+- **2026-11-08:** Update App Plan run; full app test pass started (report in the claude.ai Project).
 - **2026-11-08:** The app works offline (service worker + saved data/lyrics), read-only.
 - **2026-11-08:** Offline audio for practice (folder or in-browser), with update prompts for newer uploads.
 - **2026-11-08:** Lyrics: section placement by majority/`[>]`/`[<]`, dots only during 3+ beat gaps, growing current line, eased scrolling.
