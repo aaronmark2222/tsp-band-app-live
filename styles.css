@@ -1283,3 +1283,6 @@ body { padding-top: env(safe-area-inset-top); }
 /* Transport stays put while the next song loads. */
 .pt-bar.pt-idle #pt-pos{color:#9a9a9a;font-size:11px}
 .pt-bar button:disabled,.pt-bar input:disabled{opacity:.35;cursor:default}
+/* While the next song loads, the previous song's cards stay (dimmed) so the page doesn't jump. */
+.practice-switching,.practice-switching .practice-card{transition:opacity .15s}
+.practice-layout.practice-switching .practice-main,.practice-card.practice-switching{opacity:.45;pointer-events:none}

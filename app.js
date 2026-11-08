@@ -3989,6 +3989,11 @@ async function renderPracticePage() {
 
 async function practiceOpenSong(songId) {
   practiceStop(true);
+  // The previous song's player stays on the page (dimmed) until the new one is
+  // ready, so nothing jumps; its audio is silenced and unhooked straight away.
+  const oldAudio = $('#practice-mix-audio');
+  if (oldAudio) { oldAudio.pause(); oldAudio.removeAttribute('id'); }
+  document.querySelector('.practice-layout')?.classList.add('practice-switching');
   practice.songId = songId;
   try { localStorage.setItem('tsp-practice-song', songId); } catch { /* ignore */ }
   practice.tracks = [];
@@ -4031,10 +4036,10 @@ async function practiceOpenSong(songId) {
     practice.loadingSong = false;
     renderPracticePlayers();
   }
-  // Load the multitrack straight away when it's on this device (or in memory),
-  // or when Multitrack is the chosen mode.
+  // Load the multitrack straight away only when it's already on this device
+  // (or in memory); downloading is always the member's choice.
   if (practice.songId === songId && practiceMultiTracks().length
-    && (ptMode() === 'multi' || practiceMultiSaved(songId) || practiceMultiInMemory(songId))) practiceLoadTracks();
+    && (practiceMultiSaved(songId) || practiceMultiInMemory(songId))) practiceLoadTracks();
 }
 function practiceMultiInMemory(songId) {
   return practiceMultiTracks().every((t) => memBlobGet(songId, t));
@@ -4067,8 +4072,23 @@ function practiceTime(seconds) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
+// Re-rendering the cards must never move the page (iPhone Safari jumps to the
+// top when the page briefly gets shorter): hold each card's height while its
+// content is swapped and put the scroll position back.
+function practiceKeepPlace(fn) {
+  const y = window.scrollY;
+  const cards = [...document.querySelectorAll('#practice-view .practice-card')];
+  cards.forEach((card) => { card.style.minHeight = `${card.offsetHeight}px`; });
+  try { fn(); } finally {
+    if (Math.abs(window.scrollY - y) > 1) window.scrollTo(0, y);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      cards.forEach((card) => { card.style.minHeight = ''; });
+      if (Math.abs(window.scrollY - y) > 1 && window.scrollY < y) window.scrollTo(0, Math.min(y, document.documentElement.scrollHeight - window.innerHeight));
+    }));
+  }
+}
 function renderPracticePlayers() {
-  try { renderPracticePlayersInner(); } finally { ptRender(); }
+  practiceKeepPlace(() => { try { renderPracticePlayersInner(); } finally { ptRender(); } });
 }
 function renderPracticePlayersInner() {
   const song = state.songs.find((item) => item.id === practice.songId);
@@ -4078,7 +4098,8 @@ function renderPracticePlayersInner() {
   $('#practice-song-note').textContent = '';
   dlBox.innerHTML = '';
   if (!song) { mixBox.innerHTML = ''; multiBox.innerHTML = ''; return; }
-  if (practice.loadingSong) { mixBox.innerHTML = '<p class="muted">Loading…</p>'; multiBox.innerHTML = ''; return; }
+  if (practice.loadingSong) return; // keep the previous song's cards (dimmed) until this one is ready
+  document.querySelector('.practice-layout')?.classList.remove('practice-switching');
   if (practice.error) { mixBox.innerHTML = `<p class="error">${escapeHtml(practice.error)}</p>`; multiBox.innerHTML = ''; return; }
   if (!practice.tracks.length) {
     mixBox.innerHTML = `<div class="empty-state">No practice audio for ${escapeHtml(song.id)} ${escapeHtml(song.name)} yet.</div>`;
@@ -4551,8 +4572,9 @@ function saveLyricsPrefs(patch) {
 }
 
 async function practiceLoadLyrics(songId) {
+  // Keep the old lyrics on screen (dimmed) until the new ones arrive.
   practice.lyrics = null;
-  renderPracticeLyrics();
+  $('#practice-lyrics')?.classList.add('practice-switching');
   let { data, error } = await db.from('song_lyrics').select('tracks, sections, tempo, bars, tone, duration_seconds, updated_at').eq('song_id', songId).maybeSingle();
   if (error && isNetworkError(error)) {
     const cached = await jsonCacheGet(`lyrics/${songId}`);
@@ -4561,7 +4583,8 @@ async function practiceLoadLyrics(songId) {
   if (practice.songId !== songId) return;
   practice.lyrics = error ? { error: error.message } : (data || { tracks: [], sections: [] });
   practice.lyricIndex = -2;
-  renderPracticeLyrics();
+  $('#practice-lyrics')?.classList.remove('practice-switching');
+  practiceKeepPlace(renderPracticeLyrics);
   renderTonePanel();
 }
 
