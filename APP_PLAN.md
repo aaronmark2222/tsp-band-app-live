@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-08** · App version marker `?v=20261108-pt6` · TSPWork remote script **1.18** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `b6d35b41…`) · Supabase ledger head `20261108050849_save_setlist_rpc` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
+_Last updated: **2026-11-08** · App version marker `?v=20261108-pt7` · TSPWork remote script **1.18** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `b6d35b41…`) · Supabase ledger head `20261108050849_save_setlist_rpc` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -229,7 +229,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
   - Song ID and title; chips for live **Key**, live **BPM** (from the tempo map) and **Ready / Not ready · N left**.
   - On phones: title and modes on row 1, buttons and times on row 2, the seek bar alone on row 3, chips on row 4. Safe-area padding keeps it off the iOS home bar.
 - **Works offline:** `sw.js` service worker keeps the app shell (network-first for same-origin, cache-first for esm.sh) in `tsp-app-shell-v1`; the page also adds what it is running to that cache. Last loaded data (member, songs, tasks, setlists, readiness, practice colours, setlist song lists) is kept in localStorage `tsp-data-cache-v1`; lyrics per song in Cache Storage `tsp-offline-data-v1`. With no connection the app opens read-only from these, with an offline banner.
-- **Offline audio** card (all members): **on by default** (browser storage); save practice audio on the device so it downloads once. Folder mode (Chrome/Edge desktop, File System Access; handle kept in IndexedDB, manifest `tsp-audio-manifest.json` in the folder) or browser mode (Cache Storage `tsp-practice-audio-v1`, works on iPhone; `navigator.storage.persist()`). Manifest (`tsp-offline-manifest-v1`) stores each file's version = bytes|upload time; newer uploads show an "Update" prompt for just those files. Songs are saved as they're played (a song whose multitrack is saved loads it automatically on open); "Save … Mixdowns / Everything" saves the current song list. With no connection the page plays saved audio.
+- **Offline audio** card (all members): **always on** (no off switch; an old "off" choice is ignored; "Delete saved audio" frees the space but keeps saving) (browser storage); save practice audio on the device so it downloads once. Folder mode (Chrome/Edge desktop, File System Access; handle kept in IndexedDB, manifest `tsp-audio-manifest.json` in the folder) or browser mode (Cache Storage `tsp-practice-audio-v1`, works on iPhone; `navigator.storage.persist()`). Manifest (`tsp-offline-manifest-v1`) stores each file's version = bytes|upload time; newer uploads show an "Update" prompt for just those files. Songs are saved as they're played (a song whose multitrack is saved loads it automatically on open); "Save … Mixdowns / Everything" saves the current song list. With no connection the page plays saved audio.
 - **Downloads:** every file, plus "Download all" (presigned links with `content-disposition`).
 - **Lyrics (AbleSet look):**
   - Track chips: Chords, Guitar, Keyboard, Lyrics, Drums plus any other `+LYRICS` track. Text size S/M/L.
@@ -464,6 +464,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 ---
 
 ## 17. Changelog of this plan
+- **2026-11-08:** Offline audio saving is always on (`?v=20261108-pt7`): "Save on this device" and "Stop saving" removed.
 - **2026-11-08:** Practice (`?v=20261108-pt6`): multitrack downloads continue in the background across song changes; offline card counts mixdowns and multitracks.
 - **2026-11-08:** Practice (`?v=20261108-pt4`): no automatic multitrack downloads; song changes keep the page in place.
 - **2026-11-08:** Practice song switching (`?v=20261108-pt3`): transport no longer disappears; Multitrack mode carries over; in-visit memory cache stops re-downloads (Aaron's iPhone re-downloaded I1); lighter decoding on phones.
