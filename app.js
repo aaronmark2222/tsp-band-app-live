@@ -3563,8 +3563,10 @@ function offlineInit() {
     const prefs = offlinePrefsGet();
     // Saving on the device is on by default (in the browser's storage); a
     // member can switch it off or choose a folder instead.
-    offline.mode = prefs.mode || (offlineBrowserSupported() ? 'browser' : 'none');
-    if (!prefs.mode && offline.mode === 'browser') { try { navigator.storage?.persist?.(); } catch { /* ignore */ } }
+    // Saving on the device is always on: in the browser's storage, or in a
+    // folder the member picked (Chrome/Edge on a computer).
+    offline.mode = prefs.mode === 'folder' ? 'folder' : (offlineBrowserSupported() ? 'browser' : 'none');
+    if (offline.mode === 'browser') { try { navigator.storage?.persist?.(); } catch { /* ignore */ } }
     try { offline.manifest = JSON.parse(localStorage.getItem(OFFLINE_MANIFEST_KEY) || '{}'); } catch { offline.manifest = {}; }
     if (offline.mode === 'folder') {
       try {
@@ -3759,10 +3761,12 @@ async function offlineReconnect() {
   } catch (error) { showNotice(`Could not open the folder: ${error.message}`, true); }
   renderOfflinePanel();
 }
-async function offlineTurnOff(removeSaved) {
-  if (removeSaved && offline.mode === 'browser') { try { await caches.delete(OFFLINE_CACHE); } catch { /* ignore */ } offline.manifest = {}; offlineSaveManifest(); }
-  offline.mode = 'none'; offline.dir = null;
-  offlinePrefsSet({ mode: 'none' });
+// Frees the space used in the browser; saving stays on (songs save again as they're played).
+async function offlineClearBrowser() {
+  try { await caches.delete(OFFLINE_CACHE); } catch { /* ignore */ }
+  offline.manifest = {};
+  offlineSaveManifest();
+  memBlobs.clear();
   renderOfflinePanel();
 }
 // Download (or update) many songs for offline use.
@@ -3845,15 +3849,10 @@ function renderOfflinePanel() {
   const job = offline.job;
   let body;
   if (offline.mode === 'none') {
-    body = `<p class="muted">Save the practice audio on this device so it downloads only once — handy on a slow or limited connection. Songs you play are saved automatically, and you can save a whole setlist in one go on Wi-Fi.</p>
-      <div class="offline-row">
-        ${offlineFolderSupported() ? '<button type="button" class="button primary" data-offline-folder>Save in a folder…</button>' : ''}
-        ${offlineBrowserSupported() ? `<button type="button" class="button ${offlineFolderSupported() ? 'quiet' : 'primary'}" data-offline-browser>Save on this device${offlineFolderSupported() ? ' (in the browser)' : ''}</button>` : ''}
-      </div>
-      ${offlineFolderSupported() ? '' : '<p class="muted offline-small">On iPhone/iPad and in Safari the audio is kept inside the app (a folder can only be chosen in Chrome or Edge on a computer). Add TSP Work to your Home Screen so iOS keeps it.</p>'}`;
+    body = '<p class="muted">This browser can\'t keep audio on the device, so songs stream each time. Use Safari, Chrome or Edge to save them.</p>';
   } else if (offline.needsPermission) {
     body = `<p>Saved audio is in the folder <b>${escapeHtml(offline.folderName)}</b>. Allow access again to use it.</p>
-      <div class="offline-row"><button type="button" class="button primary" data-offline-reconnect>Open folder “${escapeHtml(offline.folderName)}”</button><button type="button" class="button quiet" data-offline-off>Stop saving</button></div>`;
+      <div class="offline-row"><button type="button" class="button primary" data-offline-reconnect>Open folder “${escapeHtml(offline.folderName)}”</button>${offlineBrowserSupported() ? '<button type="button" class="button quiet" data-offline-browser>Save in the browser instead</button>' : ''}</div>`;
   } else {
     const where = offline.mode === 'folder' ? `the folder <b>${escapeHtml(offline.folderName)}</b>` : 'this browser on this device';
     const mixNeed = need(false);
@@ -3867,7 +3866,7 @@ function renderOfflinePanel() {
           <button type="button" class="button quiet" data-offline-dl="mix" ${mixNeed ? '' : 'disabled'}>Mixdowns${mixNeed ? ` · ${mb(mixNeed)}` : ' · saved'}</button>
           <button type="button" class="button quiet" data-offline-dl="all" ${allNeed ? '' : 'disabled'}>Everything${allNeed ? ` · ${mb(allNeed)}` : ' · saved'}</button>
         </div>`}
-      <p class="muted offline-small">Songs you open are saved as you play them, so they don't download again. <button type="button" class="linklike" data-offline-off>Stop saving</button>${offline.mode === 'browser' ? ' · <button type="button" class="linklike" data-offline-clear>Delete saved audio</button>' : ''}${offline.mode === 'browser' && offlineFolderSupported() ? ' · <button type="button" class="linklike" data-offline-folder>Use a folder instead</button>' : ''}</p>`;
+      <p class="muted offline-small">Songs you open are saved as you play them, so they don't download again.${offline.mode === 'browser' ? ' <button type="button" class="linklike" data-offline-clear>Delete saved audio</button>' : ''}${offline.mode === 'folder' && offlineBrowserSupported() ? ' <button type="button" class="linklike" data-offline-browser>Save in the browser instead</button>' : ''}${offline.mode === 'browser' && offlineFolderSupported() ? ' · <button type="button" class="linklike" data-offline-folder>Use a folder instead</button>' : ''}</p>`;
   }
   const bgSongs = [...bgFetch.songs.entries()].filter(([id]) => id !== practice.songId);
   const bgLine = bgSongs.length ? `<p class="muted offline-small">Still downloading in the background: ${bgSongs.map(([id, st]) => `${escapeHtml(id)} (${st.done}/${st.total})`).join(', ')}</p>` : '';
@@ -3881,8 +3880,7 @@ document.addEventListener('click', (event) => {
   else if (event.target.closest('[data-offline-browser]')) offlineUseBrowser();
   else if (event.target.closest('[data-offline-reconnect]')) offlineReconnect();
   else if (event.target.closest('[data-offline-cancel]')) { if (offline.job) offline.job.cancelled = true; }
-  else if (event.target.closest('[data-offline-clear]')) { if (window.confirm('Delete all practice audio saved in this browser?')) offlineTurnOff(true); }
-  else if (event.target.closest('[data-offline-off]')) offlineTurnOff(false);
+  else if (event.target.closest('[data-offline-clear]')) { if (window.confirm('Delete all practice audio saved in this browser? Songs will save again as you play them.')) offlineClearBrowser(); }
   else if (event.target.closest('[data-offline-update]')) offlineDownload([...new Set(offlineUpdates().map((u) => u.songId))], { onlyUpdates: true });
   else {
     const dl = event.target.closest('[data-offline-dl]');
