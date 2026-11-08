@@ -460,16 +460,17 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .editor-option small{font:10px var(--mono)}
 .editor-section{display:grid;gap:8px}
 .editor-section h3,.setlist-builder h3{margin:0}
-.new-song-task-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;max-height:300px;overflow:auto;padding:1px}
+.new-song-task-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:1px}
 .new-song-task-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;padding:7px 8px;border:1px solid var(--line);border-radius:7px;background:#202c23;color:#d6e0d2;font-size:11px}
 .new-song-task-row select{max-width:145px;height:34px;padding:0 7px;font-size:11px}
-.editor-actions{display:flex;justify-content:flex-end;gap:8px;padding-top:4px}
+.editor-actions{display:flex;justify-content:flex-end;gap:8px;position:sticky;bottom:-24px;z-index:2;margin:0 -24px -24px;padding:12px 24px 24px;background:var(--panel);border-top:1px solid var(--line)}
+.setlist-create-top{display:grid;grid-template-columns:2fr 1fr;gap:12px}.setlist-create-top>label{display:grid;gap:7px;color:#c6d0c4;font-size:12px}
 .setlist-editor-card{width:100%}
 .setlist-builder{display:grid;grid-template-columns:1fr 1fr;gap:14px;min-height:260px}
 .setlist-builder-pick,.setlist-builder-order{display:grid;align-content:start;gap:9px;min-width:0}
 .setlist-builder .search{width:100%;min-width:0;margin:0}
 .setlist-builder .search input{height:36px}
-.setlist-song-options{display:grid;gap:5px;max-height:330px;overflow:auto}
+.setlist-song-options{display:grid;gap:5px;max-height:min(330px,38vh);overflow:auto}
 .setlist-song-choice{display:grid;grid-template-columns:16px 52px minmax(0,1fr);align-items:center;gap:8px;padding:7px;border:1px solid var(--line);border-radius:7px;background:#202c23;color:#d6e0d2;font-size:11px;cursor:pointer}
 .setlist-song-choice:hover{border-color:#687b61}
 .setlist-song-choice>span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -480,7 +481,7 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .selected-song-controls{display:flex;gap:3px}
 .selected-song-controls button{width:26px;height:26px;border:1px solid var(--line);border-radius:5px;background:transparent;color:var(--ink)}
 .selected-song-controls button:disabled{opacity:.35;cursor:default}
-@media(max-width:700px){.editor-dialog{max-height:94vh}.editor-card{padding:18px}.editor-grid,.new-song-task-list,.setlist-builder{grid-template-columns:1fr}.language-field{grid-column:auto}.setlist-builder{min-height:0}.setlist-builder-pick,.setlist-builder-order{min-height:180px}.editor-actions{position:sticky;bottom:-18px;background:var(--panel);padding:12px 0 0}.new-song-task-list{max-height:260px}}
+@media(max-width:700px){.editor-dialog{max-height:94vh}.editor-card{padding:18px}.editor-grid,.new-song-task-list,.setlist-builder{grid-template-columns:1fr}.language-field{grid-column:auto}.setlist-builder{min-height:0}.setlist-builder-pick,.setlist-builder-order{min-height:180px}.editor-actions{bottom:-18px;margin:0 -18px -18px;padding:12px 18px 18px}.setlist-create-top{grid-template-columns:1fr}}
 
 .new-song-id-field{display:grid;align-content:start;gap:7px;color:#c6d0c4;font-size:12px}
 .new-song-id-field>label{font-size:12px}
@@ -1247,3 +1248,33 @@ body { padding-top: env(safe-area-inset-top); }
 
 /* Offline: read-only notice at the top of the app. */
 #offline-banner { position: sticky; top: 0; z-index: 90; padding: 8px 14px; background: #3a3112; color: #ffe3a1; font-size: 13px; text-align: center; border-bottom: 1px solid #000; }
+
+/* 2026-11-08 test-pass fixes */
+/* Songs list grows with the page instead of a small inner scroll box. */
+.table-wrap{max-height:none!important;overflow:visible!important}
+/* Dashboard work widgets: never scroll sideways; status menus shrink to fit. */
+.dashboard-member-work-list{overflow-x:hidden}
+.dashboard-member-task-list{margin-left:8px}
+.dashboard-member-task-row{grid-template-columns:minmax(0,1fr) minmax(0,112px)}
+.dashboard-member-task-row>.status-select{max-width:112px}
+/* Multitrack rows always fit their card (meters and ↓ stay visible). */
+@media (min-width: 701px) {
+  .ab-track{grid-template-columns:minmax(110px,200px) minmax(0,1fr)}
+  .ab-controls{min-width:0}
+  .ab-fader{flex:1 1 80px;width:auto;min-width:50px;max-width:240px}
+  .ab-meter{flex:1 1 40px;min-width:24px}
+}
+/* Lyrics box fits above the fixed transport; less empty space before the first line. */
+.ly-scroll{height:clamp(240px,calc(100dvh - var(--pt-h,110px) - 150px),640px);padding-top:12vh}
+/* Legend for the two progress lines on each song. */
+.song-head-row{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.progress-legend{display:inline-flex;align-items:center;gap:6px;color:#9a9a9a;font:10px var(--mono);letter-spacing:.04em;text-transform:none}
+.progress-legend i{display:inline-block;width:16px;height:3px;border-radius:2px;margin-left:6px}
+.progress-legend i.band{background:#a0a0a0}.progress-legend i.you{background:#f39a26}
+.gig-countdown{margin-left:8px;padding:2px 8px;border:1px solid #f39a26;border-radius:999px;color:#f39a26;font:500 11px var(--mono);vertical-align:middle;white-space:nowrap}
+/* Disabled buttons look disabled (e.g. "Export songs" with nothing ticked). */
+.button:disabled,.button.primary:disabled{opacity:.4;cursor:not-allowed;transform:none;filter:saturate(.4)}
+/* Export checklist reads top-to-bottom in columns, no sideways scrolling. */
+.export-pick{max-height:none;overflow:visible}
+.export-pick label{min-width:0}
+.export-pick li{break-inside:avoid}

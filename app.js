@@ -94,6 +94,18 @@ function showWorkspace() {
   $('#member-name').textContent = state.member.name;
   $('#member-badge').textContent = state.member.name.slice(0, 1).toUpperCase();
   startAbletonBridge();
+  // Wake the member-access function in the background so the dialog opens fast.
+  if (state.member.is_admin && navigator.onLine !== false) setTimeout(() => { fetchAccessMembers().catch(() => {}); }, 4000);
+}
+
+let accessMembersFetch = null;
+function fetchAccessMembers(force = false) {
+  if (!force && accessMembersFetch && Date.now() - accessMembersFetch.at < 120000) return accessMembersFetch.promise;
+  const promise = db.functions.invoke('member-access-admin', { body: { action: 'list_members' } })
+    .then(({ data, error }) => { if (error) throw error; return data.members || []; });
+  accessMembersFetch = { at: Date.now(), promise };
+  promise.catch(() => { accessMembersFetch = null; });
+  return promise;
 }
 
 function showLogin() {
@@ -231,7 +243,7 @@ function taskEditable(type, current) {
 
 function statusControl(songId, type, current) {
   const options = type.allowed_statuses.map((status) => {
-    const label = ['sections', 'lyrics', 'chords', 'guitar', 'keyboard', 'drums', 'guitar_tone_midi', 'prompts', 'song_cue', 'backup_que'].includes(type.key) && status === 'Completed' ? 'Complete' : status;
+    const label = status;
     const color = STATUS_COLORS[status] || '#D0D0D0';
     return `<option ${status === current ? 'selected' : ''} value="${escapeHtml(status)}" style="color:${color};background-color:#19231c">${escapeHtml(label)}</option>`;
   }).join('');
@@ -246,7 +258,7 @@ function backingTrackControl(song, readiness) {
   const manual = song.backing_track_manual || '';
   const derived = readiness?.backing_track || '—';
   const choices = [
-    `<option value="" ${manual ? '' : 'selected'} style="color:#D0D0D0;background-color:#19231c">${escapeHtml(derived)}</option>`,
+    `<option value="" ${manual ? '' : 'selected'} style="color:#D0D0D0;background-color:#19231c">${escapeHtml(manual ? 'Auto' : derived)}</option>`,
     `<option value="Sent to Mix" ${manual === 'Sent to Mix' ? 'selected' : ''} style="color:${BACKING_TRACK_COLORS['Sent to Mix']};background-color:#19231c">Sent to Mix</option>`,
     `<option value="Mixed" ${manual === 'Mixed' ? 'selected' : ''} style="color:#A5D17D;background-color:#19231c">Mixed</option>`
   ].join('');
@@ -258,8 +270,9 @@ function labelAutoBackingOption(select, showAuto) {
   const option = select.querySelector('option[value=""]');
   if (!option) return;
   const derived = (state.readiness || []).find((row) => row.song_id === select.dataset.song)?.backing_track || '—';
-  option.textContent = showAuto ? 'Auto' : derived;
-  option.style.color = showAuto ? '#D0D0D0' : (BACKING_TRACK_COLORS[derived] || '#D0D0D0');
+  const auto = showAuto || select.value !== '';
+  option.textContent = auto ? 'Auto' : derived;
+  option.style.color = auto ? '#D0D0D0' : (BACKING_TRACK_COLORS[derived] || '#D0D0D0');
 }
 
 function songProgress(songId, songName) {
@@ -419,7 +432,7 @@ function songSummaryLeadMarkup(songId) {
 function renderSongs() {
   const head = $('#songs-head');
   const body = $('#songs-body');
-  head.innerHTML = '<tr><th>SONG</th></tr>';
+  head.innerHTML = '<tr><th><span class="song-head-row">SONG<span class="progress-legend" title="Work done on each song"><i class="band"></i>Band <i class="you"></i>Your work</span></span></th></tr>';
   const term = $('#song-search').value.trim().toLowerCase();
   const language = $('#language-filter').value;
   const performance = $('#performance-filter').value;
@@ -466,7 +479,8 @@ function renderLanguageFilter() {
     .filter(([, language]) => language).map(([code, language]) => `<option value="${escapeHtml(code)}" style="color:${languageColor(code)};background-color:#111a15">${escapeHtml(language.short_label)}</option>`).join('');
   $('#language-filter').innerHTML = `<option value="">All languages</option>${options}`;
   $('#setlist-language-filter').innerHTML = `<option value="">All languages</option>${options}`;
-  const keys = KEY_CHOICES;
+  const used = new Set(state.songs.flatMap((song) => song.keys || []));
+  const keys = KEY_CHOICES.filter((key) => used.has(key));
   $('#key-filter').innerHTML = `<option value="">Any key / scale</option>${keys.map((key) => `<option value="${escapeHtml(key)}">${escapeHtml(key)}</option>`).join('')}`;
   $('#setlist-key-filter').innerHTML = `<option value="">Any key / scale</option>${keys.map((key) => `<option value="${escapeHtml(key)}">${escapeHtml(key)}</option>`).join('')}`;
 }
@@ -548,7 +562,8 @@ function renderSetlistItems(items, canEditSetlist) {
 }
 function renderSetlistOptions() {
   const select = $('#setlist-select');
-  const current = state.activeSetlist || select.value;
+  // First visit: open the setlist of the next gig rather than the first one made.
+  const current = state.activeSetlist || nextDashboardGig()?.setlist_id || select.value;
   select.innerHTML = state.setlists.map((list) => `<option value="${list.id}">${escapeHtml(list.name)}</option>`).join('');
   if (!state.setlists.length) {
     select.innerHTML = '<option value="">No setlists yet</option>';
@@ -571,11 +586,13 @@ function gigCard(gig, canEdit) {
   const date = new Date(`${gig.event_date}T12:00:00`).toLocaleDateString(undefined, { dateStyle: 'long' });
   const details = [date, gig.start_time?.slice(0, 5), gig.location].filter(Boolean).join(' · ');
   const past = gig.event_date < localDateString();
+  const daysAway = Math.round((new Date(`${gig.event_date}T12:00:00`) - new Date(`${localDateString()}T12:00:00`)) / 86400000);
+  const countdown = gig.completed || daysAway < 0 ? '' : daysAway === 0 ? 'Today' : daysAway === 1 ? 'Tomorrow' : `In ${daysAway} days`;
   const completeButton = canEdit && past && !gig.completed
     ? `<button type="button" class="button quiet" data-complete-gig="${escapeHtml(gig.id)}">Mark as Complete</button>`
     : '';
   const editButton = canEdit ? `<button type="button" class="button quiet" data-edit-gig="${escapeHtml(gig.id)}">Edit gig</button>` : '';
-  return `<article class="gig-list-card ${gig.completed ? 'is-completed' : ''}"><div class="gig-list-card-main"><div><h2>${escapeHtml(gig.name)}</h2><p>${escapeHtml(details)}</p></div><div class="gig-list-card-actions">${completeButton}${editButton}</div></div>${gig.notes ? `<p class="gig-list-notes">${escapeHtml(gig.notes)}</p>` : ''}<div class="gig-setlist-link"><span>Setlist</span>${setlist ? `<button type="button" class="text-button" data-open-gig-setlist="${escapeHtml(setlist.id)}">${escapeHtml(setlist.name)} →</button>` : '<em>No setlist attached</em>'}</div></article>`;
+  return `<article class="gig-list-card ${gig.completed ? 'is-completed' : ''}"><div class="gig-list-card-main"><div><h2>${escapeHtml(gig.name)}${countdown ? ` <span class="gig-countdown">${countdown}</span>` : ''}</h2><p>${escapeHtml(details)}</p></div><div class="gig-list-card-actions">${completeButton}${editButton}</div></div>${gig.notes ? `<p class="gig-list-notes">${escapeHtml(gig.notes)}</p>` : ''}<div class="gig-setlist-link"><span>Setlist</span>${setlist ? `<button type="button" class="text-button" data-open-gig-setlist="${escapeHtml(setlist.id)}">${escapeHtml(setlist.name)} →</button>` : '<em>No setlist attached</em>'}</div></article>`;
 }
 
 function renderGigs() {
@@ -642,9 +659,11 @@ async function renderActiveSetlist() {
     if (summary.error) throw summary.error;
     const total = summary.data?.total_seconds ?? 0;
     $('#setlist-summary').textContent = `${summary.data?.song_count || 0} songs · ${secondsLabel(total)} running time`;
-    state.activeSetlistItems = items;
+    // Staged (unsaved) edits survive switching tabs and coming back.
+    const keepStaged = canEditSetlist && state.setlistOrderDirty;
+    if (!keepStaged) state.activeSetlistItems = items;
     if (canEditSetlist && !state.setlistOrderDirty) state.originalSetlistItems = [...items];
-    renderSetlistItems(items, canEditSetlist);
+    renderSetlistItems(state.activeSetlistItems, canEditSetlist);
   } catch (error) { fail('Could not load this setlist.', error); }
 }
 
@@ -849,45 +868,18 @@ async function saveSetlistOrder(items) {
   savingSetlistOrder = true;
   $('#setlist-items').classList.add('saving-order');
   try {
-    if (state.setlistOrderDirty) {
-      const originalIds = new Set(state.originalSetlistItems.map((item) => item.id));
-      const retainedIds = new Set(items.filter((item) => originalIds.has(item.id)).map((item) => item.id));
-      const removedIds = [...originalIds].filter((id) => !retainedIds.has(id));
-      const base = Math.max(0, ...state.originalSetlistItems.map((item) => item.position || 0)) + items.length + 1;
-      const stagedExisting = await Promise.all(items.map((item, index) => originalIds.has(item.id)
-        ? db.from('setlist_items').update({ position: base + index }).eq('id', item.id)
-        : Promise.resolve({ error: null })));
-      const stageError = stagedExisting.find((result) => result.error)?.error;
-      if (stageError) throw stageError;
-      if (removedIds.length) {
-        const { error } = await db.from('setlist_items').delete().in('id', removedIds);
-        if (error) throw error;
-      }
-      const persistedIds = new Map(items.filter((item) => originalIds.has(item.id)).map((item) => [item.id, item.id]));
-      for (const [index, item] of items.entries()) {
-        if (originalIds.has(item.id)) continue;
-        if (item.persistedId) { persistedIds.set(item.id, item.persistedId); continue; }
-        const { data, error } = await db.from('setlist_items').insert({
-          setlist_id: state.activeSetlist, position: base + items.length + index,
-          item_type: item.item_type, song_id: item.song_id, label: item.label ?? null,
-          note: item.note ?? null, break_seconds: item.break_seconds ?? null
-        }).select('id').single();
-        if (error) throw error;
-        item.persistedId = data.id;
-        persistedIds.set(item.id, data.id);
-      }
-      const finalPositions = await Promise.all(items.map((item, index) =>
-        db.from('setlist_items').update({ position: index + 1 }).eq('id', persistedIds.get(item.id))));
-      const finalPositionError = finalPositions.find((result) => result.error)?.error;
-      if (finalPositionError) throw finalPositionError;
-    }
-    if (nextName !== state.originalSetlistName.trim()) {
-      const { error } = await db.from('setlists').update({ name: nextName }).eq('id', state.activeSetlist);
-      if (error) throw error;
-      state.setlists = state.setlists.map((list) => list.id === state.activeSetlist ? { ...list, name: nextName } : list);
-      const selectedOption = $('#setlist-select').selectedOptions[0];
-      if (selectedOption) selectedOption.textContent = nextName;
-    }
+    // One database call saves the name and the whole running order together.
+    const originalIds = new Set(state.originalSetlistItems.map((item) => item.id));
+    const payload = items.map((item) => ({
+      id: originalIds.has(item.id) ? item.id : null,
+      item_type: item.item_type || 'song', song_id: item.song_id ?? null,
+      label: item.label ?? null, note: item.note ?? null, break_seconds: item.break_seconds ?? null
+    }));
+    const { error } = await db.rpc('save_setlist', { p_setlist_id: state.activeSetlist, p_name: nextName, p_items: payload });
+    if (error) throw error;
+    state.setlists = state.setlists.map((list) => list.id === state.activeSetlist ? { ...list, name: nextName } : list);
+    const selectedOption = $('#setlist-select').selectedOptions[0];
+    if (selectedOption) selectedOption.textContent = nextName;
     state.setlistOrderDirty = false;
     state.setlistEditMode = false;
     state.originalSetlistItems = [];
@@ -1050,7 +1042,7 @@ function renderNewSongFields() {
       : ['Incomplete'];
     const defaultStatus = allowedStatuses.includes('Incomplete') ? 'Incomplete' : allowedStatuses[0];
     const defaultColor = STATUS_COLORS[defaultStatus] || '#D0D0D0';
-    const options = allowedStatuses.map((status) => `<option value="${escapeHtml(status)}" style="color:${STATUS_COLORS[status] || '#D0D0D0'};background-color:#19231c" ${status === defaultStatus ? 'selected' : ''}>${escapeHtml(status === 'Completed' ? 'Complete' : status)}</option>`).join('');
+    const options = allowedStatuses.map((status) => `<option value="${escapeHtml(status)}" style="color:${STATUS_COLORS[status] || '#D0D0D0'};background-color:#19231c" ${status === defaultStatus ? 'selected' : ''}>${escapeHtml(status)}</option>`).join('');
     return `<label class="new-song-task-row"><span>${escapeHtml(type.label)}</span><select class="new-song-task-status" data-task-key="${escapeHtml(type.key)}" data-status="${escapeHtml(defaultStatus)}" style="color:${defaultColor};border-color:${defaultColor}">${options}</select></label>`;
   }).join('');
   updateNewSongIdPreview();
@@ -1059,8 +1051,9 @@ function renderNewSongFields() {
 function updateNewSongIdPreview() {
   const type = $('#new-song-type')?.value || 'Vox';
   const codes = [...document.querySelectorAll('input[name="new-song-language"]:checked')].map((input) => input.value);
-  const prefix = type === 'Inst' ? 'I (or IM for a medley)' : codes.length ? codes.join('') + ' (add M at the end for a medley)' : '[language codes]';
-  $('#new-song-id-preview').textContent = 'Typical prefix: ' + prefix + '. Type the letters; the next number is assigned automatically. Medley IDs end in M.';
+  $('#new-song-id-preview').textContent = type === 'Inst'
+    ? 'Usual prefix: I (IM for an instrumental medley).'
+    : codes.length ? `Usual prefix: ${codes.join('')} (${codes.join('')}M for a medley).` : 'Tick the languages to see the usual prefix.';
   renderNewSongIdSuggestions();
 }
 
@@ -1162,7 +1155,7 @@ function songTempoLabel(song) {
   return points.map((point,index) => `${point.bpm} BPM${index < points.length - 1 ? ` ${point.transition_to_next === 'gradual' ? '→ gradual →' : '→ instant →'} ` : ''}`).join('');
 }
 function updateNewSongKeySummary() {
-  const selected = [...document.querySelectorAll('input[name="new-song-key"]:checked')].map((input) => input.value);
+  const selected = orderedCheckedKeys('new-song-key');
   $('#new-song-key-summary').textContent = selected.length ? selected.join(', ') : 'Choose keys';
 }
 function tempoEditorTransitionIcon(transition) {
@@ -1331,10 +1324,10 @@ async function saveNewSong(event) {
   const id = $('#new-song-id').value.trim();
   const name = $('#new-song-name').value.trim();
   const idPattern = /^[A-Z][A-Za-z]*[0-9]+$/;
-  if (!idPattern.test(id)) { $('#new-song-error').textContent = 'Use a valid ID prefix followed by a number, for example E12, EM3, EHM2, EHKM1, or I4.'; return; }
+  if (!idPattern.test(id)) { $('#new-song-error').textContent = 'Type the Song ID letters (for example E, EM or HM) at the top; the number is added for you.'; $('#new-song-id-prefix').focus(); return; }
   if (state.songs.some((song) => song.id.toLowerCase() === id.toLowerCase())) { $('#new-song-error').textContent = 'That Song ID is already in use.'; return; }
   if ($('#new-song-type').value === 'Vox' && !document.querySelector('input[name="new-song-language"]:checked')) { $('#new-song-error').textContent = 'Choose at least one language for a vocal song.'; return; }
-  const keys = [...document.querySelectorAll('input[name="new-song-key"]:checked')].map((input) => input.value);
+  const keys = orderedCheckedKeys('new-song-key');
   const invalidKeys = keys.filter((key) => !KEY_CHOICES.includes(key));
   if (invalidKeys.length) { $('#new-song-error').textContent = `Unknown key: ${invalidKeys.join(', ')}.`; return; }
   const tempoRows = readTempoPoints('new-song-tempo-points');
@@ -1411,6 +1404,8 @@ function openNewSetlistDialog() {
   state.newSetlistSongIds = [];
   $('#new-setlist-form').reset();
   $('#new-setlist-error').textContent = '';
+  $('#new-setlist-copy').innerHTML = '<option value="">Empty setlist</option>'
+    + state.setlists.map((list) => `<option value="${escapeHtml(list.id)}">Copy of ${escapeHtml(list.name)}</option>`).join('');
   renderNewSetlistSongChoices();
   $('#setlist-create-dialog').showModal();
   $('#new-setlist-name').focus();
@@ -1446,8 +1441,24 @@ async function deleteActiveSetlist() {
 }
 
 let editingSongId = null;
+// Keys keep the song's own order (first key = the key the song starts in);
+// newly ticked keys are added in the order they were ticked.
+function orderedCheckedKeys(name, original = []) {
+  const checked = [...document.querySelectorAll(`input[name="${name}"]:checked`)];
+  const values = new Set(checked.map((input) => input.value));
+  const kept = (original || []).filter((key) => values.has(key));
+  const added = checked.filter((input) => !kept.includes(input.value))
+    .sort((a, b) => Number(a.dataset.at || 0) - Number(b.dataset.at || 0)).map((input) => input.value);
+  return [...kept, ...added];
+}
+document.addEventListener('change', (event) => {
+  const input = event.target;
+  if (input?.name !== 'edit-song-key' && input?.name !== 'new-song-key') return;
+  if (input.checked) input.dataset.at = String(Date.now()); else delete input.dataset.at;
+}, true);
 function updateEditSongKeySummary() {
-  const selected = [...document.querySelectorAll('input[name="edit-song-key"]:checked')].map((input) => input.value);
+  const song = state.songs.find((item) => item.id === editingSongId);
+  const selected = orderedCheckedKeys('edit-song-key', song?.keys);
   $('#edit-song-key-summary').textContent = selected.length ? selected.join(', ') : 'Choose scales';
 }
 function renderEditSongFields(song) {
@@ -1471,7 +1482,7 @@ function openSongEditor(songId) {
   $('#edit-song-name').value = song.name || '';
   $('#edit-song-id-value').textContent = songId;
   $('#edit-song-type-value').textContent = songTypeLabel(song);
-  $('#edit-song-duration').value = song.duration_seconds == null ? '' : String(Number((song.duration_seconds / 60).toFixed(2)));
+  $('#edit-song-duration').value = song.duration_seconds == null ? '' : secondsLabel(Math.round(song.duration_seconds));
   $('#edit-song-backing').value = song.backing_track_manual || '';
   renderEditSongFields(song);
   let points = Array.isArray(song.tempo_segments) ? song.tempo_segments.map((point) => ({ ...point })) : [];
@@ -1536,15 +1547,13 @@ async function saveSongMetadata(event) {
   if (!name) { $('#edit-song-error').textContent = 'Enter a song name.'; return; }
   const languageCodes = [...document.querySelectorAll('input[name="edit-song-language"]:checked')].map((input) => input.value);
   if (song.type === 'Vox' && !languageCodes.length) { $('#edit-song-error').textContent = 'Choose at least one language for a vocal song.'; return; }
-  const keys = [...document.querySelectorAll('input[name="edit-song-key"]:checked')].map((input) => input.value);
+  const keys = orderedCheckedKeys('edit-song-key', song.keys);
   const invalidKeys = keys.filter((key) => !KEY_CHOICES.includes(key));
   if (invalidKeys.length) { $('#edit-song-error').textContent = `Unknown scale: ${invalidKeys.join(', ')}.`; return; }
   const durationValue = $('#edit-song-duration').value.trim();
-  const durationMinutes = durationValue === '' ? null : Number(durationValue);
-  if (durationMinutes !== null && (!Number.isFinite(durationMinutes) || durationMinutes < 0)) {
-    $('#edit-song-error').textContent = 'Duration must be zero or more minutes.';
-    return;
-  }
+  const durationMatch = durationValue.match(/^(\d+):([0-5]\d)$/);
+  if (durationValue && !durationMatch) { $('#edit-song-error').textContent = 'Enter duration as minutes:seconds, for example 4:22.'; return; }
+  const durationSeconds = durationMatch ? Number(durationMatch[1]) * 60 + Number(durationMatch[2]) : null;
   const tempoRows = readTempoPoints('edit-song-tempo-points');
   const tempoError = validateTempoRows(tempoRows);
   if (tempoError) { $('#edit-song-error').textContent = tempoError; return; }
@@ -1552,7 +1561,7 @@ async function saveSongMetadata(event) {
   const payload = {
     name,
     keys,
-    duration_seconds: durationMinutes == null ? null : Math.round(durationMinutes * 60),
+    duration_seconds: durationSeconds,
     tempo_start: tempoSegments[0]?.bpm ?? null,
     tempo_end: tempoSegments.length > 1 ? tempoSegments.at(-1).bpm : null,
     tempo_change: tempoSegments.length > 1
@@ -1795,9 +1804,7 @@ $('#member-access-open').addEventListener('click', async () => {
   $('#access-member-select').innerHTML = '<option value="">Loading…</option>';
   dialog.showModal();
   try {
-    const { data, error } = await db.functions.invoke('member-access-admin', { body: { action: 'list_members' } });
-    if (error) throw error;
-    state.accessMembers = data.members || [];
+    state.accessMembers = await fetchAccessMembers();
     $('#access-member-select').innerHTML = state.accessMembers.length
       ? '<option value="">Choose a band member</option>' + state.accessMembers.map((member) =>
           `<option value="${escapeHtml(member.id)}">${escapeHtml(member.name)}${member.linked ? (member.must_change_password ? ' · password change required' : '') : ' · sign-in not set up'}</option>`).join('')
@@ -1824,6 +1831,15 @@ async function runMemberAccessAction(action) {
   if (action === 'temporary_password' && member && !member.linked) action = 'create_member_login';
   const email = $('#access-member-email').value.trim();
   if (action === 'create_member_login' && !email) { $('#access-message').textContent = 'Enter the member’s sign-in email.'; return; }
+  const who = member?.name || 'this member';
+  const isSelf = memberId === state.member?.id;
+  const question = action === 'send_reset'
+    ? `Send a password reset email to ${who}?`
+    : action === 'create_member_login'
+      ? `Create a sign-in for ${who} with a temporary password?`
+      : `Reset ${isSelf ? 'YOUR OWN' : `${who}’s`} password to a new temporary one?\n\n${isSelf ? 'You' : who} will need it to sign in next time${isSelf ? '' : ', so share it privately'}.`;
+  if (!window.confirm(question)) return;
+  accessMembersFetch = null;
   const buttons = [$('#issue-temporary-password'), $('#send-member-reset')];
   buttons.forEach((button) => { button.disabled = true; });
   $('#access-message').textContent = action === 'send_reset' ? 'Sending a reset email…' : 'Creating a temporary password…';
@@ -2072,6 +2088,17 @@ $('#new-song-task-statuses').addEventListener('change', (event) => {
   event.target.style.borderColor = color;
 });
 $('#cancel-new-setlist').addEventListener('click', () => $('#setlist-create-dialog').close());
+$('#new-setlist-copy').addEventListener('change', async (event) => {
+  const setlistId = event.target.value;
+  if (!setlistId) { state.newSetlistSongIds = []; renderNewSetlistSongChoices(); return; }
+  try {
+    const items = await loadSetlistItems(setlistId);
+    state.newSetlistSongIds = items.filter((item) => item.item_type === 'song' && item.song_id).map((item) => item.song_id);
+    const source = state.setlists.find((list) => list.id === setlistId);
+    if (source && !$('#new-setlist-name').value.trim()) $('#new-setlist-name').value = `${source.name} (copy)`;
+    renderNewSetlistSongChoices();
+  } catch (error) { $('#new-setlist-error').textContent = error.message || 'Could not copy that setlist.'; }
+});
 $('#new-setlist-form').addEventListener('submit', saveNewSetlist);
 $('#new-setlist-search').addEventListener('input', renderNewSetlistSongChoices);
 $('#new-setlist-song-options').addEventListener('change', (event) => {
@@ -2532,7 +2559,7 @@ function loadSyncLogo() {
     img.onerror = () => tryNext(names.slice(1));
     img.src = url;
   };
-  tryNext(['ableton-sync-logo.svg', 'ableton-sync-logo.png']);
+  tryNext(['ableton-sync-logo.png']);
 }
 
 // ---------------------------------------------------------------------------
@@ -3042,7 +3069,7 @@ function renderExportPanel(opts = {}) {
   const canStopAfter = running && job.state !== 'uploading' && (job.queue || []).length > 1 && job.song_index < (job.queue || []).length - 1;
   const stopSupported = exportVersionAtLeast('1.17');
   const controlsHtml = `<header><h2>Practice audio</h2></header>
-    <p class="muted">Exports Stems, Parts, Backing, CPC and a Mixdown per song as MP3s, and uploads each song to the Practice page while the next one renders. A few minutes per song: start it at night, leave the Mac plugged in with the lid open, and don't use it until it finishes.</p>
+    <p class="muted">Exports Stems, Parts, Backing, CPC and a Mixdown per song (MP3s in the folder below; smaller AAC copies go to the Practice page), uploading each song while the next one renders while the next one renders. A few minutes per song: start it at night, leave the Mac plugged in with the lid open, and don't use it until it finishes.</p>
     <div class="export-row export-opts">
       <label class="export-folder">Folder <input id="export-root" type="text" value="${escapeHtml(prefs.root)}" ${running ? 'disabled' : ''} spellcheck="false"></label>
       <label class="export-check"><input id="export-upload" type="checkbox" ${prefs.upload ? 'checked' : ''} ${running ? 'disabled' : ''}> Upload to the band app</label>
@@ -3920,6 +3947,7 @@ async function renderPracticePage() {
   let songs = state.songs;
   try { songs = await practiceSongList(); } catch (error) { console.warn(error); }
   practice.songList = songs;
+  if (!practice.songId) { try { practice.songId = localStorage.getItem('tsp-practice-song') || ''; } catch { /* ignore */ } }
   if (!songs.some((song) => song.id === practice.songId)) practice.songId = (songs.find((song) => practice.available.has(song.id)) || songs[0])?.id || '';
   $('#practice-song').innerHTML = songs.map((song, i) => {
     const has = practice.available.has(song.id);
@@ -3933,6 +3961,7 @@ async function renderPracticePage() {
 async function practiceOpenSong(songId) {
   practiceStop(true);
   practice.songId = songId;
+  try { localStorage.setItem('tsp-practice-song', songId); } catch { /* ignore */ }
   practice.tracks = [];
   practice.tracks.songId = songId;
   practice.buffers = new Map();
@@ -4023,7 +4052,7 @@ function renderPracticePlayers() {
   const mix = practice.tracks.find((t) => t.element === 'Mixdown');
   mixBox.innerHTML = `<header><h2>Mixdown</h2><span class="muted">${escapeHtml(song.id)} · ${escapeHtml(song.name)}</span></header>
     ${mix ? `<audio id="practice-mix-audio" preload="auto" ${offline.mode === 'none' && mix.url ? `src="${escapeHtml(mix.url)}"` : ''}></audio><p class="muted offline-note" id="practice-mix-note"></p>
-      <button type="button" class="pt-pick ${ptMode() === 'mix' ? 'on' : ''}" data-pt-mode="mix">${ptMode() === 'mix' ? '● Playing from the Mixdown' : 'Play the Mixdown'}</button>
+      <button type="button" class="pt-pick ${ptMode() === 'mix' ? 'on' : ''}" data-pt-mode="mix">${ptMode() === 'mix' ? '● Using the Mixdown' : 'Play the Mixdown'}</button>
       <span class="muted">Use the transport at the bottom of the page.</span>` : '<p class="muted">No mixdown for this song.</p>'}`;
   const audio = $('#practice-mix-audio');
   if (audio && mix && !audio.getAttribute('src')) {
@@ -4054,7 +4083,7 @@ function renderPracticePlayers() {
   renderOfflinePanel();
   ptRender();
   const files = practice.tracks.slice().sort((a, b) => (a.element === 'Mixdown' ? -1 : b.element === 'Mixdown' ? 1 : practiceRank(a.element) - practiceRank(b.element)));
-  dlBox.innerHTML = `<header><h2>Download</h2><span class="muted">Full-length MP3s for practising offline</span><button type="button" class="button quiet" data-practice-dl-all title="Download every file of this song">Download all (${files.length})</button></header>
+  dlBox.innerHTML = `<header><h2>Download</h2><span class="muted">Full-length audio files (.m4a/.mp3) to keep</span><button type="button" class="button quiet" data-practice-dl-all title="Download every file of this song">Download all (${files.length})</button></header>
     <ul class="practice-dl-list">${files.map((t) => `<li><span class="practice-dl-dot" style="background:${t.element === 'Mixdown' ? '#f39a26' : practiceColor(t.element)}"></span><span>${escapeHtml(t.element)}</span><small class="muted">${t.bytes ? `${(t.bytes / 1048576).toFixed(1)} MB` : ''}</small><a class="button quiet" href="${escapeHtml(t.download || t.url)}" ${t.download ? '' : 'target="_blank" rel="noopener"'}>Download</a></li>`).join('')}</ul>`;
   practiceCheckLyricsLength();
 }
@@ -4091,7 +4120,7 @@ function renderPracticeMultitrack() {
   }).join('');
   box.innerHTML = `<header><h2>Multitrack</h2><span class="muted">${tracks.length} tracks · ${totalMb.toFixed(0)} MB</span></header>
     ${loaded ? `<div class="ab-transport">
-        <button type="button" class="pt-pick ${ptMode() === 'multi' ? 'on' : ''}" data-pt-mode="multi">${ptMode() === 'multi' ? '● Playing from the Multitrack' : 'Play the Multitrack'}</button>
+        <button type="button" class="pt-pick ${ptMode() === 'multi' ? 'on' : ''}" data-pt-mode="multi">${ptMode() === 'multi' ? '● Using the Multitrack' : 'Play the Multitrack'}</button>
         <button type="button" class="button quiet" data-practice-reset title="Reset all tracks: on, no solo, 0 dB (stems off)">Reset mix</button>
       </div>`
     : `<div class="ab-transport"><button type="button" class="button primary" data-practice-load ${loading ? 'disabled' : ''}>${loading ? 'Loading tracks…' : `Load multitrack (${totalMb.toFixed(0)} MB)`}</button><span class="muted">Downloads every track once so they play in sync.</span></div>`}
@@ -4897,8 +4926,8 @@ function ptRefreshPicks() {
     const mine = btn.dataset.ptMode === engine;
     btn.classList.toggle('on', mine);
     btn.textContent = btn.dataset.ptMode === 'mix'
-      ? (mine ? '● Playing from the Mixdown' : 'Play the Mixdown')
-      : (mine ? '● Playing from the Multitrack' : 'Play the Multitrack');
+      ? (mine ? '● Using the Mixdown' : 'Play the Mixdown')
+      : (mine ? '● Using the Multitrack' : 'Play the Multitrack');
   });
   ptRender();
 }
@@ -5216,6 +5245,14 @@ document.addEventListener('click', (event) => {
     practiceStepSong(action === 'next' ? 1 : -1);
   }
 });
+// Lyrics box height leaves room for the fixed transport (its height varies by screen).
+if (window.ResizeObserver) {
+  const ptBarEl = document.getElementById('practice-transport');
+  if (ptBarEl) new ResizeObserver(() => {
+    const h = ptBarEl.classList.contains('hidden') ? 0 : ptBarEl.getBoundingClientRect().height;
+    document.documentElement.style.setProperty('--pt-h', `${Math.round(h)}px`);
+  }).observe(ptBarEl);
+}
 document.addEventListener('input', (event) => {
   if (event.target.id === 'pt-seek' && !ptIsPlaying()) { practice.position = Number(event.target.value); const lcd = $('#pt-pos'); if (lcd) lcd.textContent = ptTime(practice.position); }
 });

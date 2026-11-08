@@ -31,7 +31,7 @@ from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
 TLS_PORT = 47711
-VERSION = '1.17'
+VERSION = '1.18'
 DEBUG_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requests.log')
 # https listener for the live site in Safari. Certificate made for 127.0.0.1 /
 # localhost only, trusted once in this Mac's Keychain. Files sit next to this
@@ -355,7 +355,7 @@ class TSPWork(ControlSurface):
             song.view.follow_song = False
             self.schedule_message(1, self._follow_on)
         return {'ok': True, 'start_beat': start, 'locator': cue is not None,
-                'review': self._review_state() if self._review else None}
+                'review': self._review_state(start) if self._review else None}
 
     def _follow_on(self):
         try:
@@ -509,11 +509,13 @@ class TSPWork(ControlSurface):
         self._set_clip_loop(False)
         self._review = None
 
-    def _review_state(self):
+    def _review_state(self, pos=None):
         song = self.song()
         rv = self._review
         clips = self._review_clips() if rv else []
-        pos = song.current_song_time
+        # A locator jump lands a moment later, so the caller can pass the target.
+        if pos is None:
+            pos = song.current_song_time
         index = None
         for i, c in enumerate(clips):
             if c[0] - 0.01 <= pos:
