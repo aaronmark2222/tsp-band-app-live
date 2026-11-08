@@ -199,7 +199,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 
 ### 6.2 Ableton Sync page (admin; works only on Aaron's Mac with Live open and TSPWork selected)
 - **Status card:** TSPWork reachable? (tries `https://127.0.0.1:47711` then `http://127.0.0.1:47710`), version, `.als` path and mtime.
-- **Read set** → `POST /snapshot`, which returns the alsreader snapshot (section 8). Then:
+- **Read set** → `POST /snapshot`, which returns the alsreader snapshot (section 8; ~20 s). While it runs, the button and a panel show the stage and percentage (TSPWork 1.20 `/status` `reading_progress`; timed fallback from `localStorage tsp-read-seconds`) and a checklist of the saving steps; reads started in another window show too. The status line says whether the last read is up to date with the saved set. Mixdown length checks run afterwards in the background. Then:
   - **Applied automatically:** duration, tempo (`tempo_segments` and summary columns) and keys (`keys` + `key_segments`, only when the set has `[Key:]` markers and they differ).
   - **Saved for Practice:** lyrics, sections, tempo map, bars and tone into `song_lyrics`; track colours into `app_meta`.
   - **Proposed task updates from clip evidence:** sections/chords/lyrics/guitar/keyboard/drums/prompts/song_cue/backup_que → Completed; guitar_tone_midi → Finished; Backing → Mixed when every non-"No" backing task has its stem in MIXED BACKING. Each card has **Complete**, **Snooze** ("ignore until that track's clips change": sha1 fingerprint per song+track; Guitar/Keyboard snoozes also wake when Chords changes) and a review click.
@@ -216,7 +216,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 - **Practice audio export panel:**
   - Song checklist (columns, uploaded songs in green, **yellow = uploaded but its tracks changed in Ableton since** (tooltip lists which), "+ Changed" adds those, Select all, "+ Setlist…" adds a setlist's songs, Clear, "Uncheck uploaded" drops checked songs already in R2), export folder field, upload checkbox, Start/Cancel.
   - Progress bar weighted by song length and file count. Time left comes from past export timings in `practice_export_log` (seconds per file per second of song); until there is history it uses this run's own pace; "Uploaded N files (MB)" plus Cloudflare storage used out of 10 GB.
-  - Start first reads the saved set (`/snapshot`) for the fingerprints to store with each uploaded song (so **save the set in Ableton before exporting**), then fetches 24 h presigned links via `practice-audio` `upload_batch`, then `POST /export {songs, export_root, uploads}`, then polls `/export/state`.
+  - Start does **not** read the set: the fingerprints stored with each uploaded song come from the latest read (this window, or `app_meta.audio_fingerprints`), so **read the set once after editing, then export**. It fetches 24 h presigned links via `practice-audio` `upload_batch`, then `POST /export {songs, export_root, uploads}` (waiting up to 15 min if TSPWork is busy), then polls `/export/state`. When the run ends, songs that exported fine are unchecked.
 
 ### 6.3 Practice page (all members)
 - **Layout:** on computers the lyrics column runs from the top of the page beside the title, song pickers and players (`.practice-layout` grid areas hero/pick/main + side); on phones: title, pickers, lyrics, players.
