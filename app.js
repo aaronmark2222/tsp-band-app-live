@@ -4017,7 +4017,7 @@ function lyricInk(hex) {
 const LYRICS_STANDARD = [['chords', 'Chords'], ['guitar', 'Guitar'], ['keyboard', 'Keyboard'], ['lyrics', 'Lyrics'], ['drums', 'Drums']];
 
 function lyricLineHtml(text) {
-  let raw = String(text || '');
+  let raw = String(text || '').replace(/\[\s*[<>]\s*\]/g, '');
   // "[Key:] [E]" (possibly followed by more, e.g. "\\ [(RetroSynth)]") shows as "Key: E".
   let keyHtml = '';
   const keyMatch = raw.match(/^\s*\[Key:\]\s*\[([^\]]+)\]\s*/);
@@ -4098,9 +4098,27 @@ function renderPracticeLyrics() {
   const missing = !current ? `<p class="muted ly-missing">No ${escapeHtml(chosenLabel)} notes in this song; showing its sections.</p>` : '';
   // Merge section headings into the line list by time.
   const items = [];
-  for (const sec of ly.sections || []) items.push({ type: 'section', t: sec.t, name: sec.name, c: sec.c });
-  (current?.lines || []).forEach((line, i) => items.push({ type: 'line', t: line.t, e: line.e, text: line.text, c: line.c, i }));
-  items.sort((a, b) => a.t - b.t || (a.type === 'section' ? -1 : 1));
+  const sections = (ly.sections || []).slice().sort((a, b) => a.t - b.t);
+  sections.forEach((sec, k) => items.push({ type: 'section', t: sec.t, at: sec.t, rank: 1, name: sec.name, c: sec.c, k }));
+  // Which section a line is listed under: the one holding most of its clip.
+  // A clip that starts at the end of section A but runs mostly into B goes
+  // under B. [>] in the clip forces it under the later section, [<] under
+  // the earlier one. (Timing still follows the clip itself.)
+  (current?.lines || []).forEach((line, i) => {
+    const text = String(line.text || '');
+    const forceNext = /\[\s*>\s*\]/.test(text);
+    const forcePrev = /\[\s*<\s*\]/.test(text);
+    const end = Number.isFinite(line.e) ? line.e : line.t;
+    const boundary = sections.find((sec) => sec.t >= line.t - 0.01 && sec.t < end - 0.01);
+    let at = line.t;
+    let rank = 2; // after a section that starts at the same moment
+    if (boundary) {
+      const inNext = forceNext ? true : forcePrev ? false : (end - boundary.t) > (boundary.t - line.t);
+      if (inNext) { at = boundary.t; rank = 2; } else { at = boundary.t; rank = 0; } // 0 = just before that section
+    }
+    items.push({ type: 'line', t: line.t, e: line.e, at, rank, text, c: line.c, i });
+  });
+  items.sort((a, b) => a.at - b.at || a.rank - b.rank || a.t - b.t);
   // AbleSet-style count dots under a section heading while nothing is sung or
   // played on this track: one per beat for short gaps, otherwise a few that
   // step through the bars.
@@ -4172,7 +4190,7 @@ function lyricsBeatsBetween(t0, t1) {
 function lyricsDotCount(t0, t1) {
   if (!(t1 > t0)) return 0;
   const beats = lyricsBeatsBetween(t0, t1);
-  if (beats < 0.9) return 0;
+  if (beats < 2.9) return 0; // only gaps of 3 counts or more
   if (beats <= 8.1) return Math.max(1, Math.round(beats)); // one per beat
   // Longer gaps: one dot per bar, at most four (each then covers several bars).
   return Math.min(4, Math.max(1, Math.round(beats / 4)));
@@ -4182,11 +4200,15 @@ function practiceLyricsDots(scroll, t) {
     const t0 = Number(row.dataset.t);
     const t1 = Number(row.dataset.t1);
     const dots = row.children;
-    const lit = t < t0 ? 0 : t >= t1 ? dots.length : Math.floor(((t - t0) / (t1 - t0)) * dots.length) + 1;
-    if (row.dataset.lit === String(lit)) return;
-    row.dataset.lit = String(lit);
+    const phase = t < t0 ? 'before' : t >= t1 ? 'after' : 'live';
+    const lit = phase === 'live' ? Math.floor(((t - t0) / (t1 - t0)) * dots.length) + 1 : 0;
+    const key = `${phase}${lit}`;
+    if (row.dataset.lit === key) return;
+    row.dataset.lit = key;
     [...dots].forEach((dot, i) => dot.classList.toggle('on', i < lit));
-    row.classList.toggle('live', t >= t0 && t < t1);
+    // Empty space until the gap starts, the dots while it runs, gone after.
+    row.classList.toggle('live', phase === 'live');
+    row.classList.toggle('gone', phase !== 'live');
   });
 }
 
@@ -4243,8 +4265,21 @@ function lyricsScrollTo(scroll, target, instant) {
   const goal = Math.max(0, Math.min(max, Math.round(top)));
   if (Math.abs(scroll.scrollTop - goal) < 2) return;
   practice.lyricsAutoScrolling = Date.now();
-  if (instant || typeof scroll.scrollTo !== 'function') scroll.scrollTop = goal;
-  else scroll.scrollTo({ top: goal, behavior: 'smooth' });
+  cancelAnimationFrame(practice.lyricsScrollAnim || 0);
+  if (instant) { scroll.scrollTop = goal; return; }
+  // Eased glide (slow in, slow out) instead of the browser's fixed smooth scroll.
+  const from = scroll.scrollTop;
+  const distance = goal - from;
+  const duration = Math.min(900, 420 + Math.abs(distance) * 0.6);
+  const started = performance.now();
+  const ease = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+  const step = (now) => {
+    if (Date.now() - (practice.lyricsTouchedAt || 0) < 300) return; // the reader took over
+    const k = Math.min(1, (now - started) / duration);
+    scroll.scrollTop = from + distance * ease(k);
+    if (k < 1) practice.lyricsScrollAnim = requestAnimationFrame(step);
+  };
+  practice.lyricsScrollAnim = requestAnimationFrame(step);
 }
 
 // A hand scroll (touch, wheel, keys) pauses autoscroll briefly.

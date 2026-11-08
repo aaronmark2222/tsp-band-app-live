@@ -1216,3 +1216,17 @@ body { padding-top: env(safe-area-inset-top); }
 /* Uploaded, but the song's tracks changed in Ableton since: re-export. */
 .export-pick li.changed .export-name { color: #f2c94c; }
 .export-changed { color: #f2c94c; font-size: 10px; }
+
+/* Lyrics motion: the line in focus grows a little, the others ease back.
+   Sections stay rigid (no scaling). */
+.ly-line { font-size: 1em; transition: font-size .45s cubic-bezier(.22,.8,.26,1), opacity .45s ease, color .3s ease; }
+.ly-line.current { font-size: 1.1em; }
+.ly-track-lyrics .ly-line.current { font-size: 1.22em; }
+.ly-section { transform: none !important; transition: opacity .35s ease; }
+/* Count dots: empty space before their gap, shown while it runs, gone after. */
+.ly-dots { opacity: 0; transition: opacity .35s ease; }
+.ly-dots.gone { opacity: 0; }
+.ly-dots.live { opacity: 1; }
+.ly-dot { transition: background .2s ease, transform .2s ease; }
+.ly-dot.on { transform: scale(1.15); }
+@media (prefers-reduced-motion: reduce) { .ly-line, .ly-dots, .ly-dot { transition: none !important; } }
