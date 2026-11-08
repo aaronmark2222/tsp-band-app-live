@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-08** · App version marker `?v=20261108-pt7` · TSPWork remote script **1.18** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `b6d35b41…`) · Supabase ledger head `20261108050849_save_setlist_rpc` · Edge Functions `practice-audio` v7, `member-access-admin` v7._
+_Last updated: **2026-11-08** · App version marker `?v=20261108-pt10` · TSPWork remote script **1.18** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `b6d35b41…`) · Supabase ledger head `20261108050849_save_setlist_rpc` · Edge Functions `practice-audio` v7, `member-access-admin` v7._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -245,6 +245,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
     - The current line grows (GPU transform scale 1.1×, no reflow; lines wrap at 90% width); lines ease back when they lose focus; sections never scale; autoscroll is an eased glide.
   - **Behaviour:**
     - Autoscroll keeps the current line about 35% down; it pauses for 4 s after a manual scroll.
+    - On computers (lyrics column beside the players, sticky) `lyricsFit` sizes the box on every scroll/resize so it always ends just above the transport and is fully visible; `lyricsPad` sizes the space above/below the lines to the box.
     - Clicking a line or section seeks there.
     - A section is highlighted only when no line is live.
     - Lyrics are timed only when the audio and set lengths agree.
@@ -464,6 +465,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 ---
 
 ## 17. Changelog of this plan
+- **2026-11-08:** Lyrics box on computers always fully visible above the transport (`?v=20261108-pt10`).
 - **2026-11-08:** Offline audio saving is always on (`?v=20261108-pt7`): "Save on this device" and "Stop saving" removed.
 - **2026-11-08:** Practice (`?v=20261108-pt6`): multitrack downloads continue in the background across song changes; offline card counts mixdowns and multitracks.
 - **2026-11-08:** Practice (`?v=20261108-pt4`): no automatic multitrack downloads; song changes keep the page in place.
