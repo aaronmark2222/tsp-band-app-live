@@ -1401,3 +1401,106 @@ body.lyrics-fs #practice-lyrics > header,body.lyrics-fs #practice-lyrics .ly-chi
 body.lyrics-fs-in #practice-lyrics{animation:lyFsIn .3s ease}
 body.lyrics-fs-out #practice-lyrics,body.lyrics-fs-out #practice-transport{opacity:0;transition:opacity .25s ease}
 @keyframes lyFsIn{from{opacity:0}to{opacity:1}}
+
+/* =====================================================================
+   Liquid Glass theme (whole app)
+   Translucent panels and pill buttons over a softly lit dark backdrop.
+   Real backdrop blur only on the few bars that float over content
+   (top bar, transport, review bar, dialogs): iOS draws nested blurs black
+   and many blurred cards would be slow on phones.
+   ===================================================================== */
+:root{
+  --glass-fill:rgba(255,255,255,.055);
+  --glass-fill-2:rgba(255,255,255,.085);
+  --glass-fill-hover:rgba(255,255,255,.13);
+  --glass-edge:rgba(255,255,255,.13);
+  --glass-edge-strong:rgba(255,255,255,.22);
+  --glass-hi:inset 0 1px 0 rgba(255,255,255,.10);
+  --glass-shadow:0 10px 30px rgba(0,0,0,.28);
+  --glass-accent:rgba(243,154,38,.82);
+  --glass-accent-edge:rgba(255,200,130,.55);
+}
+html{background:#121214}
+body{background:#121214!important}
+/* Soft coloured light behind everything so the glass reads as glass. */
+body::after{content:'';position:fixed;inset:-10vmax;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(40vmax 32vmax at 12% 8%,rgba(243,154,38,.16),transparent 60%),
+    radial-gradient(38vmax 30vmax at 88% 18%,rgba(90,120,255,.14),transparent 62%),
+    radial-gradient(44vmax 34vmax at 70% 92%,rgba(170,80,220,.12),transparent 62%),
+    radial-gradient(36vmax 28vmax at 8% 85%,rgba(60,190,150,.10),transparent 60%),
+    #121214}
+
+/* ---- Panels / cards ---- */
+.practice-card,.setlist-main,.setlist-side,.setlist-row,.gig-list-card,.gig-form,
+.dashboard-work-widget,.dashboard-stat,.dashboard-song-card,.table-wrap,.task-group,
+.export-status,.export-pick,.sync-row,.offline-update,.key-options,.temporary-password-result,
+.song-detail-metadata>span,.empty-state,.notice,.stat-card,.ab-tracks{
+  background:var(--glass-fill)!important;
+  border:1px solid var(--glass-edge)!important;
+  box-shadow:var(--glass-hi),var(--glass-shadow)!important;
+}
+.practice-card,.setlist-main,.setlist-side,.gig-list-card,.gig-form,.dashboard-work-widget,
+.dashboard-stat,.dashboard-song-card,.table-wrap,.export-status,.sync-row,.stat-card{border-radius:18px!important}
+.setlist-row,.task-group,.offline-update,.export-pick,.empty-state,.notice,.ab-tracks{border-radius:14px!important}
+.dashboard-work-widget{overflow:hidden}
+.task-detail,.new-song-task-row,.practice-dl-list li,.setlist-song-choice,.setlist-selected-list li,.editor-option,.tone-row{
+  background:var(--glass-fill)!important;border:1px solid rgba(255,255,255,.08)!important;border-radius:10px!important}
+.song-table th{background:rgba(255,255,255,.07)!important;-webkit-backdrop-filter:none;backdrop-filter:none}
+.song-table td,.song-table tbody tr,.song-detail-row td{background:transparent!important}
+.song-table tbody tr:hover{background:rgba(255,255,255,.04)!important}
+.song-overview + .song-detail-row > td{border-top-color:rgba(255,255,255,.08)!important}
+.song-table td{border-bottom-color:rgba(255,255,255,.07)!important}
+
+/* ---- Floating bars: real glass ---- */
+.topbar{
+  position:sticky;top:0;z-index:50;margin:0 -40px;padding-left:40px;padding-right:40px;
+  background:rgba(22,22,24,.45);border-bottom:1px solid var(--glass-edge);
+  -webkit-backdrop-filter:blur(22px) saturate(170%);backdrop-filter:blur(22px) saturate(170%);
+}
+@media (max-width:800px){.topbar{margin:0 -18px;padding-left:18px;padding-right:18px}}
+.pt-bar,.review-bar{
+  background:rgba(22,22,24,.5)!important;border-top:1px solid var(--glass-edge)!important;
+  -webkit-backdrop-filter:blur(22px) saturate(170%);backdrop-filter:blur(22px) saturate(170%);
+  box-shadow:0 -10px 30px rgba(0,0,0,.25)!important
+}
+.editor-dialog,dialog{background:rgba(30,30,34,.72)!important;border:1px solid var(--glass-edge-strong)!important;border-radius:22px!important;
+  -webkit-backdrop-filter:blur(28px) saturate(170%);backdrop-filter:blur(28px) saturate(170%);box-shadow:0 30px 80px rgba(0,0,0,.5)!important}
+.editor-dialog::backdrop,dialog::backdrop{background:rgba(0,0,0,.45);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.editor-card{background:transparent!important;border:0!important;box-shadow:none!important}
+.editor-actions{background:rgba(30,30,34,.85)!important}
+
+/* ---- Buttons: glass pills ---- */
+.button,.tab,.ly-chip,.ly-size,.ly-fs-btn,.pt-group button,.pt-pick,.dashboard-tab,.icon-button,.text-button.linklike,
+.export-row .button,.review-controls button,.setlist-tools .button{
+  background:var(--glass-fill-2)!important;color:#f2f2f2;
+  border:1px solid var(--glass-edge)!important;border-radius:999px!important;
+  box-shadow:var(--glass-hi),0 2px 10px rgba(0,0,0,.18)!important;
+  transition:background .15s,border-color .15s,transform .15s
+}
+.button:hover,.tab:hover,.ly-chip:hover,.ly-size:hover,.pt-group button:hover,.dashboard-tab:hover,.icon-button:hover{background:var(--glass-fill-hover)!important;border-color:var(--glass-edge-strong)!important}
+.button.primary,.tab.active,.ly-chip.on,.ly-size.on,.pt-modes button.on,.pt-pick.on,.dashboard-tab.active,.dashboard-tab.on{
+  background:var(--glass-accent)!important;border-color:var(--glass-accent-edge)!important;color:#1b1206!important
+}
+.button.danger{background:rgba(255,90,80,.18)!important;border-color:rgba(255,120,110,.45)!important;color:#ffb3aa!important}
+.tab{padding:9px 16px}
+.tab.active b{color:#1b1206}
+.pt-group{background:none!important;gap:6px!important;padding:0!important}
+.pt-group button{min-width:36px;height:32px}
+.pt-play.on{background:rgba(110,220,130,.72)!important;border-color:rgba(170,255,190,.55)!important;color:#08200d!important}
+.pt-lcd,.pt-chip{background:var(--glass-fill-2)!important;border:1px solid var(--glass-edge)!important;border-radius:999px!important;box-shadow:var(--glass-hi)!important}
+.pt-lcd{color:#ffd08a!important}
+
+/* ---- Inputs ---- */
+.wide-select,.toolbar select,.search,.editor-card input,.editor-card select,.export-folder input,select.status-select,.gig-form input,.gig-form select,.gig-form textarea,
+.stack input,#song-search,.setlist-builder .search{
+  background:rgba(255,255,255,.06)!important;border:1px solid var(--glass-edge)!important;border-radius:12px!important;color:#f2f2f2
+}
+.search input{background:transparent!important;border:0!important}
+select.status-select{border-radius:999px!important}
+.wide-select:focus,.search:focus-within,.editor-card input:focus,select:focus{border-color:var(--glass-accent-edge)!important;outline:none}
+
+/* ---- Lyrics box and multitrack keep their dark "screen" look, framed as glass ---- */
+.ly-scroll{background:rgba(0,0,0,.55)!important;border:1px solid rgba(255,255,255,.08);border-radius:16px!important}
+body.lyrics-fs .ly-scroll{background:#0b0b0c!important;border:0;border-radius:0!important}
+.ab-track{background:rgba(255,255,255,.04)!important}
