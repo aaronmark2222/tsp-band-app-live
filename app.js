@@ -107,6 +107,7 @@ function showWorkspace() {
   $('#member-badge').textContent = state.member.name.slice(0, 1).toUpperCase();
   startAbletonBridge();
   activityStart();
+  setTimeout(() => { if (typeof ptMediaFlush === 'function') ptMediaFlush(); }, 3000);
   // Wake the member-access function in the background so the dialog opens fast.
   if (state.member.is_admin && navigator.onLine !== false) setTimeout(() => { fetchAccessMembers().catch(() => {}); }, 4000);
 }
@@ -4190,6 +4191,8 @@ function ptMixElement() {
     const el = document.createElement('audio');
     el.preload = 'auto';
     el.setAttribute('playsinline', '');
+    // Diagnostics: what the element does (lock-screen scrubbing may seek it directly).
+    ['play', 'pause', 'seeking'].forEach((type) => el.addEventListener(type, () => { if (typeof ptMediaLog === 'function') ptMediaLog(`audio ${type} ${Math.round(el.currentTime)}`); }));
     ptMixElement.el = el;
   }
   return ptMixElement.el;
@@ -6127,17 +6130,20 @@ function ptSilentAudio() {
 function ptMediaLog(event) {
   ptMedia.log.push({ t: new Date().toISOString(), event, engine: ptEngine(), pos: Math.round(ptPosition() * 10) / 10 });
   ptMedia.log = ptMedia.log.slice(-30);
+  ptMediaFlush();
+}
+function ptMediaFlush() {
   if (!state.member?.is_admin) return;
   clearTimeout(ptMedia.logTimer);
   ptMedia.logTimer = setTimeout(() => {
-    db.from('app_meta').upsert({ key: 'media_debug', value: { ua: navigator.userAgent, log: ptMedia.log }, updated_at: new Date().toISOString() }, { onConflict: 'key' }).then(() => {}, () => {});
+    db.from('app_meta').upsert({ key: 'media_debug', value: { ua: navigator.userAgent, standalone: !!(navigator.standalone || window.matchMedia?.('(display-mode: standalone)').matches), mediaSession: 'mediaSession' in navigator, log: ptMedia.log }, updated_at: new Date().toISOString() }, { onConflict: 'key' }).then(() => {}, () => {});
   }, 1500);
 }
 function ptMediaHandlers() {
   if (ptMedia.handlers || !('mediaSession' in navigator)) return;
   ptMedia.handlers = true;
   const set = (action, fn) => {
-    try { navigator.mediaSession.setActionHandler(action, (d) => { ptMediaLog(`${action}${d?.seekTime != null ? ` ${Math.round(d.seekTime)}` : ''}`); fn(d || {}); }); }
+    try { navigator.mediaSession.setActionHandler(action, (d) => { ptMediaLog(`${action}${d?.seekTime != null ? ` ${Math.round(d.seekTime)}` : ''}`); fn(d || {}); }); ptMediaLog(`registered ${action}`); }
     catch (error) { ptMediaLog(`no ${action}: ${error?.message || error}`); }
   };
   set('play', () => ptPlay());

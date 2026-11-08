@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-09** · App version marker `?v=20261109-media2` · TSPWork remote script **1.20** (alsreader md5 `322dd933…`, exporter md5 `639f2b48…`, tspwork md5 `205bb454…`) · Supabase ledger head `20261108210451_member_roles_guest` · Edge Functions `practice-audio` v7, `member-access-admin` v8._
+_Last updated: **2026-11-09** · App version marker `?v=20261109-media3` · TSPWork remote script **1.20** (alsreader md5 `322dd933…`, exporter md5 `639f2b48…`, tspwork md5 `205bb454…`) · Supabase ledger head `20261108210451_member_roles_guest` · Edge Functions `practice-audio` v7, `member-access-admin` v8._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -531,10 +531,10 @@ Aaron is testing whether the export checklist's yellow "changed since upload" fl
 - **2026-11-08:** Open apps check for a newer version (on open after 8 s, every 3 min, on return to the app) and show a "new version is ready — Update" bar; Update refreshes the cached files and reloads once.
 - **2026-11-08:** Read button and panel show the real read stage (opening, tracks n of 375, songs n of 62) from TSPWork 1.20, then the app's saving steps as a checklist; the button fills with progress. Status line says whether the last read is up to date with the saved set. Export unchecks songs that exported fine (failed ones stay checked).
 - **2026-11-08 (night):** Update App Plan run: repo pushed; ledger 29 migrations, head `member_activity_logs`, matches the repo; Edge Functions `practice-audio` v7, `member-access-admin` v7 unchanged; Mac TSPWork files were out of sync (1.19 alsreader/tspwork) and were redeployed (now 1.20, md5s in the header). Sections 8, 13, 14, 15 refreshed.
-- **2026-11-09:** Export Stop after this song / Cancel now keep retrying until TSPWork confirms (it was dropping requests while Live rendered); export polling every 4 s (`?v=20261109-media2`).
+- **2026-11-09:** Export Stop after this song / Cancel now keep retrying until TSPWork confirms (it was dropping requests while Live rendered); export polling every 4 s (`?v=20261109-media3`).
 - **2026-11-09:** Audio fingerprints ignore sample paths and dates (moving the project to the SSD and Collect All and Save had turned every song yellow). Backup of the old upload fingerprints: table `practice_audio_state_backup_20261109`.
 - **2026-11-09:** Audio fingerprints also ignore Live's internal IDs (renumbered on every save; one save had turned 10 untouched songs yellow). Verified: between two saves only the edited song (EHKM1 bass) differs.
 - **2026-11-09:** All songs forced green with the new-format fingerprints; section 13.1 records the ongoing freshness testing phase.
-- **2026-11-09:** Guest users: `members.role` (`member`/`guest`), Kenneth Shalom added as a guest (Practice only), `member-access-admin` v8 returns `role` (`?v=20261109-media2`).
-- **2026-11-09:** iPhone lock screen / Dynamic Island controls (Media Session): scrubbing, play/pause and next/previous drive the app transport for Mixdown and Multitrack (`?v=20261109-media2`).
-- **2026-11-09:** Lock-screen fixes: handlers registered at load, no ±10 s actions, one persistent Mixdown element; `app_meta.media_debug` logs lock-screen actions (`?v=20261109-media2`).
+- **2026-11-09:** Guest users: `members.role` (`member`/`guest`), Kenneth Shalom added as a guest (Practice only), `member-access-admin` v8 returns `role` (`?v=20261109-media3`).
+- **2026-11-09:** iPhone lock screen / Dynamic Island controls (Media Session): scrubbing, play/pause and next/previous drive the app transport for Mixdown and Multitrack (`?v=20261109-media3`).
+- **2026-11-09:** Lock-screen fixes: handlers registered at load, no ±10 s actions, one persistent Mixdown element; `app_meta.media_debug` logs lock-screen actions (`?v=20261109-media3`).
