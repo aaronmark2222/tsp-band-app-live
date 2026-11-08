@@ -3869,9 +3869,11 @@ function renderOfflinePanel() {
         </div>`}
       <p class="muted offline-small">Songs you open are saved as you play them, so they don't download again. <button type="button" class="linklike" data-offline-off>Stop saving</button>${offline.mode === 'browser' ? ' · <button type="button" class="linklike" data-offline-clear>Delete saved audio</button>' : ''}${offline.mode === 'browser' && offlineFolderSupported() ? ' · <button type="button" class="linklike" data-offline-folder>Use a folder instead</button>' : ''}</p>`;
   }
+  const bgSongs = [...bgFetch.songs.entries()].filter(([id]) => id !== practice.songId);
+  const bgLine = bgSongs.length ? `<p class="muted offline-small">Still downloading in the background: ${bgSongs.map(([id, st]) => `${escapeHtml(id)} (${st.done}/${st.total})`).join(', ')}</p>` : '';
   const saveError = offline.lastError && offline.mode !== 'none'
     ? `<p class="error offline-small">This device could not save the last file (${escapeHtml(offline.lastError)}). It still plays, and won't download again during this visit.</p>` : '';
-  box.innerHTML = `<header><h2>Offline audio</h2>${offline.mode !== 'none' && !offline.needsPermission ? '<span class="offline-on">● On</span>' : ''}</header>${body}${saveError}`;
+  box.innerHTML = `<header><h2>Offline audio</h2>${offline.mode !== 'none' && !offline.needsPermission ? '<span class="offline-on">● On</span>' : ''}</header>${body}${bgLine}${saveError}`;
 }
 document.addEventListener('click', (event) => {
   if (!event.target.closest('#practice-offline')) return;
@@ -4049,7 +4051,7 @@ async function practiceOpenSong(songId) {
   // Load the multitrack straight away only when it's already on this device
   // (or in memory); downloading is always the member's choice.
   if (practice.songId === songId && practiceMultiTracks().length
-    && (practiceMultiSaved(songId) || practiceMultiInMemory(songId))) practiceLoadTracks();
+    && (practiceMultiSaved(songId) || practiceMultiInMemory(songId) || bgFetchActive(songId))) practiceLoadTracks();
 }
 function practiceMultiInMemory(songId) {
   return practiceMultiTracks().every((t) => memBlobGet(songId, t));
@@ -4212,6 +4214,34 @@ function practiceToMono(buffer) {
   }
   return mono;
 }
+// Multitrack downloads run in the background: leaving a song doesn't stop its
+// download, and coming back picks up where it is. At most two files at a time.
+const bgFetch = { files: new Map(), songs: new Map(), active: 0, waiting: [] };
+function bgFetchTrack(songId, track) {
+  const key = `${songId}|${track.element}`;
+  if (bgFetch.files.has(key)) return bgFetch.files.get(key);
+  const song = bgFetch.songs.get(songId) || { total: 0, done: 0 };
+  song.total += 1;
+  bgFetch.songs.set(songId, song);
+  const run = async () => {
+    while (bgFetch.active >= 2) await new Promise((resolve) => bgFetch.waiting.push(resolve));
+    bgFetch.active += 1;
+    try { return await offlineTrackBlob(songId, track); }
+    finally {
+      bgFetch.active -= 1;
+      bgFetch.waiting.shift()?.();
+    }
+  };
+  const promise = run().finally(() => {
+    bgFetch.files.delete(key);
+    song.done += 1;
+    if (song.done >= song.total) bgFetch.songs.delete(songId);
+    if (practice.songId !== songId) renderOfflinePanel();
+  });
+  bgFetch.files.set(key, promise);
+  return promise;
+}
+function bgFetchActive(songId) { return bgFetch.songs.has(songId); }
 async function practiceLoadTracks() {
   const token = practice.loadToken;
   const tracks = practiceMultiTracks();
@@ -4234,13 +4264,20 @@ async function practiceLoadTracks() {
   }
   practice.mono = plan.mono;
   await practice.ctx.resume().catch(() => {});
-  // Two at a time keeps phones from running out of memory while decoding.
+  // Downloads start for every track now and carry on in the background even
+  // if the member moves to another song. Decoding (two at a time, to spare
+  // phone memory) only happens while this song is open.
+  const songId = practice.songId;
   const queue = tracks.filter((t) => !practice.buffers.has(t.element));
+  const blobs = new Map(queue.map((t) => [t.element, bgFetchTrack(songId, t)]));
+  blobs.forEach((promise) => promise.catch(() => {}));
   const worker = async () => {
     while (queue.length) {
+      if (token !== practice.loadToken) return;
       const t = queue.shift();
       try {
-        const blob = await offlineTrackBlob(practice.songId, t);
+        const blob = await blobs.get(t.element);
+        if (token !== practice.loadToken) return;
         const data = await blob.arrayBuffer();
         let buffer = await practice.ctx.decodeAudioData(data);
         if (token !== practice.loadToken) return;
