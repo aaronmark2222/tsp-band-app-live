@@ -306,7 +306,9 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 
 ## 8. alsreader (reads the saved `.als`)
 
-- It stream-parses the gzip XML into tracks (name, group, colour, arrangement clips with name, start/end, disabled, notes and short-clip MIDI notes following loop and start marker), locators, tempo automation and time-signature automation.
+- **How it reads (since 2026-11-08):** unzips the set once, cuts it into the top-level tracks by Ableton's tab indentation and parses each with the C XML parser in 1 MB pieces (falls back to the old streaming parser if the layout differs). Clip sound hashes use `_xml_bytes`, which gives the same bytes as `ET.tostring` (own copies of ElementTree's escaping, identical in Python 3.9–3.13 incl. Live's 3.11). Verified: snapshot identical to the old reader.
+- **Where it runs:** inside Live, reads took 160–420 s (Live slows Python threads). `build_snapshot` therefore runs itself in a separate `python3` when one exists (Homebrew, /usr/local, Command Line Tools or Xcode; never the `/usr/bin` stub, which can pop up an install dialog): ~19 s on Aaron's Mac with the Command Line Tools Python. Each snapshot records `reader` (path, or `in Live (reason)`). Progress (`PROGRESS`: stage open/tracks/songs/done, done, total) is reported by the child on stderr and served by TSPWork 1.20's `/status` during a read.
+- It parses the gzip XML into tracks (name, group, colour, arrangement clips with name, start/end, disabled, notes and short-clip MIDI notes following loop and start marker), locators, tempo automation and time-signature automation.
 - **Track map (`TRACKS`):**
 
 | Key | Group / track prefix |
@@ -334,7 +336,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
   - `lyrics` = `{tracks, sections, tempo}`; `bars` (`[sec, num, den]` per bar; a new bar starts at each time-signature change, as in Ableton); `tone` (GUITAR TONE notes with seconds, bar, note, velocity, duration).
 - **Set-wide output:** `track_colors` (Live 70-colour palette index → hex for the practice elements), `warnings`, `als_modified_at`, `als_size`.
 - **Key cross-check:** Guitar/Keyboard/Lyrics `[Key:]` markers must match the Chords track (warning `key_mismatch`); a first marker not at bar 1 is warned (`key_late`).
-- Parsing the full set takes about 16 s in the cloud workspace; the Mac's Linux VM can run out of memory, so stage the file instead.
+- A full read takes ~20 s in the cloud workspace and ~19 s on the Mac (separate python). The Mac's Linux VM can run out of memory, so stage the file to the cloud workspace for testing instead.
 
 ---
 
@@ -397,6 +399,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 **Built (Oct–Nov 2026):** core tracker; member logins; gigs/setlists/dashboard; Ableton Sync with auto-metadata, evidence, snooze, chord mismatches and review mode; overnight practice export to R2 (all 62 songs uploaded 2026-11-08, 3.14 GB; timing log, stop-after-song, auto-retry, freshness fingerprints); Practice page with multitrack, transport, AbleSet lyrics, live key/BPM, guitar-tone MIDI, offline audio and a fully offline (read-only) app.
 
 **Next / ideas (not started unless Aaron asks):**
+- Stats page for the activity logs (time online, pages, practice plays per member and song; views `member_activity_daily`, `member_practice_by_song`).
 - App setlist → AbleSet setlist (planned third step of the Ableton integration).
 - Medley constituents UI (`medley_parts`), deadlines UI (`deadlines`), percussion picks UI (`song_percussion`).
 - Link Gautham's login.
@@ -409,6 +412,13 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 ## 14. Decision log (newest first)
 
 - **2026-11-08**
+  - Activity logging for later statistics: sessions, page visits, practice plays (a play counts as practised at 30 s+); members see only their own rows, the admin sees all.
+  - Full-screen lyrics get a compact mixer drop-up from the Multitrack button (only in full screen).
+  - The sign-in form stays hidden while a saved sign-in opens the app (no password-manager pop-up).
+  - Exports never read the set first; they use the latest read (this window or `app_meta.audio_fingerprints`). Read once after editing, then export.
+  - Set reads run in a separate python (≈20 s); the Read button shows real stages and progress; waits for a busy TSPWork up to 15 min instead of failing.
+  - Open apps offer a one-tap update when a newer version is live (never auto-reload: practice may be playing).
+  - After an export, songs that exported fine are unchecked; failed ones stay checked.
   - Test pass fixes: keys keep the song's own order (first = starting key); durations are M:SS everywhere; password resets need a confirm; setlist saves are one transaction (`save_setlist`); Setlists opens on the next gig; status label is always "Completed".
   - Data left as Aaron decides (Ableton spelling wins): I1/I2/I5 marked single despite "/" names; "Voulez-Vouz", "Uff teri Ada" spellings.
   - Lyrics: line goes under the section holding most of its clip; `[>]`/`[<]` force; dots only during 3+ beat gaps; current line grows smoothly; sections always clear.
@@ -446,7 +456,10 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 - **Read set needed:** after any alsreader change, nothing new (colours, tone, bars, keys) reaches the app until Aaron clicks **Read set**.
 - **Song-ID renumbering orphans R2 audio:** deleting a song shifts IDs in its family, but R2 files stay under the old IDs. Re-export the affected songs and delete the stale keys.
 - **Web MIDI** works only in Chrome/Edge. Rowen must use one of them.
-- **Safari caching:** if a deploy "doesn't show", bump `?v` or have Aaron reload twice.
+- **Safari caching:** GitHub Pages caches `index.html` ~10 min. Open apps now show a "new version is ready — Update" bar; otherwise bump `?v` and reload.
+- **Deploying to the Mac with `device_commit_files`:** it can write an *older* upload with the same file name (happened 2026-11-08: TSPWork 1.20 landed as 1.19). Stage each upload under a unique name (e.g. `alsreader-<md5>.py`) and always check the Mac's md5 afterwards.
+- **TSPWork changes need a reselect** in Live (Control Surface None → TSPWork); `alsreader.py` and `exporter.py` are reloaded on every use and don't.
+- **macOS App Nap** slows Live in the background; optional fix given to Aaron: `defaults write com.ableton.live NSAppSleepDisabled -bool YES` (reads no longer depend on it).
 - **Live dialogs:** the exporter depends on Live's Export dialog layout (Live 12). A Live update can break it; symptoms are `no_export_dialog` or a stuck file wait. Use Cancel, then check `requests.log`.
 - **E4–E7 practice audio is still the first 320 kbps MP3 export** (43 files); re-export them to get the smaller AAC copies.
 - **Ableton project issues seen on 2026-11-07:**
@@ -499,3 +512,4 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 - **2026-11-08:** Read Ableton set shows a progress bar (timed from recent reads on that device, `localStorage tsp-read-seconds`; saving steps fill the last 15 %), also for reads started in another window (`reading_since`). Mixdown length checks no longer hold up the results: they load afterwards, 6 at a time, cached per file version in localStorage (`?v=20261108-prog2`).
 - **2026-11-08:** Open apps check for a newer version (on open after 8 s, every 3 min, on return to the app) and show a "new version is ready — Update" bar; Update refreshes the cached files and reloads once (`?v=20261108-prog2`).
 - **2026-11-08:** Read button and panel show the real read stage (opening, tracks n of 375, songs n of 62) from TSPWork 1.20, then the app's saving steps as a checklist; the button fills with progress. Status line says whether the last read is up to date with the saved set. Export unchecks songs that exported fine (failed ones stay checked) (`?v=20261108-prog2`).
+- **2026-11-08 (night):** Update App Plan run: repo pushed; ledger 29 migrations, head `member_activity_logs`, matches the repo; Edge Functions `practice-audio` v7, `member-access-admin` v7 unchanged; Mac TSPWork files were out of sync (1.19 alsreader/tspwork) and were redeployed (now 1.20, md5s in the header). Sections 8, 13, 14, 15 refreshed.
