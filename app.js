@@ -6150,7 +6150,10 @@ function ptMediaHandlers() {
   set('pause', () => ptPause());
   set('stop', () => ptStop());
   set('seekto', (d) => { if (Number.isFinite(d.seekTime)) ptSeek(d.seekTime); });
-  // No ±10 s skip actions: with them iOS shows skip buttons instead of previous/next song.
+  // iOS web pages always show ±10 s buttons here (not previous/next song), so
+  // route them through the transport too (otherwise they only move the Mixdown).
+  set('seekbackward', (d) => ptSeek(ptPosition() - (d.seekOffset || 10)));
+  set('seekforward', (d) => ptSeek(ptPosition() + (d.seekOffset || 10)));
   set('previoustrack', () => { practice.autoplay = ptIsPlaying(); ptPause(); practiceStepSong(-1); });
   set('nexttrack', () => { practice.autoplay = ptIsPlaying(); ptPause(); practiceStepSong(1); });
 }
