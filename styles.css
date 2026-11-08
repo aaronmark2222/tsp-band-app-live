@@ -1286,3 +1286,13 @@ body { padding-top: env(safe-area-inset-top); }
 /* While the next song loads, the previous song's cards stay (dimmed) so the page doesn't jump. */
 .practice-switching,.practice-switching .practice-card{transition:opacity .15s}
 .practice-layout.practice-switching .practice-main,.practice-card.practice-switching{opacity:.45;pointer-events:none}
+/* Practice: the lyrics column runs from the top of the page, beside the title,
+   the song pickers and the players (stacked on small screens). */
+.practice-layout{grid-template-areas:"hero side" "pick side" "main side";grid-template-rows:auto auto 1fr}
+.practice-layout>.practice-hero{grid-area:hero;margin-bottom:12px}
+.practice-layout>.practice-pick{grid-area:pick;margin-bottom:0}
+.practice-layout>.practice-main{grid-area:main}
+.practice-layout>.practice-side{grid-area:side;align-self:start}
+@media (max-width:1000px){
+  .practice-layout{grid-template-areas:"hero" "pick" "side" "main";grid-template-rows:none}
+}
