@@ -4203,6 +4203,7 @@ function renderPracticeMultitrack() {
       </div>`
     : `<div class="ab-transport"><button type="button" class="button primary" data-practice-load ${loading ? 'disabled' : ''}>${loading ? 'Loading tracks…' : `Load multitrack (${totalMb.toFixed(0)} MB)`}</button><span class="muted">Downloads every track once so they play in sync.</span></div>`}
     <ul class="ab-tracks ${loaded ? '' : 'ab-locked'}">${rows}</ul>`;
+  if (ptMixer.open) ptMixerRender();
 }
 
 function practiceDecodePlan(trackCount) {
@@ -4402,16 +4403,16 @@ function practiceTick() {
     const seek = $('#practice-seek');
     if (seek && !seek.matches(':active')) seek.value = pos.toFixed(2);
     for (const [element, node] of practice.nodes) {
-      const bar = document.querySelector(`[data-practice-meter="${CSS.escape(element)}"]`);
-      if (!bar) continue;
+      const bars = document.querySelectorAll(`[data-practice-meter="${CSS.escape(element)}"]`);
+      if (!bars.length) continue;
       node.analyser.getFloatTimeDomainData(practiceMeterData);
       let peak = 0;
       for (let i = 0; i < practiceMeterData.length; i += 1) peak = Math.max(peak, Math.abs(practiceMeterData[i]));
       const dbfs = peak > 0 ? 20 * Math.log10(peak) : -60;
       // The fill always spans the whole meter (so green-yellow-red stays put);
       // the level only decides how much of it shows.
-      bar.style.setProperty('--level', `${Math.max(0, Math.min(100, (dbfs + 48) / 48 * 100)).toFixed(1)}%`);
-      bar.classList.toggle('hot', dbfs > -1);
+      const level = `${Math.max(0, Math.min(100, (dbfs + 48) / 48 * 100)).toFixed(1)}%`;
+      bars.forEach((bar) => { bar.style.setProperty('--level', level); bar.classList.toggle('hot', dbfs > -1); });
     }
     if (pos >= practice.duration - 0.05) { practicePause(); practice.offset = 0; renderPracticeMultitrack(); return; }
     practice.raf = requestAnimationFrame(step);
@@ -4451,14 +4452,16 @@ $('#practice-downloads').addEventListener('click', async (event) => {
   button.textContent = `Download all (${links.length})`;
 });
 $('#practice-next').addEventListener('click', () => practiceStepSong(1));
-$('#practice-multitrack').addEventListener('click', (event) => {
-  if (event.target.closest('[data-practice-load]')) { practiceLoadTracks(); return; }
+// Mixer controls (main Multitrack card and the full-screen drop-up share these).
+function practiceMixRefresh() { practiceApplyGains(); renderPracticeMultitrack(); }
+function practiceMixClick(event) {
+  if (event.target.closest('[data-practice-load]')) { practiceLoadTracks(); return true; }
   if (event.target.closest('[data-practice-reset]')) {
     try { sessionStorage.removeItem(PRACTICE_SETTINGS_KEY); } catch { /* ignore */ }
-    practiceApplyGains(); renderPracticeMultitrack(); return;
+    practiceMixRefresh(); return true;
   }
   const on = event.target.closest('[data-practice-on]');
-  if (on) { const el = on.dataset.practiceOn; savePracticeTrackSetting(el, { on: !practiceTrackSetting(el).on }); practiceApplyGains(); renderPracticeMultitrack(); return; }
+  if (on) { const el = on.dataset.practiceOn; savePracticeTrackSetting(el, { on: !practiceTrackSetting(el).on }); practiceMixRefresh(); return true; }
   const solo = event.target.closest('[data-practice-solo]');
   if (solo) {
     const el = solo.dataset.practiceSolo;
@@ -4466,20 +4469,29 @@ $('#practice-multitrack').addEventListener('click', (event) => {
     // Like Ableton: plain click solos only this track; Cmd/Ctrl-click adds to the solo.
     if (now && !(event.metaKey || event.ctrlKey)) practiceMultiTracks().forEach((t) => { if (t.element !== el && practiceTrackSetting(t.element).solo) savePracticeTrackSetting(t.element, { solo: false }); });
     savePracticeTrackSetting(el, { solo: now });
-    practiceApplyGains(); renderPracticeMultitrack();
+    practiceMixRefresh(); return true;
   }
-});
-$('#practice-multitrack').addEventListener('input', (event) => {
+  return false;
+}
+function practiceMixInput(event) {
   const fader = event.target.closest('[data-practice-vol]');
-  if (fader) {
-    const el = fader.dataset.practiceVol;
-    const vol = Number(fader.value);
-    savePracticeTrackSetting(el, { vol });
-    practiceApplyGains();
-    const label = fader.parentElement.querySelector('.ab-db');
-    if (label) label.textContent = vol > 0 ? (20 * Math.log10(vol)).toFixed(1) : '-inf';
-    return;
-  }
+  if (!fader) return false;
+  const el = fader.dataset.practiceVol;
+  const vol = Number(fader.value);
+  savePracticeTrackSetting(el, { vol });
+  practiceApplyGains();
+  const label = vol > 0 ? (20 * Math.log10(vol)).toFixed(1) : '-inf';
+  // Keep both copies of this fader in step without redrawing the one being dragged.
+  document.querySelectorAll(`[data-practice-vol="${CSS.escape(el)}"]`).forEach((input) => {
+    if (input !== fader) input.value = vol;
+    const db = input.parentElement.querySelector('.ab-db, .pm-db');
+    if (db) db.textContent = label;
+  });
+  return true;
+}
+$('#practice-multitrack').addEventListener('click', (event) => { practiceMixClick(event); });
+$('#practice-multitrack').addEventListener('input', (event) => {
+  if (practiceMixInput(event)) return;
   if (event.target.id === 'practice-seek' && !practice.playing) {
     practice.offset = Number(event.target.value);
     const time = $('#practice-time');
@@ -4759,12 +4771,14 @@ function lyricsFsShowControls(ms = 2500) {
 function lyricsFsHideControls() {
   clearTimeout(lyricsFs.timer);
   document.body.classList.remove('lyrics-fs-controls');
+  ptMixerClose();
 }
 function lyricsFsArmHide(ms = 2500) {
   clearTimeout(lyricsFs.timer);
   const check = () => {
     if (!lyricsFs.on || !document.body.classList.contains('lyrics-fs-controls')) return;
-    if (ptIsPlaying()) lyricsFsHideControls();
+    if (ptMixer.open) lyricsFs.timer = setTimeout(check, 500); // mixer open: stay until it's closed
+    else if (ptIsPlaying()) lyricsFsHideControls();
     else lyricsFs.timer = setTimeout(check, 500); // paused: keep them; hide once playback starts
   };
   lyricsFs.timer = setTimeout(check, ms);
@@ -4783,7 +4797,7 @@ document.addEventListener('scroll', (event) => {
 }, true);
 // A finger resting on the controls keeps them up.
 document.addEventListener('touchstart', (event) => {
-  if (lyricsFs.on && event.target.closest?.('#practice-transport, #practice-lyrics > header, #practice-lyrics .ly-chips')) lyricsFsShowControls(5000);
+  if (lyricsFs.on && event.target.closest?.('#practice-transport, #pt-mixer, #practice-lyrics > header, #practice-lyrics .ly-chips')) lyricsFsShowControls(5000);
 }, { passive: true });
 function lyricsFsEnter() {
   if (lyricsFs.on) return;
@@ -4810,6 +4824,7 @@ function lyricsFsExit(skipFade) {
   }
   lyricsFs.on = false;
   clearTimeout(lyricsFs.timer);
+  ptMixerClose();
   document.body.classList.remove('lyrics-fs', 'lyrics-fs-controls');
   if (document.fullscreenElement || document.webkitFullscreenElement) {
     const exit = document.exitFullscreen || document.webkitExitFullscreen;
@@ -4836,6 +4851,7 @@ document.addEventListener('click', (event) => {
 }));
 document.addEventListener('keydown', (event) => {
   if (state.view !== 'practice' || event.target.closest?.('input, textarea, select')) return;
+  if (event.key === 'Escape' && ptMixer.open) { ptMixerClose(); return; }
   if (event.key === 'Escape' && lyricsFs.on) { lyricsFsExit(); return; }
   if ((event.key === 'f' || event.key === 'F') && !event.metaKey && !event.ctrlKey) { lyricsFs.on ? lyricsFsExit() : lyricsFsEnter(); return; }
   lyricsFsShowControls();
@@ -4850,7 +4866,8 @@ document.addEventListener('mousemove', (event) => {
 document.addEventListener('click', (event) => {
   if (!lyricsFs.on) return;
   const t = event.target;
-  if (t.closest('#practice-transport, #practice-lyrics > header, #practice-lyrics .ly-chips')) { lyricsFsShowControls(5000); return; }
+  if (t.closest('#practice-transport, #pt-mixer, #practice-lyrics > header, #practice-lyrics .ly-chips')) { lyricsFsShowControls(5000); return; }
+  if (ptMixer.open) { ptMixerClose(); event.stopPropagation(); event.preventDefault(); return; } // first tap outside just closes the mixer
   if (t.closest('.ly-line, .ly-section, button, a, input, select')) return;
   if (!t.closest('#practice-lyrics')) return;
   if (document.body.classList.contains('lyrics-fs-controls')) lyricsFsHideControls();
@@ -5210,6 +5227,7 @@ function ptRefreshPicks() {
   });
   ptRender();
 }
+const ptMixer = { open: false }; // full-screen mixer drop-up (see ptMixerRender)
 const ptIcons = {
   start: '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M3 3h2v10H3zM13 3v10L6 8z" fill="currentColor"/></svg>',
   play: '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M4 2.5v11L13.5 8z" fill="currentColor"/></svg>',
@@ -5218,6 +5236,7 @@ const ptIcons = {
   prev: '<svg viewBox="0 0 16 16" width="15" height="14"><path d="M2 3h2v10H2zM9 3v10L4.5 8zM15 3v10L10.5 8z" fill="currentColor"/></svg>',
   next: '<svg viewBox="0 0 16 16" width="15" height="14"><path d="M12 3h2v10h-2zM7 3v10l4.5-5zM1 3v10l4.5-5z" fill="currentColor"/></svg>',
   download: '<svg viewBox="0 0 16 16" width="12" height="12"><path d="M7 1h2v7.2l2.6-2.6L13 7l-5 5-5-5 1.4-1.4L7 8.2zM2 13h12v2H2z" fill="currentColor"/></svg>',
+  mixer: '<svg viewBox="0 0 16 16" width="15" height="15"><path d="M3 1.5h1.6v13H3zM7.2 1.5h1.6v13H7.2zM11.4 1.5H13v13h-1.6z" fill="currentColor" opacity=".45"/><rect x="1.6" y="8.6" width="4.4" height="2.6" rx=".8" fill="currentColor"/><rect x="5.8" y="3.6" width="4.4" height="2.6" rx=".8" fill="currentColor"/><rect x="10" y="10.4" width="4.4" height="2.6" rx=".8" fill="currentColor"/></svg>',
   loop: '<svg viewBox="0 0 16 16" width="16" height="14"><path d="M4 5h7.5l-1.8-1.8L11 2l4 4-4 4-1.3-1.2L11.5 7H4a1.5 1.5 0 0 0-1.5 1.5V9H1v-.5A3 3 0 0 1 4 5zm8 6H4.5l1.8 1.8L5 14l-4-4 4-4 1.3 1.2L4.5 9H12a1.5 1.5 0 0 0 1.5-1.5V7H15v.5A3 3 0 0 1 12 11z" fill="currentColor"/></svg>'
 };
 function ptTime(seconds) {
@@ -5244,6 +5263,7 @@ function ptRender() {
     <div class="pt-group pt-modes" role="radiogroup" aria-label="Play from">
       <button type="button" data-pt-mode="mix" class="${engine === 'mix' ? 'on' : ''}" ${$('#practice-mix-audio') ? '' : 'disabled'}>Mixdown</button>
       <button type="button" data-pt-mode="multi" class="pt-multi ${engine === 'multi' ? 'on' : ''}" ${multiAvailable ? '' : 'disabled'} title="${ptMultiReady() ? 'Play from the multitrack' : 'Download the multitrack tracks first'}">Multitrack${multiAvailable && !ptMultiReady() ? (ptMultiLoading() ? ` <span class="pt-spin" aria-label="Downloading"></span><small>${practiceMultiTracks().filter((t) => practice.buffers.has(t.element)).length}/${practiceMultiTracks().length}</small>` : ` <span class="pt-dl" aria-hidden="true">${ptIcons.download}</span>`) : ''}</button>
+      <button type="button" data-pt-mixer class="pt-mixer-btn ${ptMixer.open ? 'open' : ''}" ${multiAvailable ? '' : 'disabled'} title="Multitrack mixer" aria-label="Multitrack mixer" aria-expanded="${ptMixer.open}">${ptIcons.mixer}</button>
     </div>
     <div class="pt-song" title="${song ? escapeHtml(`${song.id} ${song.name}`) : ''}">${song ? `<b>${escapeHtml(song.id)}</b> ${escapeHtml(song.name)}` : ''}${ptQueueLabel()}</div>
     <span class="pt-break" aria-hidden="true"></span>
@@ -5258,6 +5278,7 @@ function ptRender() {
     <input type="range" id="pt-seek" class="pt-seek" min="0" max="${dur.toFixed(2)}" step="0.05" value="${ptPosition().toFixed(2)}" aria-label="Position" ${off}>
     <div class="pt-lcd pt-dim">${ptTime(dur)}</div>
     <div class="pt-info">${ptInfoHtml(song)}</div>`;
+  if (ptMixer.open) requestAnimationFrame(ptMixerPlace);
 }
 function ptTick() {
   const bar = $('#practice-transport');
@@ -5732,3 +5753,95 @@ async function activityPlayEnd() {
   await activityPlaySave(p);
 }
 setInterval(activityPlayTick, 1000);
+
+// --- Full-screen lyrics: compact multitrack mixer that opens up out of the
+// transport's Multitrack button. Same settings as the Multitrack card.
+function ptMixerEl() {
+  let box = document.getElementById('pt-mixer');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'pt-mixer';
+    box.className = 'pt-mixer hidden';
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-label', 'Multitrack mixer');
+    document.body.append(box);
+    box.addEventListener('click', (event) => {
+      if (event.target.closest('[data-pm-close]')) { ptMixerClose(); return; }
+      if (event.target.closest('[data-pm-use]')) { ptSetMode('multi'); ptMixerRender(); return; }
+      practiceMixClick(event);
+    });
+    box.addEventListener('input', practiceMixInput);
+    box.addEventListener('dblclick', (event) => {
+      const fader = event.target.closest('[data-practice-vol]');
+      if (fader) { savePracticeTrackSetting(fader.dataset.practiceVol, { vol: 1 }); practiceMixRefresh(); }
+    });
+  }
+  return box;
+}
+function ptMixerRender() {
+  const box = ptMixerEl();
+  const tracks = practiceMultiTracks();
+  if (!tracks.length) { ptMixerClose(); return; }
+  const loaded = tracks.every((t) => practice.buffers.has(t.element));
+  const loading = tracks.some((t) => practice.loadState.get(t.element) === 'loading');
+  const done = tracks.filter((t) => practice.buffers.has(t.element)).length;
+  const totalMb = tracks.reduce((sum, t) => sum + (t.bytes || 0), 0) / 1048576;
+  const anySolo = tracks.some((t) => practiceTrackSetting(t.element).solo);
+  const lock = loaded ? '' : 'disabled';
+  const usingMulti = ptEngine() === 'multi';
+  const rows = tracks.map((t, i) => {
+    const st = practiceTrackSetting(t.element);
+    const audible = anySolo ? st.solo : st.on;
+    const dbLabel = st.vol > 0 ? (20 * Math.log10(st.vol)).toFixed(1) : '-inf';
+    return `<li class="pm-row ${audible ? '' : 'pm-silent'}" style="--track-color:${practiceColor(t.element)};--track-ink:${practiceInk(practiceColor(t.element))}">
+      <button type="button" class="pm-on ${st.on ? 'on' : ''}" data-practice-on="${escapeHtml(t.element)}" aria-pressed="${st.on}" title="Track on/off" ${lock}>${i + 1}</button>
+      <span class="pm-name" title="${escapeHtml(t.element)}">${escapeHtml(t.element.replace(/^(Stem|Part) - /, ''))}</span>
+      <button type="button" class="pm-solo ${st.solo ? 'on' : ''}" data-practice-solo="${escapeHtml(t.element)}" aria-pressed="${st.solo}" title="Solo (Cmd/Ctrl-click to add)" ${lock}>S</button>
+      <span class="pm-fade"><input type="range" class="pm-fader" min="0" max="1.413" step="0.001" value="${st.vol}" data-practice-vol="${escapeHtml(t.element)}" aria-label="${escapeHtml(t.element)} volume" ${lock}><span class="pm-meter"><span data-practice-meter="${escapeHtml(t.element)}"></span></span></span>
+      <span class="pm-db">${dbLabel}</span></li>`;
+  }).join('');
+  box.innerHTML = `<header><b>Mixer</b>
+      ${loaded ? `<button type="button" class="pm-btn" data-practice-reset title="All tracks on, no solo, 0 dB (stems off)">Reset</button>` : ''}
+      <button type="button" class="pm-btn pm-x" data-pm-close aria-label="Close mixer">✕</button></header>
+    ${!loaded ? `<div class="pm-note">${loading ? `Downloading tracks… ${done}/${tracks.length}` : `<button type="button" class="pm-btn pm-primary" data-practice-load>Load multitrack (${totalMb.toFixed(0)} MB)</button>`}</div>`
+      : usingMulti ? '' : `<div class="pm-note">Playing the Mixdown. <button type="button" class="pm-btn pm-primary" data-pm-use>Use the Multitrack</button></div>`}
+    <ul class="pm-tracks ${loaded ? '' : 'pm-locked'}">${rows}</ul>`;
+  box.classList.remove('hidden');
+  ptMixerPlace();
+}
+// Sits just above the Multitrack button, kept on screen.
+function ptMixerPlace() {
+  const box = document.getElementById('pt-mixer');
+  const btn = document.querySelector('#practice-transport .pt-mixer-btn');
+  const multi = document.querySelector('#practice-transport .pt-multi');
+  if (!box || !ptMixer.open || !btn) return;
+  const anchor = (multi || btn).getBoundingClientRect();
+  const b = btn.getBoundingClientRect();
+  const width = Math.min(380, window.innerWidth - 16);
+  const left = Math.max(8, Math.min(anchor.left, window.innerWidth - width - 8));
+  box.style.width = `${width}px`;
+  box.style.left = `${left}px`;
+  box.style.bottom = `${Math.max(8, window.innerHeight - b.top + 10)}px`;
+  const topBar = document.querySelector('#practice-lyrics > header')?.getBoundingClientRect().bottom || 0;
+  box.style.maxHeight = `${Math.max(160, b.top - 10 - topBar - 10)}px`;
+  box.style.setProperty('--pm-tail', `${Math.max(14, Math.min(width - 14, b.left + b.width / 2 - left))}px`);
+}
+function ptMixerOpen() {
+  if (!lyricsFs.on || !practiceMultiTracks().length) return;
+  ptMixer.open = true;
+  ptMixerRender();
+  document.querySelector('#practice-transport .pt-mixer-btn')?.classList.add('open');
+  lyricsFsShowControls(5000);
+}
+function ptMixerClose() {
+  if (!ptMixer.open) return;
+  ptMixer.open = false;
+  document.getElementById('pt-mixer')?.classList.add('hidden');
+  const btn = document.querySelector('#practice-transport .pt-mixer-btn');
+  if (btn) { btn.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); }
+}
+document.addEventListener('click', (event) => {
+  if (!event.target.closest('#practice-transport [data-pt-mixer]')) return;
+  ptMixer.open ? ptMixerClose() : ptMixerOpen();
+});
+window.addEventListener('resize', () => { if (ptMixer.open) ptMixerPlace(); });

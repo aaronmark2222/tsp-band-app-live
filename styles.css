@@ -1527,3 +1527,38 @@ select{color-scheme:dark}
 .export-pick .export-name{min-width:0;overflow:hidden;text-overflow:ellipsis}
 /* A lyric line is only as wide as its words: tapping the empty space beside it doesn't jump there. */
 .ly-line{width:fit-content}
+
+/* Full-screen lyrics: mixer button joined to the right of Multitrack, and its drop-up mixer. */
+.pt-mixer-btn{display:none}
+body.lyrics-fs #practice-transport .pt-mixer-btn{display:inline-flex;align-items:center;justify-content:center;min-width:36px;padding:0 10px;margin-left:-5px;border-radius:0 999px 999px 0!important;border-left:1px solid rgba(255,255,255,.22)}
+body.lyrics-fs #practice-transport .pt-multi{border-radius:999px 0 0 999px!important}
+body.lyrics-fs #practice-transport .pt-mixer-btn.open{background-color:rgba(255,255,255,.34);color:#fff}
+body.lyrics-fs #practice-transport .pt-mixer-btn:disabled{opacity:.4}
+.pt-mixer{position:fixed;z-index:70;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;
+  background:rgba(28,28,30,.55);-webkit-backdrop-filter:blur(26px) saturate(170%);backdrop-filter:blur(26px) saturate(170%);
+  border:1px solid rgba(255,255,255,.16);border-radius:18px;box-shadow:0 14px 40px rgba(0,0,0,.45);color:#f2f2f2;
+  transform-origin:var(--pm-tail,40px) 100%;animation:pmIn .18s ease-out}
+.pt-mixer.hidden{display:none}
+@keyframes pmIn{from{opacity:0;transform:translateY(8px) scale(.96)}to{opacity:1;transform:none}}
+.pt-mixer header{display:flex;align-items:center;gap:8px;padding:10px 12px 6px 14px}
+.pt-mixer header b{flex:1;font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:#ffd08a}
+.pm-btn{height:28px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.13);color:#fff;font:inherit;font-size:12px;cursor:pointer}
+.pm-btn.pm-x{width:28px;padding:0}
+.pm-btn.pm-primary{background:rgba(243,154,38,.85);border-color:rgba(255,200,130,.6);color:#1b1206;font-weight:600}
+.pm-note{padding:2px 14px 8px;font-size:12px;color:#cfcfcf;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pm-tracks{list-style:none;margin:0;padding:2px 8px 10px;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.pm-tracks.pm-locked{opacity:.45}
+.pm-row{display:grid;grid-template-columns:30px minmax(56px,90px) 30px 1fr 38px;align-items:center;gap:7px;padding:4px 4px;border-radius:10px}
+.pm-row + .pm-row{border-top:1px solid rgba(255,255,255,.06)}
+.pm-row.pm-silent .pm-name,.pm-row.pm-silent .pm-db{opacity:.4}
+.pm-on,.pm-solo{width:30px;height:26px;border-radius:8px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.1);color:#bbb;font:inherit;font-size:12px;font-weight:700;cursor:pointer;padding:0}
+.pm-on.on{background:var(--track-color);color:var(--track-ink);border-color:transparent}
+.pm-solo.on{background:#3d7bf2;color:#fff;border-color:transparent}
+.pm-on:disabled,.pm-solo:disabled{cursor:default}
+.pm-name{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-left:3px solid var(--track-color);padding-left:7px}
+.pm-fade{display:flex;flex-direction:column;gap:3px;min-width:0}
+.pm-fader{width:100%;margin:0;height:18px;accent-color:var(--track-color)}
+.pm-meter{position:relative;height:4px;border-radius:2px;background:rgba(255,255,255,.1);overflow:hidden}
+.pm-meter span{position:absolute;inset:0;--level:0%;background:linear-gradient(90deg,#39c26b 0,#39c26b 70%,#e7d443 85%,#f26a4b 100%);clip-path:inset(0 calc(100% - var(--level)) 0 0)}
+.pm-db{font-size:11px;font-variant-numeric:tabular-nums;color:#bdbdbd;text-align:right}
+@media (max-width:520px){.pm-row{grid-template-columns:30px minmax(48px,72px) 30px 1fr 34px;gap:6px}}
