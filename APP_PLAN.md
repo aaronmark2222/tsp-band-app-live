@@ -123,7 +123,7 @@ Aaron is the owner and the only person who runs Ableton Sync and exports. He mos
 
 ### 5.1 Tables (public, all with RLS on)
 
-| Table | Rows (2026-11-07) | Purpose |
+| Table | Rows (2026-11-08) | Purpose |
 |---|---|---|
 | `members` | 7 | id, name, slug, instrument, is_admin, user_id (Auth link), must_change_password, sort_order |
 | `member_emails` | 4 | admin-only email mapping for onboarding |
@@ -184,7 +184,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 - **Check before every push:** `cp app.js /tmp/a.mjs && node --check /tmp/a.mjs` (a stray `});` once took the whole app down at "Opening your workspace…").
 - **Views (tabs):** Songs · Setlists · Gigs · Dashboard · Practice · Ableton Sync (admin only, a logo-only tab using `assets/ableton-sync-logo.png`, which Aaron uploaded himself). The avatar and name in the top bar are hidden. On phones the tabs scroll sideways.
 - **Load on sign-in:** members (by `user_id`; selects `id,name,slug,instrument,is_admin,must_change_password`), songs (incl. `keys,key_segments,tempo_*`), song_tasks, task_types, languages, song_languages, setlists, setlist_items, gigs, readiness.
-- **Browser storage keys:** `tsp-practice-lyrics-v2` (lyrics track and size), `tsp-practice-mix-v1` (session multitrack settings, sessionStorage), `tsp-practice-mode` (mix/multi, session), `tsp-practice-source`, `tsp-export-prefs-v1` (export folder, upload on/off), `tsp-tone-midi-v1` (MIDI port and channel).
+- **Browser storage keys:** `tsp-practice-lyrics-v2` (lyrics track and size), `tsp-practice-mix-v1` (session multitrack settings, sessionStorage), `tsp-practice-mode` (mix/multi, session), `tsp-practice-source`, `tsp-export-prefs-v1` (export folder, upload on/off), `tsp-tone-midi-v1` (MIDI port and channel), `tsp-offline-v1` (offline audio mode), `tsp-offline-manifest-v1` (saved audio versions), `tsp-data-cache-v1` (offline data). Cache Storage: `tsp-app-shell-v1`, `tsp-practice-audio-v1`, `tsp-offline-data-v1`; IndexedDB `tsp-offline` (folder handle).
 
 ### 6.1 Songs, Setlists, Gigs, Dashboard (core tracker)
 - **Songs:** search and filters (language, single/medley, key), sorts, per-song progress (you vs band), expandable details (type, languages, duration, tempo with step/slope glyph and bar ranges, Scale(s), backing status, task dropdowns). Admin: Add song (M:SS duration, tempo chain editor, keys), Edit (one editor on Songs and Setlists), Delete song (renumbers the family via RPC).
@@ -291,7 +291,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
   - Parts with **< 4 bars (16 beats)** of active audio, which count as stray: no part file, and the stem fills the mixdown instead.
 - **Upload worker** (in parallel with the next render):
   - `afconvert` to **AAC 128 kbps `.m4a`**, then `curl` PUT to the presigned link, then DELETE of any old `.mp3`. Stale elements are deleted.
-  - Temp files go in `/tmp/tspwork-upload`, and `caffeinate -i -w <pid>` keeps the Mac awake.
+  - Temp files go in `/tmp/tspwork-upload`, and `caffeinate -d -i -s -w <pid>` keeps the Mac and its display awake (a locked screen can block UI scripting).
 - Every solo, on/off state, the loop, the selection and the playhead are restored; the set is never saved.
 
 ---
@@ -400,6 +400,10 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 
 ## 14. Decision log (newest first)
 
+- **2026-11-08**
+  - Lyrics: line goes under the section holding most of its clip; `[>]`/`[<]` force; dots only during 3+ beat gaps; current line grows smoothly; sections always clear.
+  - Offline: audio saved on the device by default; the whole app works offline read-only (for the keyboardist on a cruise ship).
+  - Exports: fingerprints mark changed songs yellow; stop-after-song; auto-retries; display kept awake overnight.
 - **2026-11-07**
   - Lyrics follow AbleSet's look exactly (from Aaron's screen recording).
   - Guitar tones are only for songs whose Guitar Tone MIDI task is Completed/Finished, and the card is shown only to Aaron and Rowen, at the bottom of Practice.
