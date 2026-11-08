@@ -97,12 +97,41 @@ SOUND_PARTS = ('Loop', 'Disabled', 'SampleRef', 'WarpMarkers', 'IsWarped', 'Warp
                'PitchFine', 'SampleVolume', 'Fades', 'Envelopes', 'Notes', 'StartMarker', 'EndMarker')
 
 
+def _xml_bytes(node):
+    """Same bytes as ET.tostring(node) for .als elements (no namespaces,
+    comments or PIs), several times faster: one list, no writer setup."""
+    out = []
+    add = out.append
+    esc_text = ET._escape_cdata
+    esc_attr = ET._escape_attrib
+
+    def walk(el):
+        tag = el.tag
+        add('<' + tag)
+        for k, v in el.attrib.items():
+            add(' %s="%s"' % (k, esc_attr(v)))
+        text = el.text
+        if text or len(el):
+            add('>')
+            if text:
+                add(esc_text(text))
+            for child in el:
+                walk(child)
+            add('</' + tag + '>')
+        else:
+            add(' />')
+        if el.tail:
+            add(esc_text(el.tail))
+    walk(node)
+    return ''.join(out).encode('ascii', 'xmlcharrefreplace')
+
+
 def _clip_sound_hash(c):
     h = hashlib.sha1()
     for tag in SOUND_PARTS:
         node = c.find(tag)
         if node is not None:
-            h.update(ET.tostring(node))
+            h.update(_xml_bytes(node))
     return h.hexdigest()[:12]
 
 
@@ -159,7 +188,88 @@ def _events(main_el, param):
     return [(-63072000.0, float(manual.get('Value')))] if manual is not None else []
 
 
+def _track_entry(el):
+    tname = _val(el, 'Name/EffectiveName', '') or ''
+    sound = not ('+LYRICS' in tname.upper() or tname.strip().upper().startswith(('SECTIONS', 'SONG ID', 'GUITAR TONE')))
+    return {
+        'id': el.get('Id'), 'type': el.tag,
+        'name': _val(el, 'Name/EffectiveName', ''),
+        'group': _val(el, 'TrackGroupId', '-1'),
+        'color': _val(el, 'Color', None),
+        'mix': '|'.join(str(_val(el, 'DeviceChain/Mixer/%s/Manual' % k, '')) for k in ('Volume', 'Pan')),
+        'clips': _clips(el, sound),
+    }
+
+
+_TRACK_START = re.compile(rb'\n\t\t\t<(\w+Track)[ >]')
+
+
+def _parse_piece(data, a, b):
+    """Parse data[a:b] with the C parser, 1 MB at a time so Live's own
+    Python work gets a turn between pieces."""
+    parser = ET.XMLParser()
+    view = memoryview(data)
+    step = 1 << 20
+    for i in range(a, b, step):
+        parser.feed(view[i:min(i + step, b)])
+    return parser.close()
+
+
+def _read_als_fast(path):
+    """Unzip once, cut the file into its top-level tracks by Ableton's tab
+    indentation, and parse each piece with the C parser (one track in memory
+    at a time). Returns None if the layout isn't what's expected."""
+    with gzip.open(path, 'rb') as fh:
+        data = fh.read()
+    a = data.find(b'\n\t\t<Tracks>')
+    b = data.find(b'\n\t\t</Tracks>', a)
+    if a < 0 or b < 0:
+        return None
+    starts = [m.start() for m in _TRACK_START.finditer(data, a, b)]
+    if not starts:
+        return None
+    tracks = []
+    for i, s0 in enumerate(starts):
+        e0 = starts[i + 1] if i + 1 < len(starts) else b
+        el = _parse_piece(data, s0, e0)
+        tracks.append(_track_entry(el))
+        del el
+
+    def block(tag):
+        s0 = data.find(b'\n\t\t<' + tag, b)
+        if s0 < 0:
+            return None
+        head_end = data.find(b'>', s0)
+        if data[head_end - 1:head_end] == b'/':  # <Tag ... />
+            return _parse_piece(data, s0, head_end + 1)
+        e0 = data.find(b'\n\t\t</' + tag + b'>', s0)
+        return _parse_piece(data, s0, e0 + len(tag) + 6) if e0 >= 0 else None
+
+    tempo, timesig, locators = [], [], []
+    for tag in (b'MainTrack', b'MasterTrack'):
+        main = block(tag)
+        if main is not None:
+            tempo = _events(main, 'Tempo')
+            timesig = _events(main, 'TimeSignature')
+    loc_el = block(b'Locators')
+    if loc_el is not None:
+        for loc in loc_el.iter('Locator'):
+            locators.append((float(_val(loc, 'Time', '0')), _val(loc, 'Name', '')))
+    locators.sort()
+    tempo.sort(key=lambda e: e[0])
+    timesig.sort(key=lambda e: e[0])
+    return {'tracks': tracks, 'locators': locators, 'tempo': tempo, 'timesig': timesig}
+
+
 def read_als(path):
+    try:
+        fast = _read_als_fast(path)
+    except Exception:
+        fast = None
+    return fast if fast is not None else _read_als_stream(path)
+
+
+def _read_als_stream(path):
     """Stream-parse the .als and return tracks, locators, tempo, time sigs."""
     tracks, locators, tempo, timesig = [], [], [], []
     stack = []

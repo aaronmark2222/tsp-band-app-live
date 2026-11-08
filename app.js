@@ -3366,34 +3366,25 @@ async function startExport() {
   const label = songs.length === 1 ? `${songs[0].id} ${songs[0].name}` : `${songs.length} songs`;
   if (!window.confirm(`Export practice audio for ${label}${prefs.upload ? ' and upload it to the band app' : ''}?\n\nFolder: ${prefs.root}\n\nAbleton will solo tracks and open its Export dialog many times (about a minute per file). Don't use the Mac until it finishes. You can cancel from here.`)) return;
   try {
-    // The fingerprints saved with each upload come from the saved set, read now.
+    // The fingerprints saved with each upload come from the latest read of the
+    // set (this window's, or the one saved in the app). No new read here: a
+    // read takes minutes. Read the set first if you've changed it since.
     exportJob.baseline = null;
-    exportJob.preparing = 'Checking the saved Ableton set…';
+    exportJob.preparing = 'Using the latest read of the Ableton set…';
     renderExportPanel();
     try {
-      // Reuse a read of the same saved set (Read set, or a previous export);
-      // otherwise read it now, waiting if TSPWork is still busy reading.
-      const status = await abletonRequest('/status').catch(() => null);
-      const savedAt = Number(status?.als_saved_at) || 0;
-      const sameSet = (snap) => snap?.als_modified_at && savedAt && Math.abs(Date.parse(snap.als_modified_at) / 1000 - savedAt) < 2;
-      let snapshot = [sync.snapshot, exportJob.lastSnapshot].find((snap) => sameSet(snap) && Object.values(snap.songs || {}).some((song) => song.audio_fp)) || null;
-      const waitUntil = Date.now() + SET_READ_TIMEOUT_MS;
-      while (!snapshot && Date.now() < waitUntil) {
-        exportJob.preparing = 'Reading the saved Ableton set (a few minutes)…';
-        renderExportPanel();
-        const res = await abletonRequest('/snapshot', {}, SET_READ_TIMEOUT_MS);
-        if (res?.ok && res.snapshot?.songs) { snapshot = res.snapshot; break; }
-        if (res?.error !== 'busy') break;
-        exportJob.preparing = 'TSPWork is still busy reading the set; waiting…';
-        renderExportPanel();
-        await new Promise((resolve) => setTimeout(resolve, 5000));
+      const recent = [sync.snapshot, exportJob.lastSnapshot]
+        .filter((snap) => snap?.als_modified_at && Object.values(snap.songs || {}).some((song) => song.audio_fp))
+        .sort((x, y) => Date.parse(y.als_modified_at) - Date.parse(x.als_modified_at))[0];
+      const { data: meta } = await db.from('app_meta').select('value').eq('key', 'audio_fingerprints').maybeSingle();
+      const saved = meta?.value?.songs ? meta.value : null;
+      const useSaved = saved && (!recent || Date.parse(saved.als_modified_at || 0) > Date.parse(recent.als_modified_at));
+      if (useSaved) {
+        exportJob.baseline = { songs: Object.fromEntries(Object.entries(saved.songs).map(([id, fp]) => [id, { audio_fp: fp }])), als_modified_at: saved.als_modified_at };
+      } else if (recent) {
+        exportJob.baseline = { songs: recent.songs, als_modified_at: recent.als_modified_at };
       }
-      if (snapshot) {
-        exportJob.lastSnapshot = snapshot;
-        exportJob.baseline = { songs: snapshot.songs, als_modified_at: snapshot.als_modified_at };
-        await audioStateAfterRead(snapshot, { seed: false });
-      }
-    } catch (error) { console.warn('Set not read before export', error); }
+    } catch (error) { console.warn('Latest set read not loaded before export', error); }
     exportJob.preparing = 'Preparing upload links…';
     renderExportPanel();
     let uploads = {};
