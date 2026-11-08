@@ -2813,11 +2813,11 @@ function renderSyncPage() {
   renderExportPanel();
   const content = $('#sync-content');
   if (sync.reading) {
-    content.innerHTML = `<div class="empty-state"><span class="spinner" style="display:inline-block;vertical-align:middle;margin-right:10px"></span><b>Reading the saved Ableton set…</b><br><span class="muted">Takes about a minute. You can use other pages meanwhile; the result shows here when it's done.</span></div>`;
+    content.innerHTML = `<div class="empty-state"><span class="spinner" style="display:inline-block;vertical-align:middle;margin-right:10px"></span><b>Reading the saved Ableton set…</b><br><span class="muted">Takes a few minutes. You can use other pages meanwhile; the result shows here when it's done.</span></div>`;
     return;
   }
   if (!sync.snapshot) {
-    content.innerHTML = '<div class="empty-state">Press <b>Read Ableton set</b> to compare your saved Ableton set with TSP Work. Reading takes up to a minute; avoid doing it during a show.</div>';
+    content.innerHTML = '<div class="empty-state">Press <b>Read Ableton set</b> to compare your saved Ableton set with TSP Work. Reading takes a few minutes; avoid doing it during a show.</div>';
     return;
   }
   const { tasks, meta, notices, snoozed } = computeSyncDiff(sync.snapshot);
@@ -2914,6 +2914,8 @@ function syncAudioMismatches() {
   return out.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
 }
 
+// Reading the saved set takes ~3–7 minutes on the big master project.
+const SET_READ_TIMEOUT_MS = 15 * 60 * 1000;
 async function readAbletonSet() {
   if (!abletonBridge.connected) { await probeAbletonBridge(); }
   if (!abletonBridge.connected) { renderSyncStatus(); showNotice('Ableton is not connected.', true); return; }
@@ -2921,17 +2923,17 @@ async function readAbletonSet() {
   sync.reading = true;
   if (state.view === 'sync') renderSyncPage(); else renderSyncStatus();
   try {
-    // TSPWork does one thing at a time (a read takes about a minute). If it's
+    // TSPWork does one thing at a time (a read takes a few minutes). If it's
     // still busy with something else (another window's read, a jump), wait for it.
     let result = null;
-    const waitUntil = Date.now() + 5 * 60 * 1000;
+    const waitUntil = Date.now() + SET_READ_TIMEOUT_MS;
     for (;;) {
-      result = await abletonRequest('/snapshot', {}, 240000);
+      result = await abletonRequest('/snapshot', {}, SET_READ_TIMEOUT_MS);
       if (result?.error !== 'busy' || Date.now() > waitUntil) break;
       showNotice('TSPWork is busy with another request; reading as soon as it is free…');
       await new Promise((resolve) => setTimeout(resolve, 4000));
     }
-    if (result?.error === 'busy') throw new Error('TSPWork stayed busy for 5 minutes. Reselect TSPWork in Live (Settings › Link, Tempo & MIDI) and try again');
+    if (result?.error === 'busy') throw new Error('TSPWork stayed busy for 15 minutes. Reselect TSPWork in Live (Settings › Link, Tempo & MIDI) and try again');
     if (!result?.ok) throw new Error(result?.error === 'als_not_found' ? `Saved set not found at ${result.als_path}` : (result?.detail || result?.error || 'Could not read the set'));
     sync.snapshot = result.snapshot;
     sync.readAt = new Date();
@@ -3375,11 +3377,11 @@ async function startExport() {
       const savedAt = Number(status?.als_saved_at) || 0;
       const sameSet = (snap) => snap?.als_modified_at && savedAt && Math.abs(Date.parse(snap.als_modified_at) / 1000 - savedAt) < 2;
       let snapshot = [sync.snapshot, exportJob.lastSnapshot].find((snap) => sameSet(snap) && Object.values(snap.songs || {}).some((song) => song.audio_fp)) || null;
-      const waitUntil = Date.now() + 5 * 60 * 1000;
+      const waitUntil = Date.now() + SET_READ_TIMEOUT_MS;
       while (!snapshot && Date.now() < waitUntil) {
-        exportJob.preparing = 'Reading the saved Ableton set (about a minute)…';
+        exportJob.preparing = 'Reading the saved Ableton set (a few minutes)…';
         renderExportPanel();
-        const res = await abletonRequest('/snapshot', {}, 240000);
+        const res = await abletonRequest('/snapshot', {}, SET_READ_TIMEOUT_MS);
         if (res?.ok && res.snapshot?.songs) { snapshot = res.snapshot; break; }
         if (res?.error !== 'busy') break;
         exportJob.preparing = 'TSPWork is still busy reading the set; waiting…';
@@ -3403,17 +3405,22 @@ async function startExport() {
       uploads = data.urls;
     }
     let result = null;
-    for (let tries = 0; tries < 24; tries += 1) {
+    // Wait while TSPWork is busy (a set read can take several minutes), up to 15 min.
+    const busyUntil = Date.now() + SET_READ_TIMEOUT_MS;
+    for (;;) {
       result = await abletonRequest('/export', { songs: songs.map(exportSongPayload), export_root: prefs.root, uploads }, 20000);
-      if (result?.error !== 'busy') break;
-      exportJob.preparing = 'TSPWork is busy; starting as soon as it is free…';
+      if (result?.error !== 'busy' || Date.now() > busyUntil) break;
+      const since = abletonBridge.status?.reading_since;
+      exportJob.preparing = since
+        ? `TSPWork is reading the set (since ${new Date(since * 1000).toLocaleTimeString()}); the export starts as soon as it's done…`
+        : 'TSPWork is busy; starting as soon as it is free…';
       renderExportPanel();
       await new Promise((resolve) => setTimeout(resolve, 5000));
     }
     if (!result?.ok) {
       exportJob.preparing = null;
       renderExportPanel();
-      const why = { busy: 'TSPWork is still busy (reading the set). Try again in a minute.', export_running: 'An export is already running.', export_folder_missing: `The folder isn't available: ${prefs.root}. Is the SSD connected?`, bad_export_folder: 'That folder path is not valid.' }[result?.error];
+      const why = { busy: 'TSPWork stayed busy for 15 minutes. Reselect TSPWork in Live and try again.', export_running: 'An export is already running.', export_folder_missing: `The folder isn't available: ${prefs.root}. Is the SSD connected?`, bad_export_folder: 'That folder path is not valid.' }[result?.error];
       showNotice(why || `Could not start the export: ${result?.error || 'no response'}`, true);
       return;
     }
