@@ -4185,6 +4185,15 @@ async function renderPracticePage() {
   else renderPracticePlayers();
 }
 
+function ptMixElement() {
+  if (!ptMixElement.el) {
+    const el = document.createElement('audio');
+    el.preload = 'auto';
+    el.setAttribute('playsinline', '');
+    ptMixElement.el = el;
+  }
+  return ptMixElement.el;
+}
 async function practiceOpenSong(songId) {
   practiceStop(true);
   // The previous song's player stays on the page (dimmed) until the new one is
@@ -4310,6 +4319,20 @@ function renderPracticePlayersInner() {
     ${mix ? `<audio id="practice-mix-audio" preload="auto" ${offline.mode === 'none' && mix.url ? `src="${escapeHtml(mix.url)}"` : ''}></audio><p class="muted offline-note" id="practice-mix-note"></p>
       <button type="button" class="pt-pick ${ptMode() === 'mix' ? 'on' : ''}" data-pt-mode="mix">${ptMode() === 'mix' ? '● Using the Mixdown' : 'Play the Mixdown'}</button>
       <span class="muted">Use the transport at the bottom of the page.</span>` : '<p class="muted">No mixdown for this song.</p>'}`;
+  // One Mixdown <audio> element for the whole visit: iOS only lets an element it
+  // has already played start again from the lock screen (next/previous song).
+  const placeholder = $('#practice-mix-audio');
+  if (placeholder) {
+    const el = ptMixElement();
+    if (el.dataset.song !== practice.songId) {
+      el.pause();
+      el.dataset.song = practice.songId;
+      const src = placeholder.getAttribute('src');
+      if (src) el.setAttribute('src', src); else { el.removeAttribute('src'); el.load(); }
+    }
+    el.id = 'practice-mix-audio';
+    placeholder.replaceWith(el);
+  }
   const audio = $('#practice-mix-audio');
   if (audio && mix && !audio.getAttribute('src')) {
     // Saved on this device: play the local copy (downloads once, then reuses it).
@@ -4328,8 +4351,11 @@ function renderPracticePlayersInner() {
       });
   }
   if (audio) {
-    audio.addEventListener('ended', () => { practice.position = 0; audio.currentTime = 0; ptRender(); });
-    audio.addEventListener('loadedmetadata', ptRender);
+    if (!audio.dataset.hooked) {
+      audio.dataset.hooked = '1';
+      audio.addEventListener('ended', () => { practice.position = 0; audio.currentTime = 0; ptRender(); });
+      audio.addEventListener('loadedmetadata', ptRender);
+    }
     if (practice.autoplay) {
       practice.autoplay = false;
       audio.addEventListener('canplay', () => ptPlay(), { once: true });
@@ -6078,7 +6104,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) mayb
 // so they work for both the Mixdown and the Multitrack. The multitrack plays
 // through Web Audio, which iOS doesn't show as "now playing" by itself, so a
 // silent looping audio element runs alongside it while it plays.
-const ptMedia = { key: '', lastPos: 0, silent: null, handlers: false };
+const ptMedia = { key: '', lastPos: 0, silent: null, handlers: false, log: [] };
 function ptSilentAudio() {
   if (ptMedia.silent) return ptMedia.silent;
   // 1 s of 8 kHz 8-bit silence as a WAV.
@@ -6097,16 +6123,28 @@ function ptSilentAudio() {
   ptMedia.silent = a;
   return a;
 }
+// Temporary: what the iPhone's controls send, saved for Aaron (admin) so problems can be checked.
+function ptMediaLog(event) {
+  ptMedia.log.push({ t: new Date().toISOString(), event, engine: ptEngine(), pos: Math.round(ptPosition() * 10) / 10 });
+  ptMedia.log = ptMedia.log.slice(-30);
+  if (!state.member?.is_admin) return;
+  clearTimeout(ptMedia.logTimer);
+  ptMedia.logTimer = setTimeout(() => {
+    db.from('app_meta').upsert({ key: 'media_debug', value: { ua: navigator.userAgent, log: ptMedia.log }, updated_at: new Date().toISOString() }, { onConflict: 'key' }).then(() => {}, () => {});
+  }, 1500);
+}
 function ptMediaHandlers() {
   if (ptMedia.handlers || !('mediaSession' in navigator)) return;
   ptMedia.handlers = true;
-  const set = (action, fn) => { try { navigator.mediaSession.setActionHandler(action, fn); } catch { /* not supported */ } };
+  const set = (action, fn) => {
+    try { navigator.mediaSession.setActionHandler(action, (d) => { ptMediaLog(`${action}${d?.seekTime != null ? ` ${Math.round(d.seekTime)}` : ''}`); fn(d || {}); }); }
+    catch (error) { ptMediaLog(`no ${action}: ${error?.message || error}`); }
+  };
   set('play', () => ptPlay());
   set('pause', () => ptPause());
   set('stop', () => ptStop());
   set('seekto', (d) => { if (Number.isFinite(d.seekTime)) ptSeek(d.seekTime); });
-  set('seekbackward', (d) => ptSeek(ptPosition() - (d.seekOffset || 10)));
-  set('seekforward', (d) => ptSeek(ptPosition() + (d.seekOffset || 10)));
+  // No ±10 s skip actions: with them iOS shows skip buttons instead of previous/next song.
   set('previoustrack', () => { practice.autoplay = ptIsPlaying(); ptPause(); practiceStepSong(-1); });
   set('nexttrack', () => { practice.autoplay = ptIsPlaying(); ptPause(); practiceStepSong(1); });
 }
@@ -6144,3 +6182,5 @@ function ptMediaUpdate(force) {
 }
 // Keep the lock screen in step while the screen is off (no animation frames then).
 setInterval(() => { if (ptIsPlaying()) ptMediaUpdate(); }, 2000);
+// Register the controls straight away (iOS can ignore handlers added after playback starts).
+ptMediaHandlers();
