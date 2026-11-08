@@ -2361,7 +2361,11 @@ async function probeAbletonBridge() {
     if (status?.version) abletonBridge.version = status.version; // kept even if a later probe misses
     setAbletonConnected(!!status?.ok);
     if (status?.exporting && !exportJob.timer) { exportJob.state = status.exporting; exportJob.timer = setInterval(pollExport, 2000); }
-    if (state.view === 'sync') { renderSyncStatus(); renderExportPanel(); }
+    if (state.view === 'sync') {
+      const remote = !!status?.reading_since;
+      if (remote !== !!abletonBridge.wasRemoteReading) { abletonBridge.wasRemoteReading = remote; renderSyncPage(); }
+      else { renderSyncStatus(); renderExportPanel(); }
+    }
   } catch {
     setAbletonConnected(false);
   }
@@ -2812,12 +2816,13 @@ function renderSyncPage() {
   renderSyncStatus();
   renderExportPanel();
   const content = $('#sync-content');
-  if (sync.reading) {
-    content.innerHTML = `<div class="empty-state"><span class="spinner" style="display:inline-block;vertical-align:middle;margin-right:10px"></span><b>Reading the saved Ableton set…</b><br><span class="muted">Takes a few minutes. You can use other pages meanwhile; the result shows here when it's done.</span></div>`;
+  if (sync.reading || abletonBridge.status?.reading_since) {
+    content.innerHTML = `<div class="empty-state read-progress-card"><div id="read-progress-box"></div><p class="muted">You can use other pages meanwhile; the result shows here when it's done.</p></div>`;
+    readProgressTick();
     return;
   }
   if (!sync.snapshot) {
-    content.innerHTML = '<div class="empty-state">Press <b>Read Ableton set</b> to compare your saved Ableton set with TSP Work. Reading takes a few minutes; avoid doing it during a show.</div>';
+    content.innerHTML = '<div class="empty-state">Press <b>Read Ableton set</b> to compare your saved Ableton set with TSP Work. Reading takes about 20 seconds; avoid doing it during a show.</div>';
     return;
   }
   const { tasks, meta, notices, snoozed } = computeSyncDiff(sync.snapshot);
@@ -2867,26 +2872,35 @@ function renderSyncPage() {
 // the last read means the audio is out of date (lyrics would drift).
 async function loadSyncAudioLengths() {
   // MP3 Mixdowns are 320 kbps CBR, so their length follows from their size;
-  // AAC (.m4a) ones are measured from the file itself.
+  // AAC (.m4a) ones are measured from the file itself (a few at a time, and
+  // remembered per file version so later reads skip them).
   const { data, error } = await db.functions.invoke('practice-audio', { body: { action: 'list' } });
   if (error || !data?.ok) throw new Error(data?.error || error?.message || 'list failed');
-  sync.audioLengths = new Map();
+  const lengths = new Map();
+  const todo = [];
   for (const [songId, files] of Object.entries(data.songs || {})) {
     const mix = files.find((f) => f.element === 'Mixdown');
     if (!mix?.bytes) continue;
-    if (mix.ext !== 'm4a') { sync.audioLengths.set(songId, { song_id: songId, duration_seconds: Math.round(mix.bytes * 8 / 320000 * 10) / 10 }); continue; }
+    if (mix.ext !== 'm4a') { lengths.set(songId, { song_id: songId, duration_seconds: Math.round(mix.bytes * 8 / 320000 * 10) / 10 }); continue; }
     const cacheKey = `tsp-len-${songId}-${mix.modified}`;
-    let duration = Number(sessionStorage.getItem(cacheKey)) || null;
-    if (!duration) {
-      try {
-        const { data: links } = await db.functions.invoke('practice-audio', { body: { action: 'urls', song_id: songId } });
-        const url = links?.tracks?.find((t) => t.element === 'Mixdown')?.url;
-        if (url) duration = await audioUrlDuration(url);
-        if (duration) sessionStorage.setItem(cacheKey, String(duration));
-      } catch { /* skip */ }
-    }
-    if (duration) sync.audioLengths.set(songId, { song_id: songId, duration_seconds: duration });
+    let duration = null;
+    try { duration = Number(localStorage.getItem(cacheKey) || sessionStorage.getItem(cacheKey)) || null; } catch { /* ignore */ }
+    if (duration) lengths.set(songId, { song_id: songId, duration_seconds: duration });
+    else todo.push({ songId, cacheKey });
   }
+  const measure = async ({ songId, cacheKey }) => {
+    try {
+      const { data: links } = await db.functions.invoke('practice-audio', { body: { action: 'urls', song_id: songId } });
+      const url = links?.tracks?.find((t) => t.element === 'Mixdown')?.url;
+      const duration = url ? await audioUrlDuration(url) : null;
+      if (duration) {
+        try { localStorage.setItem(cacheKey, String(duration)); } catch { /* ignore */ }
+        lengths.set(songId, { song_id: songId, duration_seconds: duration });
+      }
+    } catch { /* skip */ }
+  };
+  for (let i = 0; i < todo.length; i += 6) await Promise.all(todo.slice(i, i + 6).map(measure));
+  sync.audioLengths = lengths;
 }
 
 function audioUrlDuration(url) {
@@ -2914,13 +2928,66 @@ function syncAudioMismatches() {
   return out.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
 }
 
-// Reading the saved set takes ~3–7 minutes on the big master project.
+// ---- Read progress: the read itself is timed from recent reads on this
+// device (TSPWork can't report progress mid-read); the bar moves with time
+// toward 85 % and slows near the end if a read runs long, then the saving
+// steps fill the rest.
+const READ_SECS_KEY = 'tsp-read-seconds';
+function readEstimate() {
+  try { return Math.min(600, Math.max(8, Number(localStorage.getItem(READ_SECS_KEY)) || 25)); } catch { return 25; }
+}
+function readProgressStart(since) {
+  sync.progress = { started: since || Date.now(), estimate: readEstimate(), phase: 'read', step: 0, label: 'Reading the saved Ableton set…' };
+  readProgressTick();
+}
+function readProgressReadDone() {
+  const p = sync.progress;
+  if (!p || p.phase !== 'read') return;
+  const secs = (Date.now() - p.started) / 1000;
+  // Remember how long reads take here (smoothed; ignore waits behind other work).
+  try { const prev = Number(localStorage.getItem(READ_SECS_KEY)) || secs; localStorage.setItem(READ_SECS_KEY, String(Math.round((prev * 0.4 + secs * 0.6) * 10) / 10)); } catch { /* ignore */ }
+  p.phase = 'save';
+  p.readSecs = secs;
+}
+function readProgressStep(label, step) {
+  if (!sync.progress) return;
+  Object.assign(sync.progress, { phase: 'save', label, step });
+  readProgressTick();
+}
+function readProgressValue(p) {
+  if (p.phase === 'save') return 85 + Math.min(3, p.step) * 5;
+  const t = (Date.now() - p.started) / 1000;
+  const k = t / p.estimate;
+  // Linear up to the estimate, then creeps toward 95 % so it never sits still or lies about being done.
+  return k <= 1 ? 85 * k : 85 + 10 * (1 - Math.exp(-(k - 1) * 1.5));
+}
+function readProgressHtml(p, remote) {
+  const pct = readProgressValue(p);
+  const t = Math.round((Date.now() - p.started) / 1000);
+  const left = Math.max(0, Math.round(p.estimate - t));
+  const detail = p.phase === 'save' ? p.label
+    : `${remote ? 'TSPWork is reading the set for another window' : 'Reading the saved Ableton set'}… ${t} s${t < p.estimate ? ` · about ${left} s left` : ' · taking longer than usual'}`;
+  return `<div class="read-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct)}">
+    <div class="rp-bar"><span style="width:${pct.toFixed(1)}%"></span></div>
+    <div class="rp-label"><span>${escapeHtml(detail)}</span><b>${Math.round(pct)}%</b></div></div>`;
+}
+function readProgressTick() {
+  clearTimeout(readProgressTick.timer);
+  const remoteSince = !sync.reading && abletonBridge.status?.reading_since;
+  const p = sync.reading ? sync.progress : remoteSince ? { started: remoteSince * 1000, estimate: readEstimate(), phase: 'read' } : null;
+  const box = document.getElementById('read-progress-box');
+  if (box && p) box.innerHTML = readProgressHtml(p, !!remoteSince);
+  if (p && state.view === 'sync') readProgressTick.timer = setTimeout(readProgressTick, 250);
+}
+
+// Reading the saved set takes ~20 s (separate python) to several minutes (inside Live).
 const SET_READ_TIMEOUT_MS = 15 * 60 * 1000;
 async function readAbletonSet() {
   if (!abletonBridge.connected) { await probeAbletonBridge(); }
   if (!abletonBridge.connected) { renderSyncStatus(); showNotice('Ableton is not connected.', true); return; }
   if (sync.reading) return; // a read is already running
   sync.reading = true;
+  readProgressStart();
   if (state.view === 'sync') renderSyncPage(); else renderSyncStatus();
   try {
     // TSPWork does one thing at a time (a read takes a few minutes). If it's
@@ -2932,7 +2999,9 @@ async function readAbletonSet() {
       if (result?.error !== 'busy' || Date.now() > waitUntil) break;
       showNotice('TSPWork is busy with another request; reading as soon as it is free…');
       await new Promise((resolve) => setTimeout(resolve, 4000));
+      if (sync.progress) sync.progress.started = Date.now(); // time only the read itself
     }
+    readProgressReadDone();
     if (result?.error === 'busy') throw new Error('TSPWork stayed busy for 15 minutes. Reselect TSPWork in Live (Settings › Link, Tempo & MIDI) and try again');
     if (!result?.ok) throw new Error(result?.error === 'als_not_found' ? `Saved set not found at ${result.als_path}` : (result?.detail || result?.error || 'Could not read the set'));
     sync.snapshot = result.snapshot;
@@ -2943,13 +3012,15 @@ async function readAbletonSet() {
     if (autoMeta.length) sync.autoApply = autoMeta;
     try { await loadSyncSnoozes(); } catch (error) { console.warn('Snoozes not loaded', error); }
     // Lyrics for the Practice page come from this read.
+    readProgressStep('Saving lyrics for Practice…', 1);
     if (Object.values(sync.snapshot.songs || {}).some((song) => song.lyrics)) {
       try { sync.lyricsSaved = await saveSongLyrics(sync.snapshot); } catch (error) { sync.lyricsSaved = null; showNotice(`Lyrics were not saved for Practice: ${error.message}`, true); }
     }
-    try { await loadSyncAudioLengths(); } catch (error) { console.warn('Audio lengths not loaded', error); }
     // Practice audio: the set's current track fingerprints (yellow = changed since upload).
+    readProgressStep('Saving audio fingerprints…', 2);
     try { await audioStateAfterRead(sync.snapshot); } catch (error) { console.warn('Audio state not updated', error); }
     // Practice track colours follow the Ableton project.
+    readProgressStep('Saving track colours…', 3);
     if (sync.snapshot.track_colors && Object.keys(sync.snapshot.track_colors).length) {
       const { error: colorError } = await db.from('app_meta').upsert({ key: 'practice_track_colors', value: sync.snapshot.track_colors, updated_at: new Date().toISOString() }, { onConflict: 'key' });
       if (colorError) console.warn('Track colours not saved', colorError); else practice.colors = sync.snapshot.track_colors;
@@ -2958,8 +3029,12 @@ async function readAbletonSet() {
     fail(`Could not read the Ableton set: ${error.message || error}`, error);
   } finally {
     sync.reading = false;
+    sync.progress = null;
     renderSyncPage();
   }
+  // Mixdown lengths (for the "audio length differs" check) load afterwards,
+  // without holding up the results.
+  if (sync.snapshot) loadSyncAudioLengths().then(() => { if (state.view === 'sync' && !sync.reading) renderSyncPage(); }).catch((error) => console.warn('Audio lengths not loaded', error));
   if (sync.autoApply?.length) {
     const items = sync.autoApply;
     sync.autoApply = null;

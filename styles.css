@@ -1562,3 +1562,12 @@ body.lyrics-fs #practice-transport .pt-mixer-btn:disabled{opacity:.4}
 .pm-meter span{position:absolute;inset:0;--level:0%;background:linear-gradient(90deg,#39c26b 0,#39c26b 70%,#e7d443 85%,#f26a4b 100%);clip-path:inset(0 calc(100% - var(--level)) 0 0)}
 .pm-db{font-size:11px;font-variant-numeric:tabular-nums;color:#bdbdbd;text-align:right}
 @media (max-width:520px){.pm-row{grid-template-columns:30px minmax(48px,72px) 30px 1fr 34px;gap:6px}}
+
+/* Ableton Sync: read progress bar */
+.read-progress-card{text-align:left}
+.read-progress{display:grid;gap:10px;max-width:640px;margin:0 auto}
+.rp-bar{height:10px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;border:1px solid rgba(255,255,255,.08)}
+.rp-bar span{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#f39a26,#ffc56b);transition:width .25s linear;box-shadow:0 0 12px rgba(243,154,38,.45)}
+.rp-label{display:flex;justify-content:space-between;gap:12px;font-size:13px;color:var(--muted)}
+.rp-label b{color:var(--ink);font-variant-numeric:tabular-nums}
+.read-progress-card p{text-align:center;margin:14px 0 0;font-size:12px}
