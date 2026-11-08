@@ -153,12 +153,28 @@ def _xml_bytes(node):
     return ''.join(out).encode('ascii', 'xmlcharrefreplace')
 
 
+def _sample_identity(node):
+    """What a clip's audio file *is*, not where it lives: file name, size,
+    checksum, length and rate. Paths and modification dates change when the
+    project is moved or collected (Collect All and Save) without the sound
+    changing, so they are left out."""
+    ref = node.find('FileRef')
+    path = ''
+    if ref is not None:
+        path = _val(ref, 'Path', '') or _val(ref, 'RelativePath', '') or ''
+    parts = [os.path.basename(path.replace('\\', '/')),
+             _val(ref, 'OriginalFileSize', '') if ref is not None else '',
+             _val(ref, 'OriginalCrc', '') if ref is not None else '',
+             _val(node, 'DefaultDuration', ''), _val(node, 'DefaultSampleRate', '')]
+    return ('SampleRef|' + '|'.join(str(p or '') for p in parts)).encode('utf-8')
+
+
 def _clip_sound_hash(c):
     h = hashlib.sha1()
     for tag in SOUND_PARTS:
         node = c.find(tag)
         if node is not None:
-            h.update(_xml_bytes(node))
+            h.update(_sample_identity(node) if tag == 'SampleRef' else _xml_bytes(node))
     return h.hexdigest()[:12]
 
 
