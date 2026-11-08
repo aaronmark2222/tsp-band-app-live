@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-07** · App version marker `?v=20261108-lymotion` · TSPWork remote script **1.17** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `223967ff…`) · Supabase ledger head `20261107190244_practice_audio_state` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
+_Last updated: **2026-11-07** · App version marker `?v=20261108-lysmooth` · TSPWork remote script **1.17** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `223967ff…`) · Supabase ledger head `20261107190244_practice_audio_state` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -239,7 +239,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
     - Words are in the clip colour; the current line is bright and others are dimmed.
     - Count dots under a section heading while the track is silent for 3+ beats: one per beat up to 8 beats, otherwise up to 4 dots stepping through the bars. Empty space before the gap, visible during it, gone after.
     - A line is listed under the section holding most of its clip; `[>]` forces it under the later section, `[<]` under the earlier one (the tokens are hidden).
-    - The current line grows (font size ~1.1×, eased); lines ease back when they lose focus; sections never scale; autoscroll is an eased glide.
+    - The current line grows (GPU transform scale 1.1×, no reflow; lines wrap at 90% width); lines ease back when they lose focus; sections never scale; autoscroll is an eased glide.
   - **Behaviour:**
     - Autoscroll keeps the current line about 35% down; it pauses for 4 s after a manual scroll.
     - Clicking a line or section seeks there.

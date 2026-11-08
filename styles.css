@@ -1219,9 +1219,11 @@ body { padding-top: env(safe-area-inset-top); }
 
 /* Lyrics motion: the line in focus grows a little, the others ease back.
    Sections stay rigid (no scaling). */
-.ly-line { font-size: 1em; transition: font-size .45s cubic-bezier(.22,.8,.26,1), opacity .45s ease, color .3s ease; }
-.ly-line.current { font-size: 1.1em; }
-.ly-track-lyrics .ly-line.current { font-size: 1.22em; }
+/* Grow/shrink with transform only (no reflow, so nothing below moves or
+   jitters). Lines wrap at 90% width so the enlarged line still fits. */
+.ly-line { max-width: 90%; transform-origin: 0 50%; transform: translateZ(0) scale(1); backface-visibility: hidden; will-change: transform, opacity;
+  transition: transform .55s cubic-bezier(.25,.8,.25,1), opacity .55s cubic-bezier(.25,.8,.25,1), color .3s ease; }
+.ly-line.current { transform: translateZ(0) scale(1.1); }
 .ly-section { transform: none !important; transition: opacity .35s ease; }
 /* Count dots: empty space before their gap, shown while it runs, gone after. */
 .ly-dots { opacity: 0; transition: opacity .35s ease; }
