@@ -114,7 +114,7 @@ Deno.serve(async (request) => {
       const { data: changedMember, error: flagError } = await adminClient.from("members").update({ must_change_password: true })
         .eq("id", target.id).select("id").maybeSingle();
       if (flagError || !changedMember) throw new HttpError(500, "Could not enable the required password change.");
-      const { error: passwordError } = await adminClient.auth.admin.updateUserById(target.user_id, { password: temporaryPassword });
+      const { error: passwordError } = await adminClient.auth.admin.updateUserById(target.user_id, { password: temporaryPassword, email_confirm: true });
       if (passwordError) {
         await adminClient.from("members").update({ must_change_password: originalFlag }).eq("id", target.id);
         throw new HttpError(400, passwordError.message);

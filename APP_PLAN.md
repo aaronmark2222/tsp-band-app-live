@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-08** · App version marker `?v=20261108-pt7` · TSPWork remote script **1.18** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `b6d35b41…`) · Supabase ledger head `20261108050849_save_setlist_rpc` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
+_Last updated: **2026-11-08** · App version marker `?v=20261108-pt7` · TSPWork remote script **1.18** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `b6d35b41…`) · Supabase ledger head `20261108050849_save_setlist_rpc` · Edge Functions `practice-audio` v7, `member-access-admin` v7._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -92,7 +92,7 @@ Aaron is the owner and the only person who runs Ableton Sync and exports. He mos
 | Live site | https://aaronmark2222.github.io/tsp-band-app-live/ |
 | Deploy | `.github/workflows/deploy.yml`, on push to `main`. Copies **only** `index.html app.js styles.css sw.js apple-touch-icon.png assets/the-string-project-logo.png assets/ableton-sync-logo.*`. Any new public file must be added there. |
 | Supabase project | `hzvfrvjuqvmkeqbrgmqu` · `https://hzvfrvjuqvmkeqbrgmqu.supabase.co` · publishable key is in `app.js` (public by design) |
-| Edge Functions | `member-access-admin` (v6, service role in secrets) · `practice-audio` (v7, R2 secrets `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, entered by Aaron himself) |
+| Edge Functions | `member-access-admin` (v7, service role in secrets; a temporary password also confirms the email) · `practice-audio` (v7, R2 secrets `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, entered by Aaron himself) |
 | Cloudflare R2 | bucket **`tsp-practice`**, keys `songs/<SONG ID>/<element-slug>.m4a` (or older `.mp3`). CORS allows GET/PUT/HEAD from `https://aaronmark2222.github.io`. Free tier 10 GB. |
 | Ableton set | `/Users/aaron/Desktop/TSP LIVE MASTER PROJECT Project/TSP LIVE MASTER PROJECT.als` (about 18 MB gzip XML). **Read only.** Optional override in `~/.tspwork.json` `{"als_path": ...}` |
 | TSPWork remote script | `~/Music/Ableton/User Library/Remote Scripts/TSPWork/` (`__init__.py`, `tspwork.py`, `alsreader.py`, `exporter.py`, `tspwork-localhost.crt/.key`, `requests.log`). Repo copy: `tools/ableton-remote-script/TSPWork/` (cert and key are git-ignored and must never be committed) |
