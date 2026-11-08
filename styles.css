@@ -1048,8 +1048,8 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .ly-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .ly-chip { border: 1px solid #1b1b1b; background: #3c3c3c; color: #ddd; border-radius: 14px; padding: 5px 12px; font-size: 12px; }
 .ly-chip.on { background: #f39a26; color: #1c1c1c; border-color: #f39a26; font-weight: 600; }
-.ly-sizes { display: flex; gap: 4px; }
-.ly-size { width: 28px; height: 26px; border: 1px solid #1b1b1b; background: #3c3c3c; color: #ddd; border-radius: 3px; padding: 0; }
+.ly-sizes { display: flex; gap: 4px; align-items: center; flex: none; }
+.ly-size { box-sizing: border-box; flex: none; width: 30px; height: 30px; -webkit-appearance: none; appearance: none; line-height: 1; border: 1px solid #1b1b1b; background: #3c3c3c; color: #ddd; border-radius: 3px; padding: 0; }
 .ly-size[data-lyrics-size="s"] { font-size: 11px; } .ly-size[data-lyrics-size="m"] { font-size: 14px; } .ly-size[data-lyrics-size="l"] { font-size: 18px; }
 .ly-size.on { background: #f39a26; color: #1c1c1c; }
 .ly-missing { margin: 0 0 8px; font-size: 12px; }
@@ -1309,7 +1309,8 @@ body { padding-top: env(safe-area-inset-top); }
 .setlist-row:has(.setlist-song-toggle) > .setlist-item-summary{padding-right:0}
 .setlist-song-toggle .item-title{padding-right:34px}
 /* ---------- Full-screen lyrics (YouTube-style controls) ---------- */
-.ly-fs-btn{margin-left:8px;display:inline-grid;place-items:center;width:30px;height:28px;border:1px solid #4a4a4a;border-radius:4px;background:#2a2a2a;color:#ddd;cursor:pointer;vertical-align:middle}
+.ly-fs-btn{margin-left:6px;display:inline-grid;place-items:center;box-sizing:border-box;flex:none;width:30px;height:30px;padding:0;line-height:0;-webkit-appearance:none;appearance:none;border:1px solid #4a4a4a;border-radius:4px;background:#2a2a2a;color:#ddd;cursor:pointer;vertical-align:middle}
+.ly-fs-btn svg{display:block;flex:none}
 .ly-fs-btn:hover{border-color:#f39a26;color:#f39a26}
 body.lyrics-fs{overflow:hidden}
 body.lyrics-fs .topbar,body.lyrics-fs #notice,body.lyrics-fs .practice-hero,body.lyrics-fs .practice-pick,body.lyrics-fs .practice-main,body.lyrics-fs #practice-upload,body.lyrics-fs #practice-tone,body.lyrics-fs #review-bar,body.lyrics-fs #offline-banner{display:none!important}
