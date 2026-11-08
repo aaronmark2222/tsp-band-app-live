@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-08** · App version marker `?v=20261109-stop1` · TSPWork remote script **1.20** (alsreader md5 `322dd933…`, exporter md5 `639f2b48…`, tspwork md5 `205bb454…`) · Supabase ledger head `20261108133025_member_activity_logs` · Edge Functions `practice-audio` v7, `member-access-admin` v7._
+_Last updated: **2026-11-09** · App version marker `?v=20261109-stop1` · TSPWork remote script **1.20** (alsreader md5 `322dd933…`, exporter md5 `639f2b48…`, tspwork md5 `205bb454…`) · Supabase ledger head `20261108133025_member_activity_logs` · Edge Functions `practice-audio` v7, `member-access-admin` v7._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -409,8 +409,21 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 
 ---
 
+### 13.1 Ongoing testing phase (since 2026-11-09): practice-audio freshness ("yellow")
+
+Aaron is testing whether the export checklist's yellow "changed since upload" flag fires only for real changes.
+- **What happened:** moving the project to the SSD + Collect All and Save turned all 62 songs yellow (fingerprints included sample paths and dates). After that was fixed, one small edit (EHKM1 Bass Part clips disabled) turned 10 untouched songs yellow too: Live renumbers internal IDs (`Id` on warp markers and other elements) on every save.
+- **Fixes:** fingerprints now ignore sample paths/dates (the sample is identified by name, size, CRC, length, rate) and Live's object IDs (`Id`, `NoteId`, `PointeeId`, `LomId`). Verified on Aaron's two saves: only EHKM1 Part - Bass and its Mixdown differed.
+- **State reset (2026-11-09 ~02:05 IST):** at Aaron's request every song was forced green: `app_meta.audio_fingerprints` and all `practice_audio_state` rows were set to the new-format fingerprints of the set saved 2026-11-08 20:22 UTC (654 rows; EHKM1 Part - Bass row removed because that track is now empty, its old file is still in R2). Backup of the earlier rows: `practice_audio_state_backup_20261109`.
+- **Still to confirm with Aaron:** small edits turn only the edited song yellow; plain re-saves change nothing; moving/collecting changes nothing; re-exporting a yellow song turns it green. Watch for other save-to-save noise (e.g. envelope or note data) and tell Aaron if a song goes yellow without a real edit. Until Aaron says the testing is done, treat yellow flags as provisional.
+
+---
+
 ## 14. Decision log (newest first)
 
+- **2026-11-09**
+  - Fingerprints ignore file locations, dates and Live's internal IDs; everything was forced green to start a testing phase (section 13.1).
+  - Export Stop/Cancel retry until TSPWork confirms.
 - **2026-11-08**
   - Activity logging for later statistics: sessions, page visits, practice plays (a play counts as practised at 30 s+); members see only their own rows, the admin sees all.
   - Full-screen lyrics get a compact mixer drop-up from the Multitrack button (only in full screen).
@@ -517,3 +530,4 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 - **2026-11-09:** Export Stop after this song / Cancel now keep retrying until TSPWork confirms (it was dropping requests while Live rendered); export polling every 4 s (`?v=20261109-stop1`).
 - **2026-11-09:** Audio fingerprints ignore sample paths and dates (moving the project to the SSD and Collect All and Save had turned every song yellow). Backup of the old upload fingerprints: table `practice_audio_state_backup_20261109`.
 - **2026-11-09:** Audio fingerprints also ignore Live's internal IDs (renumbered on every save; one save had turned 10 untouched songs yellow). Verified: between two saves only the edited song (EHKM1 bass) differs.
+- **2026-11-09:** All songs forced green with the new-format fingerprints; section 13.1 records the ongoing freshness testing phase.
