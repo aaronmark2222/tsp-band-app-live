@@ -2223,7 +2223,7 @@ db.auth.getSession().then(async ({ data, error }) => {
   if (error || !data.session) {
     // Offline with an expired sign-in: open read-only from the saved copy.
     const cached = dataCacheGet();
-    if (!navigator.onLine && cached?.member && cached?.data) {
+    if ((!navigator.onLine || (error && isNetworkError(error))) && cached?.member && cached?.data) {
       state.member = cached.member;
       state.dashboardMemberId = cached.member.id;
       enterOfflineMode();
