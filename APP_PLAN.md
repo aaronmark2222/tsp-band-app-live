@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-08** · App version marker `?v=20261108-pwa2` · TSPWork remote script **1.17** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `223967ff…`) · Supabase ledger head `20261107190244_practice_audio_state` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
+_Last updated: **2026-11-08** · App version marker `?v=20261108-fix2` · TSPWork remote script **1.18** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `b6d35b41…`) · Supabase ledger head `20261108050849_save_setlist_rpc` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -149,7 +149,7 @@ Song ID families now: E 15, EM 11, I 9, HM 9, H 7, EHM 5, K 3, KM 2, EHKM 1.
 
 ### 5.2 Views, functions, triggers
 - **Views:** `song_readiness` (security invoker), `setlist_summary`, `setlist_member_progress`, `setlist_deadline_list`.
-- **Functions:** `is_admin()`, `current_member_id()`, `owns_task()`, `complete_password_setup()`, `delete_song_and_shift_ids(p_song_id)` (admin; deletes a song and renumbers its family, cascading), `duplicate_setlist()`, `create_song_tasks`, `create_task_type_rows`, `flag_member_first_login`, `link_member_on_signup`, `song_tasks_before_update`, `touch_updated_at`.
+- **Functions:** `save_setlist(p_setlist_id, p_name, p_items)` (admin; saves a setlist's name and whole running order in one transaction), `is_admin()`, `current_member_id()`, `owns_task()`, `complete_password_setup()`, `delete_song_and_shift_ids(p_song_id)` (admin; deletes a song and renumbers its family, cascading), `duplicate_setlist()`, `create_song_tasks`, `create_task_type_rows`, `flag_member_first_login`, `link_member_on_signup`, `song_tasks_before_update`, `touch_updated_at`.
 - **Triggers:** `songs_create_tasks`, `task_types_create_rows`, `song_tasks_guard`, `songs_touch`, `setlists_touch`, `member_email_requires_password_change`.
 - **Status enum `task_status`:** Incomplete, Completed, No, Corrections, Review, Draft, Recorded, Finished.
 
@@ -184,7 +184,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 - **Check before every push:** `cp app.js /tmp/a.mjs && node --check /tmp/a.mjs` (a stray `});` once took the whole app down at "Opening your workspace…").
 - **Views (tabs):** Songs · Setlists · Gigs · Dashboard · Practice · Ableton Sync (admin only, a logo-only tab using `assets/ableton-sync-logo.png`, which Aaron uploaded himself). The avatar and name in the top bar are hidden. On phones the tabs scroll sideways.
 - **Load on sign-in:** members (by `user_id`; selects `id,name,slug,instrument,is_admin,must_change_password`), songs (incl. `keys,key_segments,tempo_*`), song_tasks, task_types, languages, song_languages, setlists, setlist_items, gigs, readiness.
-- **Browser storage keys:** `tsp-practice-lyrics-v2` (lyrics track and size), `tsp-practice-mix-v1` (session multitrack settings, sessionStorage), `tsp-practice-mode` (mix/multi, session), `tsp-practice-source`, `tsp-export-prefs-v1` (export folder, upload on/off), `tsp-tone-midi-v1` (MIDI port and channel), `tsp-offline-v1` (offline audio mode), `tsp-offline-manifest-v1` (saved audio versions), `tsp-data-cache-v1` (offline data). Cache Storage: `tsp-app-shell-v1`, `tsp-practice-audio-v1`, `tsp-offline-data-v1`; IndexedDB `tsp-offline` (folder handle).
+- **Browser storage keys:** `tsp-practice-lyrics-v2` (lyrics track and size), `tsp-practice-mix-v1` (session multitrack settings, sessionStorage), `tsp-practice-mode` (mix/multi, session), `tsp-practice-source`, `tsp-practice-song` (last song opened), `tsp-export-prefs-v1` (export folder, upload on/off), `tsp-tone-midi-v1` (MIDI port and channel), `tsp-offline-v1` (offline audio mode), `tsp-offline-manifest-v1` (saved audio versions), `tsp-data-cache-v1` (offline data). Cache Storage: `tsp-app-shell-v1`, `tsp-practice-audio-v1`, `tsp-offline-data-v1`; IndexedDB `tsp-offline` (folder handle).
 
 ### 6.1 Songs, Setlists, Gigs, Dashboard (core tracker)
 - **Songs:** search and filters (language, single/medley, key), sorts, per-song progress (you vs band), expandable details (type, languages, duration, tempo with step/slope glyph and bar ranges, Scale(s), backing status, task dropdowns). Admin: Add song (M:SS duration, tempo chain editor, keys), Edit (one editor on Songs and Setlists), Delete song (renumbers the family via RPC).
@@ -258,7 +258,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 ## 7. TSPWork (Ableton remote script) — `tools/ableton-remote-script/TSPWork/`
 
 - A `_Framework.ControlSurface` for **Live 12**, chosen as a Control Surface named "TSPWork" in Live's MIDI settings. It runs HTTP/HTTPS servers on a thread; Live API work is marshalled to the main thread with `schedule_message` ticks (`_run_on_main`).
-- **Version 1.17.** `alsreader` and `exporter` are `importlib.reload`ed on every use, so updating those two files needs **no Live restart**. Changing `tspwork.py` needs TSPWork reselected in Live's Control Surface menu (None → TSPWork).
+- **Version 1.18** (1.18: the review bar after a song jump reports the section at the jump target). `alsreader` and `exporter` are `importlib.reload`ed on every use, so updating those two files needs **no Live restart**. Changing `tspwork.py` needs TSPWork reselected in Live's Control Surface menu (None → TSPWork).
 - **Deploy to the Mac:** copy files into a fresh `/mnt/user-data/outputs/deploy_vXXX/`, `device_commit_files` to `~/Music/Ableton/User Library/Remote Scripts/TSPWork/…` (force), then verify the md5 with `device_bash` (`$HOME/mnt/Remote Scripts/TSPWork`). Don't swap the exporter mid-export: check `ls -t` of the export folder or `/export/state` first.
 - **Endpoints** (POST JSON, CORS-restricted):
 
@@ -438,6 +438,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 - **Web MIDI** works only in Chrome/Edge. Rowen must use one of them.
 - **Safari caching:** if a deploy "doesn't show", bump `?v` or have Aaron reload twice.
 - **Live dialogs:** the exporter depends on Live's Export dialog layout (Live 12). A Live update can break it; symptoms are `no_export_dialog` or a stuck file wait. Use Cancel, then check `requests.log`.
+- **E4–E7 practice audio is still the first 320 kbps MP3 export** (43 files); re-export them to get the smaller AAC copies.
 - **Ableton project issues seen on 2026-11-07:**
   - Slivers: Chords and Guitar at bar 7264, PROMPTS ×20, Vocal Prompts bar 2987, Backup Que ×11.
   - Six empty GUITAR TONE clips: E4 b1793, E6 b2136, H2 b5516/5528, H4 "BADTAMEEZ DIL" b5835, HM2 b6275.
@@ -460,6 +461,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 ---
 
 ## 17. Changelog of this plan
+- **2026-11-08:** Test-pass fixes (`?v=20261108-fix2`, TSPWork 1.18): song editor keeps key order and uses M:SS; password reset/temporary password asks to confirm; setlist edits survive tab switches and save in one call (`save_setlist`); Setlists opens on the next gig; new setlist can copy an existing one; layout fixes (multitrack rows, lyrics box above the transport, dashboard widgets, dialog buttons, export checklist, disabled buttons); "Completed" label everywhere; progress-line legend; gig countdowns; Practice remembers the last song. Report: claude.ai Project `claude/TEST_REPORT_2026-11-08.md`.
 - **2026-11-08:** Update App Plan run; full app test pass started (report in the claude.ai Project).
 - **2026-11-08:** The app works offline (service worker + saved data/lyrics), read-only.
 - **2026-11-08:** Offline audio for practice (folder or in-browser), with update prompts for newer uploads.
