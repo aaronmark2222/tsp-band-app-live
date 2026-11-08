@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-08** · App version marker `?v=20261108-pt10` · TSPWork remote script **1.18** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `b6d35b41…`) · Supabase ledger head `20261108050849_save_setlist_rpc` · Edge Functions `practice-audio` v7, `member-access-admin` v7._
+_Last updated: **2026-11-08** · App version marker `?v=20261108-pt13` · TSPWork remote script **1.18** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `b6d35b41…`) · Supabase ledger head `20261108050849_save_setlist_rpc` · Edge Functions `practice-audio` v7, `member-access-admin` v7._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -215,6 +215,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
   - Start first reads the saved set (`/snapshot`) for the fingerprints to store with each uploaded song (so **save the set in Ableton before exporting**), then fetches 24 h presigned links via `practice-audio` `upload_batch`, then `POST /export {songs, export_root, uploads}`, then polls `/export/state`.
 
 ### 6.3 Practice page (all members)
+- **Layout:** on computers the lyrics column runs from the top of the page beside the title, song pickers and players (`.practice-layout` grid areas hero/pick/main + side); on phones: title, pickers, lyrics, players.
 - **Song source:** All songs (repertoire), upcoming gigs, setlists, grouped without duplicates. Song picker in database order (uploaded songs in green) with ‹ › buttons.
 - **Mixdown** card (plain player).
 - **Multitrack:**
@@ -465,6 +466,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 ---
 
 ## 17. Changelog of this plan
+- **2026-11-08:** Practice layout (`?v=20261108-pt13`): lyrics column starts at the top of the page on computers.
 - **2026-11-08:** Lyrics box on computers always fully visible above the transport (`?v=20261108-pt10`).
 - **2026-11-08:** Offline audio saving is always on (`?v=20261108-pt7`): "Save on this device" and "Stop saving" removed.
 - **2026-11-08:** Practice (`?v=20261108-pt6`): multitrack downloads continue in the background across song changes; offline card counts mixdowns and multitracks.
