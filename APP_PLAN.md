@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-08** · App version marker `?v=20261108-fix2` · TSPWork remote script **1.18** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `b6d35b41…`) · Supabase ledger head `20261108050849_save_setlist_rpc` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
+_Last updated: **2026-11-08** · App version marker `?v=20261108-pt3` · TSPWork remote script **1.18** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `b6d35b41…`) · Supabase ledger head `20261108050849_save_setlist_rpc` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -222,8 +222,9 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
   - Colours come from the set (`app_meta`); stems are off by default.
   - Settings persist for the session across songs.
   - **Solo overrides off.** Controls are **locked until every track has downloaded** ("Load multitrack (N MB)").
-  - Web Audio: decodeAudioData, then per track BufferSource → Gain → Analyser.
-- **Bottom transport (Ableton look, fixed):**
+  - Web Audio: decodeAudioData, then per track BufferSource → Gain → Analyser. **Phones** (`PHONE`) decode in mono at 44.1/32/24/22.05 kHz, picked so a song's decoded tracks stay under ~520 MB (long medleys otherwise crash iOS Safari).
+  - **Song changes:** the Mixdown/Multitrack choice carries over (sessionStorage `tsp-practice-mode`); in Multitrack mode the next song's multitrack loads automatically, the Mixdown stands in until it's ready and playback hands over at the same spot. Every file opened in a visit is also kept in memory, compressed (`memBlobs`, 220 MB phone / 700 MB computer), so going back to a song never downloads again even if the device can't save it. Save errors show in the Offline audio card.
+- **Bottom transport (Ableton look, fixed; stays on screen while the next song loads, buttons greyed until it's playable):**
   - Mixdown/Multitrack switch (keeps the playhead; Multitrack shows a download icon and progress until loaded), prev song, back to start, play/pause, stop, next song, position, seek, length.
   - Song ID and title; chips for live **Key**, live **BPM** (from the tempo map) and **Ready / Not ready · N left**.
   - On phones: title and modes on row 1, buttons and times on row 2, the seek bar alone on row 3, chips on row 4. Safe-area padding keeps it off the iOS home bar.
@@ -463,8 +464,9 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 ---
 
 ## 17. Changelog of this plan
+- **2026-11-08:** Practice song switching (`?v=20261108-pt3`): transport no longer disappears; Multitrack mode carries over; in-visit memory cache stops re-downloads (Aaron's iPhone re-downloaded I1); lighter decoding on phones.
 - **2026-11-08:** Update App Plan run: repo, Supabase ledger (28, head `save_setlist_rpc`), Edge Functions (v7/v6) and the Mac's TSPWork 1.18 files all in sync; decision log and counts refreshed.
-- **2026-11-08:** Test-pass fixes (`?v=20261108-fix2`, TSPWork 1.18): song editor keeps key order and uses M:SS; password reset/temporary password asks to confirm; setlist edits survive tab switches and save in one call (`save_setlist`); Setlists opens on the next gig; new setlist can copy an existing one; layout fixes (multitrack rows, lyrics box above the transport, dashboard widgets, dialog buttons, export checklist, disabled buttons); "Completed" label everywhere; progress-line legend; gig countdowns; Practice remembers the last song. Report: claude.ai Project `claude/TEST_REPORT_2026-11-08.md`.
+- **2026-11-08:** Test-pass fixes (`?v=20261108-pt3`, TSPWork 1.18): song editor keeps key order and uses M:SS; password reset/temporary password asks to confirm; setlist edits survive tab switches and save in one call (`save_setlist`); Setlists opens on the next gig; new setlist can copy an existing one; layout fixes (multitrack rows, lyrics box above the transport, dashboard widgets, dialog buttons, export checklist, disabled buttons); "Completed" label everywhere; progress-line legend; gig countdowns; Practice remembers the last song. Report: claude.ai Project `claude/TEST_REPORT_2026-11-08.md`.
 - **2026-11-08:** Update App Plan run; full app test pass started (report in the claude.ai Project).
 - **2026-11-08:** The app works offline (service worker + saved data/lyrics), read-only.
 - **2026-11-08:** Offline audio for practice (folder or in-browser), with update prompts for newer uploads.
