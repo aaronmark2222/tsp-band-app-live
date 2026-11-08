@@ -3077,7 +3077,7 @@ function renderExportPanel(opts = {}) {
   const canStopAfter = running && job.state !== 'uploading' && (job.queue || []).length > 1 && job.song_index < (job.queue || []).length - 1;
   const stopSupported = exportVersionAtLeast('1.17');
   const controlsHtml = `<header><h2>Practice audio</h2></header>
-    <p class="muted">Exports Stems, Parts, Backing, CPC and a Mixdown per song (MP3s in the folder below; smaller AAC copies go to the Practice page), uploading each song while the next one renders while the next one renders. A few minutes per song: start it at night, leave the Mac plugged in with the lid open, and don't use it until it finishes.</p>
+    <p class="muted">Exports Stems, Parts, Backing, CPC and a Mixdown per song (MP3s in the folder below; smaller AAC copies go to the Practice page), uploading each song while the next one renders. A few minutes per song: start it at night, leave the Mac plugged in with the lid open, and don't use it until it finishes.</p>
     <div class="export-row export-opts">
       <label class="export-folder">Folder <input id="export-root" type="text" value="${escapeHtml(prefs.root)}" ${running ? 'disabled' : ''} spellcheck="false"></label>
       <label class="export-check"><input id="export-upload" type="checkbox" ${prefs.upload ? 'checked' : ''} ${running ? 'disabled' : ''}> Upload to the band app</label>

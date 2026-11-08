@@ -1392,10 +1392,6 @@ body.lyrics-fs .ly-chip.on,body.lyrics-fs .ly-size.on,body.lyrics-fs #practice-t
 body.lyrics-fs #practice-lyrics .ly-chips.more-right{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 46px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 46px),transparent)}
 body.lyrics-fs #practice-lyrics .ly-chips.more-left.more-right{-webkit-mask-image:linear-gradient(90deg,transparent,#000 30px,#000 calc(100% - 46px),transparent);mask-image:linear-gradient(90deg,transparent,#000 30px,#000 calc(100% - 46px),transparent)}
 body.lyrics-fs #practice-lyrics .ly-chips.more-left:not(.more-right){-webkit-mask-image:linear-gradient(90deg,transparent,#000 30px);mask-image:linear-gradient(90deg,transparent,#000 30px)}
-body.lyrics-fs #practice-lyrics:has(.ly-chips.more-right)::after{content:'›';position:fixed;z-index:67;top:calc(env(safe-area-inset-top) + 9px);right:calc(max(12px,3vw) + 168px - 2px);
-  width:22px;height:32px;display:grid;place-items:center;color:#fff;font:600 20px/1 var(--sans);opacity:.85;pointer-events:none;transition:opacity .3s ease;animation:lyChipNudge 1.6s ease-in-out infinite}
-body.lyrics-fs:not(.lyrics-fs-controls) #practice-lyrics::after{opacity:0}
-@keyframes lyChipNudge{0%,100%{transform:translateX(0)}50%{transform:translateX(3px)}}
 /* Faster fade for the controls, plus a fade when entering and leaving full screen. */
 body.lyrics-fs #practice-lyrics > header,body.lyrics-fs #practice-lyrics .ly-chips,body.lyrics-fs #practice-transport{transition:opacity .25s ease,transform .25s ease}
 body.lyrics-fs-in #practice-lyrics{animation:lyFsIn .3s ease}
@@ -1516,3 +1512,11 @@ select{color-scheme:dark}
 #dashboard-member-select,.export-setlist,#access-member-select,#gig-setlist{background:rgba(255,255,255,.07)!important;border:1px solid var(--glass-edge)!important;border-radius:999px!important;color:#f2f2f2;padding:6px 12px}
 /* Phones: the top bar scrolls away (it's tall there) instead of staying pinned. */
 @media (max-width:800px){.topbar{position:relative}}
+/* Ableton Sync export controls wrap on narrow screens instead of running off the edge. */
+.export-row{flex-wrap:wrap;min-width:0}
+.export-row > *{min-width:0}
+.export-row .button{white-space:nowrap}
+.export-folder{min-width:0!important;flex:1 1 240px}
+#sync-view .hero-row{gap:16px;flex-wrap:wrap}
+#sync-view .hero-row > div{flex:1 1 260px;min-width:0}
+#sync-view #sync-read{white-space:nowrap}
