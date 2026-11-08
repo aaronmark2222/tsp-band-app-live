@@ -4734,7 +4734,9 @@ function lyricLineHtml(text) {
 function renderPracticeLyrics() {
   renderPracticeLyricsInner();
   lyricsFit();
+  if (typeof lyricsChipsHint === 'function') lyricsChipsHint();
 }
+window.addEventListener('resize', () => { if (typeof lyricsChipsHint === 'function') lyricsChipsHint(); });
 // Full-screen lyrics (YouTube-style): only the lyrics, with the track/size
 // controls on top and the transport at the bottom; both fade out after a few
 // seconds without moving the mouse or touching the screen while playing.
@@ -4743,19 +4745,39 @@ const LY_FS_ICONS = {
   exit: '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M5 2h2v5H2V5h3zM9 2h2v3h3v2H9zM2 9h5v5H5v-3H2zM9 9h5v2h-3v3H9z" fill="currentColor"/></svg>'
 };
 const lyricsFs = { on: false, timer: 0 };
+// Controls: shown on entering; while a song plays they fade out after 1 s
+// without a touch/click; while paused they stay until you tap empty space.
 function lyricsFsShowControls() {
   if (!lyricsFs.on) return;
   document.body.classList.add('lyrics-fs-controls');
-  clearTimeout(lyricsFs.timer);
-  lyricsFs.timer = setTimeout(() => {
-    if (lyricsFs.on && ptIsPlaying()) document.body.classList.remove('lyrics-fs-controls');
-    else lyricsFsShowControls();
-  }, 3000);
+  lyricsFsArmHide();
 }
+function lyricsFsHideControls() {
+  clearTimeout(lyricsFs.timer);
+  document.body.classList.remove('lyrics-fs-controls');
+}
+function lyricsFsArmHide() {
+  clearTimeout(lyricsFs.timer);
+  const check = () => {
+    if (!lyricsFs.on || !document.body.classList.contains('lyrics-fs-controls')) return;
+    if (ptIsPlaying()) lyricsFsHideControls();
+    else lyricsFs.timer = setTimeout(check, 500); // paused: keep them; hide once playback starts
+  };
+  lyricsFs.timer = setTimeout(check, 1000);
+}
+function lyricsChipsHint() {
+  const row = document.querySelector('#practice-lyrics .ly-chips');
+  if (!row) return;
+  const more = row.scrollWidth > row.clientWidth + 2;
+  row.classList.toggle('more-right', more && row.scrollLeft + row.clientWidth < row.scrollWidth - 2);
+  row.classList.toggle('more-left', more && row.scrollLeft > 2);
+}
+document.addEventListener('scroll', (event) => { if (event.target?.classList?.contains('ly-chips')) lyricsChipsHint(); }, true);
 function lyricsFsEnter() {
   if (lyricsFs.on) return;
   lyricsFs.on = true;
-  document.body.classList.add('lyrics-fs');
+  document.body.classList.add('lyrics-fs', 'lyrics-fs-in');
+  setTimeout(() => document.body.classList.remove('lyrics-fs-in'), 320);
   // Real full screen where the browser allows it (computers, Android); iPhone keeps the browser bars.
   const el = document.documentElement;
   const request = el.requestFullscreen || el.webkitRequestFullscreen;
@@ -4763,10 +4785,17 @@ function lyricsFsEnter() {
   renderPracticeLyrics();
   lyricsFsShowControls();
   practice.lyricIndex = -2;
-  setTimeout(() => { lyricsFit(); practiceLyricsTick(true); }, 80);
+  setTimeout(() => { lyricsFit(); practiceLyricsTick(true); lyricsChipsHint(); }, 80);
 }
-function lyricsFsExit() {
-  if (!lyricsFs.on) return;
+function lyricsFsExit(skipFade) {
+  if (!lyricsFs.on || lyricsFs.leaving) return;
+  if (!skipFade) {
+    // Fade out, then go back to the page.
+    lyricsFs.leaving = true;
+    document.body.classList.add('lyrics-fs-out');
+    setTimeout(() => { lyricsFs.leaving = false; document.body.classList.remove('lyrics-fs-out'); lyricsFsExit(true); }, 260);
+    return;
+  }
   lyricsFs.on = false;
   clearTimeout(lyricsFs.timer);
   document.body.classList.remove('lyrics-fs', 'lyrics-fs-controls');
@@ -4791,7 +4820,7 @@ document.addEventListener('click', (event) => {
   if (event.target.closest('[data-lyrics-fs]')) { lyricsFs.on ? lyricsFsExit() : lyricsFsEnter(); }
 });
 ['fullscreenchange', 'webkitfullscreenchange'].forEach((name) => document.addEventListener(name, () => {
-  if (lyricsFs.on && !document.fullscreenElement && !document.webkitFullscreenElement) lyricsFsExit();
+  if (lyricsFs.on && !lyricsFs.leaving && !document.fullscreenElement && !document.webkitFullscreenElement) lyricsFsExit();
 }));
 document.addEventListener('keydown', (event) => {
   if (state.view !== 'practice' || event.target.closest?.('input, textarea, select')) return;
@@ -4799,17 +4828,22 @@ document.addEventListener('keydown', (event) => {
   if ((event.key === 'f' || event.key === 'F') && !event.metaKey && !event.ctrlKey) { lyricsFs.on ? lyricsFsExit() : lyricsFsEnter(); return; }
   lyricsFsShowControls();
 });
-document.addEventListener('mousemove', () => lyricsFsShowControls(), { passive: true });
-// Touch: when the controls are hidden, a tap only brings them back (it doesn't jump in the song).
+// Mouse movement brings the controls back on a computer.
+document.addEventListener('mousemove', (event) => {
+  if (!lyricsFs.on || event.movementX === 0 && event.movementY === 0) return;
+  lyricsFsShowControls();
+}, { passive: true });
+// Clicking/tapping empty space shows or hides the controls; using a control
+// keeps them up; tapping a line still jumps there.
 document.addEventListener('click', (event) => {
   if (!lyricsFs.on) return;
-  if (!document.body.classList.contains('lyrics-fs-controls') && event.target.closest('#practice-lyrics, #practice-transport')) {
-    event.preventDefault();
-    event.stopPropagation();
-  }
-  lyricsFsShowControls();
+  const t = event.target;
+  if (t.closest('#practice-transport, #practice-lyrics > header, #practice-lyrics .ly-chips')) { lyricsFsShowControls(); return; }
+  if (t.closest('.ly-line, .ly-section, button, a, input, select')) return;
+  if (!t.closest('#practice-lyrics')) return;
+  if (document.body.classList.contains('lyrics-fs-controls')) lyricsFsHideControls();
+  else lyricsFsShowControls();
 }, true);
-document.addEventListener('touchstart', () => { if (lyricsFs.on && document.body.classList.contains('lyrics-fs-controls')) lyricsFsShowControls(); }, { passive: true });
 function renderPracticeLyricsInner() {
   const box = $('#practice-lyrics');
   if (!box) return;
@@ -4999,6 +5033,8 @@ function lyricsScrollTo(scroll, target, instant) {
   practice.lyricsAutoScrolling = Date.now();
   cancelAnimationFrame(practice.lyricsScrollAnim || 0);
   if (instant) { scroll.scrollTop = goal; return; }
+  // iPhone/iPad: Safari's own smooth scrolling is the reliable way to glide there.
+  if (PHONE && 'scrollBehavior' in document.documentElement.style) { scroll.scrollTo({ top: goal, behavior: 'smooth' }); return; }
   // Eased glide (slow in, slow out) instead of the browser's fixed smooth scroll.
   const from = scroll.scrollTop;
   const distance = goal - from;

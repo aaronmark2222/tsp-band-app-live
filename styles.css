@@ -1377,3 +1377,27 @@ body.lyrics-fs #practice-transport .pt-lcd{border-radius:999px;color:#ffd08a}
 body.lyrics-fs #practice-transport .pt-chip b{color:#fff}
 /* Lines can sit under the glass; they start below the top bar. */
 body.lyrics-fs #practice-lyrics .ly-scroll{padding-top:calc(env(safe-area-inset-top) + 64px)!important}
+/* Full screen, refined: one glass layer behind the whole top bar (no nested blurs:
+   iOS draws nested backdrop blurs black), fades, and a scroll hint on the track chips. */
+body.lyrics-fs #practice-lyrics > header{background:transparent!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;border-bottom:0!important;box-shadow:none!important}
+body.lyrics-fs #practice-lyrics::before{content:'';position:fixed;top:0;left:0;right:0;height:calc(env(safe-area-inset-top) + 50px);z-index:64;
+  background:rgba(28,28,30,.34);-webkit-backdrop-filter:blur(22px) saturate(170%);backdrop-filter:blur(22px) saturate(170%);
+  border-bottom:1px solid rgba(255,255,255,.12);box-shadow:0 8px 24px rgba(0,0,0,.18);transition:opacity .3s ease;pointer-events:none}
+body.lyrics-fs:not(.lyrics-fs-controls) #practice-lyrics::before{opacity:0}
+body.lyrics-fs .ly-chip,body.lyrics-fs .ly-size,body.lyrics-fs .ly-fs-btn,
+body.lyrics-fs #practice-transport .pt-group button,body.lyrics-fs #practice-transport .pt-lcd,body.lyrics-fs #practice-transport .pt-chip{
+  -webkit-backdrop-filter:none!important;backdrop-filter:none!important;background-color:rgba(255,255,255,.13)}
+body.lyrics-fs .ly-chip.on,body.lyrics-fs .ly-size.on,body.lyrics-fs #practice-transport .pt-modes button.on{background-color:rgba(243,154,38,.8)}
+/* Track chips: fade at the edge plus an arrow when more chips are off to the side. */
+body.lyrics-fs #practice-lyrics .ly-chips.more-right{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 46px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 46px),transparent)}
+body.lyrics-fs #practice-lyrics .ly-chips.more-left.more-right{-webkit-mask-image:linear-gradient(90deg,transparent,#000 30px,#000 calc(100% - 46px),transparent);mask-image:linear-gradient(90deg,transparent,#000 30px,#000 calc(100% - 46px),transparent)}
+body.lyrics-fs #practice-lyrics .ly-chips.more-left:not(.more-right){-webkit-mask-image:linear-gradient(90deg,transparent,#000 30px);mask-image:linear-gradient(90deg,transparent,#000 30px)}
+body.lyrics-fs #practice-lyrics:has(.ly-chips.more-right)::after{content:'›';position:fixed;z-index:67;top:calc(env(safe-area-inset-top) + 9px);right:calc(max(12px,3vw) + 168px - 2px);
+  width:22px;height:32px;display:grid;place-items:center;color:#fff;font:600 20px/1 var(--sans);opacity:.85;pointer-events:none;transition:opacity .3s ease;animation:lyChipNudge 1.6s ease-in-out infinite}
+body.lyrics-fs:not(.lyrics-fs-controls) #practice-lyrics::after{opacity:0}
+@keyframes lyChipNudge{0%,100%{transform:translateX(0)}50%{transform:translateX(3px)}}
+/* Faster fade for the controls, plus a fade when entering and leaving full screen. */
+body.lyrics-fs #practice-lyrics > header,body.lyrics-fs #practice-lyrics .ly-chips,body.lyrics-fs #practice-transport{transition:opacity .25s ease,transform .25s ease}
+body.lyrics-fs-in #practice-lyrics{animation:lyFsIn .3s ease}
+body.lyrics-fs-out #practice-lyrics,body.lyrics-fs-out #practice-transport{opacity:0;transition:opacity .25s ease}
+@keyframes lyFsIn{from{opacity:0}to{opacity:1}}
