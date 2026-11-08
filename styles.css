@@ -1280,3 +1280,6 @@ body { padding-top: env(safe-area-inset-top); }
 .export-pick li{break-inside:avoid}
 .dashboard-member-work-list{grid-template-columns:minmax(0,1fr)}
 .dashboard-member-song-group{min-width:0}
+/* Transport stays put while the next song loads. */
+.pt-bar.pt-idle #pt-pos{color:#9a9a9a;font-size:11px}
+.pt-bar button:disabled,.pt-bar input:disabled{opacity:.35;cursor:default}

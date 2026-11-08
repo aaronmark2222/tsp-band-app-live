@@ -3650,21 +3650,48 @@ function offlineObjectUrl(key, blob) {
 }
 // The audio for a track: the saved copy if it's the current version (or if
 // we're offline), otherwise download it (and save it when saving is on).
+// Songs opened in this visit stay in memory (compressed), so going back to a
+// song never downloads it again, even if the device couldn't save it.
+const PHONE = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
+const memBlobs = new Map();
+const MEM_BLOB_BUDGET = (PHONE ? 220 : 700) * 1048576;
+function memBlobKey(songId, track) { return `${songId}|${track.element}|${offlineVersion(track)}`; }
+function memBlobGet(songId, track) {
+  const key = memBlobKey(songId, track);
+  const blob = memBlobs.get(key) || (track.offline ? [...memBlobs.entries()].find(([k]) => k.startsWith(`${songId}|${track.element}|`))?.[1] : null);
+  if (blob) { memBlobs.delete(key); memBlobs.set(key, blob); }
+  return blob || null;
+}
+function memBlobPut(songId, track, blob) {
+  for (const k of [...memBlobs.keys()]) if (k.startsWith(`${songId}|${track.element}|`)) memBlobs.delete(k);
+  memBlobs.set(memBlobKey(songId, track), blob);
+  let total = 0;
+  for (const b of memBlobs.values()) total += b.size;
+  for (const [k, b] of memBlobs) { if (total <= MEM_BLOB_BUDGET) break; if (k.startsWith(`${songId}|`)) continue; memBlobs.delete(k); total -= b.size; }
+}
 async function offlineTrackBlob(songId, track, onStatus) {
   await offlineInit();
+  const inMemory = memBlobGet(songId, track);
+  if (inMemory) return inMemory;
   const saved = offline.manifest[songId]?.[track.element];
   const current = saved && (track.offline || saved.v === offlineVersion(track));
   if (offline.mode !== 'none' && (offline.dir || offline.mode === 'browser') && (current || (saved && !track.url))) {
     const blob = await offlineRead(songId, track.element);
-    if (blob) return blob;
+    if (blob) { memBlobPut(songId, track, blob); return blob; }
   }
   if (!track.url) throw new Error('not saved on this device and no connection');
   onStatus?.(offline.mode === 'none' ? 'Loading…' : 'Downloading and saving on this device…');
   const response = await fetch(track.url);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const blob = await response.blob();
+  memBlobPut(songId, track, blob);
   if (offline.mode !== 'none' && (offline.dir || offline.mode === 'browser')) {
-    try { await offlineWrite(songId, track.element, track, blob); } catch (error) { console.warn('Not saved on this device', error); }
+    try { await offlineWrite(songId, track.element, track, blob); offline.lastError = ''; }
+    catch (error) {
+      console.warn('Not saved on this device', error);
+      offline.lastError = `${error?.name || 'Error'}: ${error?.message || error}`;
+      renderOfflinePanel();
+    }
   }
   return blob;
 }
@@ -3832,7 +3859,9 @@ function renderOfflinePanel() {
         </div>`}
       <p class="muted offline-small">Songs you open are saved as you play them, so they don't download again. <button type="button" class="linklike" data-offline-off>Stop saving</button>${offline.mode === 'browser' ? ' · <button type="button" class="linklike" data-offline-clear>Delete saved audio</button>' : ''}${offline.mode === 'browser' && offlineFolderSupported() ? ' · <button type="button" class="linklike" data-offline-folder>Use a folder instead</button>' : ''}</p>`;
   }
-  box.innerHTML = `<header><h2>Offline audio</h2>${offline.mode !== 'none' && !offline.needsPermission ? '<span class="offline-on">● On</span>' : ''}</header>${body}`;
+  const saveError = offline.lastError && offline.mode !== 'none'
+    ? `<p class="error offline-small">This device could not save the last file (${escapeHtml(offline.lastError)}). It still plays, and won't download again during this visit.</p>` : '';
+  box.innerHTML = `<header><h2>Offline audio</h2>${offline.mode !== 'none' && !offline.needsPermission ? '<span class="offline-on">● On</span>' : ''}</header>${body}${saveError}`;
 }
 document.addEventListener('click', (event) => {
   if (!event.target.closest('#practice-offline')) return;
@@ -3969,8 +3998,7 @@ async function practiceOpenSong(songId) {
   practice.duration = 0;
   practice.offset = 0;
   practice.position = 0;
-  // A new song starts on its Mixdown; the multitrack is downloaded on request.
-  try { sessionStorage.setItem(PT_MODE_KEY, 'mix'); } catch { /* ignore */ }
+  // The Mixdown/Multitrack choice carries over to the next song.
   practice.error = '';
   practice.lyrics = null;
   practice.lyricIndex = -2;
@@ -4003,8 +4031,13 @@ async function practiceOpenSong(songId) {
     practice.loadingSong = false;
     renderPracticePlayers();
   }
-  // Multitrack already saved on this device: load it right away (no data used).
-  if (practice.songId === songId && practiceMultiTracks().length && practiceMultiSaved(songId)) practiceLoadTracks();
+  // Load the multitrack straight away when it's on this device (or in memory),
+  // or when Multitrack is the chosen mode.
+  if (practice.songId === songId && practiceMultiTracks().length
+    && (ptMode() === 'multi' || practiceMultiSaved(songId) || practiceMultiInMemory(songId))) practiceLoadTracks();
+}
+function practiceMultiInMemory(songId) {
+  return practiceMultiTracks().every((t) => memBlobGet(songId, t));
 }
 function practiceMultiSaved(songId) {
   if (offline.mode === 'none' || (offline.mode === 'folder' && !offline.dir)) return false;
@@ -4035,6 +4068,9 @@ function practiceTime(seconds) {
 }
 
 function renderPracticePlayers() {
+  try { renderPracticePlayersInner(); } finally { ptRender(); }
+}
+function renderPracticePlayersInner() {
   const song = state.songs.find((item) => item.id === practice.songId);
   const mixBox = $('#practice-mixdown');
   const multiBox = $('#practice-multitrack');
@@ -4127,6 +4163,24 @@ function renderPracticeMultitrack() {
     <ul class="ab-tracks ${loaded ? '' : 'ab-locked'}">${rows}</ul>`;
 }
 
+function practiceDecodePlan(trackCount) {
+  if (!PHONE) return { rate: 0, mono: false };
+  const song = state.songs.find((item) => item.id === practice.songId);
+  const seconds = Math.max(60, Number(song?.duration_seconds) || 300) + 5;
+  const budget = 520 * 1048576; // decoded bytes (float32)
+  for (const rate of [44100, 32000, 24000]) if (seconds * trackCount * 4 * rate <= budget) return { rate, mono: true };
+  return { rate: 22050, mono: true };
+}
+function practiceToMono(buffer) {
+  const mono = practice.ctx.createBuffer(1, buffer.length, buffer.sampleRate);
+  const out = mono.getChannelData(0);
+  const n = buffer.numberOfChannels;
+  for (let c = 0; c < n; c += 1) {
+    const data = buffer.getChannelData(c);
+    for (let i = 0; i < data.length; i += 1) out[i] += data[i] / n;
+  }
+  return mono;
+}
 async function practiceLoadTracks() {
   const token = practice.loadToken;
   const tracks = practiceMultiTracks();
@@ -4134,12 +4188,20 @@ async function practiceLoadTracks() {
   tracks.forEach((t) => { if (!practice.buffers.has(t.element)) practice.loadState.set(t.element, 'loading'); });
   renderPracticeMultitrack();
   ptRender();
+  // Phones: decoded audio takes ~10× the download size, so long songs are
+  // decoded in mono and, if needed, at a lower sample rate to stay in memory.
+  const plan = practiceDecodePlan(tracks.length);
+  if (practice.ctx && plan.rate && practice.ctx.sampleRate !== plan.rate && !practice.playing) {
+    try { await practice.ctx.close(); } catch { /* ignore */ }
+    practice.ctx = null;
+  }
   if (!practice.ctx) {
     const Ctx = window.AudioContext || window.webkitAudioContext;
-    practice.ctx = new Ctx();
+    try { practice.ctx = plan.rate ? new Ctx({ sampleRate: plan.rate }) : new Ctx(); } catch { practice.ctx = new Ctx(); }
     practice.master = practice.ctx.createGain();
     practice.master.connect(practice.ctx.destination);
   }
+  practice.mono = plan.mono;
   await practice.ctx.resume().catch(() => {});
   // Two at a time keeps phones from running out of memory while decoding.
   const queue = tracks.filter((t) => !practice.buffers.has(t.element));
@@ -4149,8 +4211,9 @@ async function practiceLoadTracks() {
       try {
         const blob = await offlineTrackBlob(practice.songId, t);
         const data = await blob.arrayBuffer();
-        const buffer = await practice.ctx.decodeAudioData(data);
+        let buffer = await practice.ctx.decodeAudioData(data);
         if (token !== practice.loadToken) return;
+        if (practice.mono && buffer.numberOfChannels > 1) buffer = practiceToMono(buffer);
         practice.buffers.set(t.element, buffer);
         practice.loadState.set(t.element, 'ready');
         practice.duration = Math.max(practice.duration, buffer.duration);
@@ -4168,9 +4231,19 @@ async function practiceLoadTracks() {
   // Tracks that failed are dropped so the rest can still play.
   practice.tracks = practice.tracks.filter((t) => t.element === 'Mixdown' || practice.buffers.has(t.element));
   practice.tracks.songId = practice.songId;
+  // Multitrack chosen and the Mixdown was standing in: carry on from the same spot.
+  const audio = $('#practice-mix-audio');
+  if (ptMode() === 'multi' && ptMultiReady() && !practice.playing) {
+    const wasPlaying = !!(audio && !audio.paused && !audio.ended);
+    const at = audio && (wasPlaying || audio.currentTime) ? audio.currentTime : (practice.position || 0);
+    if (audio) audio.pause();
+    practice.position = at;
+    practice.offset = at;
+    if (wasPlaying) practicePlay();
+  }
   renderPracticeMultitrack();
   renderOfflinePanel();
-  ptRender();
+  ptRefreshPicks();
 }
 
 function practicePosition() {
@@ -4903,6 +4976,8 @@ function ptSetMode(mode) {
   // Multitrack not downloaded yet: this click downloads it (the button shows
   // progress); once ready, the next click switches to it.
   if (mode === 'multi' && !ptMultiReady()) {
+    // Remember the choice: playback moves over to the multitrack once it's loaded.
+    try { sessionStorage.setItem(PT_MODE_KEY, 'multi'); } catch { /* ignore */ }
     if (!ptMultiLoading() && practiceMultiTracks().length) practiceLoadTracks();
     ptRender();
     return;
@@ -4950,12 +5025,17 @@ function ptRender() {
   if (!bar) return;
   const song = state.songs.find((item) => item.id === practice.songId);
   const engine = ptEngine();
-  if (!engine) { bar.classList.add('hidden'); ptMeasure(); return; }
+  // Stays on screen while the next song loads (only hidden when nothing is chosen).
+  if (!song) { bar.classList.add('hidden'); ptMeasure(); return; }
   bar.classList.remove('hidden');
+  const idle = !engine;
   requestAnimationFrame(ptMeasure);
   const playing = ptIsPlaying();
-  const dur = ptDuration();
+  const dur = ptDuration() || (idle ? Number(song.duration_seconds) || 0 : 0);
   const multiAvailable = practiceMultiTracks().length > 0;
+  const off = idle ? 'disabled' : '';
+  const idleNote = idle ? (practice.loadingSong ? 'Loading…' : practice.error ? 'Not available' : practice.tracks.length ? 'Loading…' : 'No audio yet') : '';
+  bar.classList.toggle('pt-idle', idle);
   bar.innerHTML = `
     <div class="pt-group pt-modes" role="radiogroup" aria-label="Play from">
       <button type="button" data-pt-mode="mix" class="${engine === 'mix' ? 'on' : ''}" ${$('#practice-mix-audio') ? '' : 'disabled'}>Mixdown</button>
@@ -4965,19 +5045,20 @@ function ptRender() {
     <span class="pt-break" aria-hidden="true"></span>
     <div class="pt-group pt-buttons">
       <button type="button" data-pt="prev" title="Previous song in the list">${ptIcons.prev}</button>
-      <button type="button" data-pt="start" title="Back to start">${ptIcons.start}</button>
-      <button type="button" data-pt="play" class="pt-play ${playing ? 'on' : ''}" title="Play / pause (Space)">${playing ? ptIcons.pause : ptIcons.play}</button>
-      <button type="button" data-pt="stop" title="Stop">${ptIcons.stop}</button>
+      <button type="button" data-pt="start" title="Back to start" ${off}>${ptIcons.start}</button>
+      <button type="button" data-pt="play" class="pt-play ${playing ? 'on' : ''}" title="Play / pause (Space)" ${off}>${playing ? ptIcons.pause : ptIcons.play}</button>
+      <button type="button" data-pt="stop" title="Stop" ${off}>${ptIcons.stop}</button>
       <button type="button" data-pt="next" title="Next song in the list">${ptIcons.next}</button>
     </div>
-    <div class="pt-lcd" id="pt-pos">${ptTime(ptPosition())}</div>
-    <input type="range" id="pt-seek" class="pt-seek" min="0" max="${dur.toFixed(2)}" step="0.05" value="${ptPosition().toFixed(2)}" aria-label="Position">
+    <div class="pt-lcd" id="pt-pos">${idle ? idleNote : ptTime(ptPosition())}</div>
+    <input type="range" id="pt-seek" class="pt-seek" min="0" max="${dur.toFixed(2)}" step="0.05" value="${ptPosition().toFixed(2)}" aria-label="Position" ${off}>
     <div class="pt-lcd pt-dim">${ptTime(dur)}</div>
     <div class="pt-info">${ptInfoHtml(song)}</div>`;
 }
 function ptTick() {
   const bar = $('#practice-transport');
   if (!bar || bar.classList.contains('hidden')) return;
+  if (bar.classList.contains('pt-idle')) { if (ptEngine()) ptRender(); return; }
   const pos = ptPosition();
   const lcd = $('#pt-pos');
   if (lcd) lcd.textContent = ptTime(pos);
