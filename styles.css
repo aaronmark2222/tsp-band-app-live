@@ -1578,3 +1578,11 @@ body.lyrics-fs #practice-transport .pt-mixer-btn:disabled{opacity:.4}
   border:1px solid rgba(255,255,255,.16);box-shadow:0 10px 30px rgba(0,0,0,.4);font-size:14px;max-width:calc(100vw - 24px);animation:pmIn .2s ease-out}
 .update-bar .button{padding:7px 14px;border-radius:999px}
 .update-bar .text-button{padding:6px 8px}
+/* Read button fills up with the read's progress */
+#sync-read.reading{opacity:1!important;cursor:default;color:var(--ink)!important;
+  background:linear-gradient(90deg,rgba(243,154,38,.55) var(--p,0%),rgba(255,255,255,.08) var(--p,0%))!important;
+  border-color:rgba(243,154,38,.5)!important;font-variant-numeric:tabular-nums;min-width:260px;transition:background .25s linear}
+.rp-time{font-size:12px;margin-top:-4px}
+.rp-steps{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:4px;font-size:13px;color:var(--muted)}
+.rp-steps li.done{color:#8fd19e}
+.rp-steps li.now{color:var(--ink);font-weight:600}

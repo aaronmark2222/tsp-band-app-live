@@ -31,7 +31,7 @@ from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
 TLS_PORT = 47711
-VERSION = '1.19'
+VERSION = '1.20'
 DEBUG_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requests.log')
 # https listener for the live site in Safari. Certificate made for 127.0.0.1 /
 # localhost only, trusted once in this Mac's Keychain. Files sit next to this
@@ -793,8 +793,14 @@ class TSPWork(ControlSurface):
             if method == 'GET' and path.startswith('/status'):
                 if self._reading_since:
                     # A read is running (maybe from another window): say so straight away.
+                    prog = None
+                    try:
+                        from . import alsreader
+                        prog = dict(alsreader.PROGRESS)
+                    except Exception:
+                        pass
                     return self._reply(conn, 200, {'ok': True, 'version': VERSION, 'https': self._tls is not None,
-                                                   'reading_since': self._reading_since}, origin)
+                                                   'reading_since': self._reading_since, 'reading_progress': prog}, origin)
                 return self._reply(conn, 200, self._run_on_main(self._cmd_status), origin)
             if method != 'POST':
                 return self._reply(conn, 404, {'ok': False, 'error': 'not_found'}, origin)

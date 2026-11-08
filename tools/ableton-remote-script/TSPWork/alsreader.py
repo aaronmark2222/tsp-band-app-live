@@ -246,6 +246,7 @@ def _read_als_fast(path):
     """Unzip once, cut the file into its top-level tracks by Ableton's tab
     indentation, and parse each piece with the C parser (one track in memory
     at a time). Returns None if the layout isn't what's expected."""
+    _progress('open', 0, 0)
     with gzip.open(path, 'rb') as fh:
         data = fh.read()
     a = data.find(b'\n\t\t<Tracks>')
@@ -257,6 +258,8 @@ def _read_als_fast(path):
         return None
     tracks = []
     for i, s0 in enumerate(starts):
+        if i % 5 == 0:
+            _progress('tracks', i, len(starts))
         e0 = starts[i + 1] if i + 1 < len(starts) else b
         el = _parse_piece(data, s0, e0)
         tracks.append(_track_entry(el))
@@ -750,6 +753,19 @@ _PYTHONS = ('/opt/homebrew/bin/python3', '/usr/local/bin/python3',
             '/Library/Developer/CommandLineTools/usr/bin/python3',
             '/Applications/Xcode.app/Contents/Developer/usr/bin/python3')
 LAST_READ = {'how': None, 'error': None}
+# Live progress of the current read: stage, done, total (TSPWork's /status shows it).
+PROGRESS = {'stage': None, 'done': 0, 'total': 0}
+_CHILD = False
+
+
+def _progress(stage, done=0, total=0):
+    PROGRESS.update(stage=stage, done=done, total=total)
+    if _CHILD:  # tell the parent (TSPWork inside Live) on stderr
+        try:
+            sys.stderr.write('P\t%s\t%d\t%d\n' % (stage, done, total))
+            sys.stderr.flush()
+        except Exception:
+            pass
 
 
 def _external_python():
@@ -765,19 +781,37 @@ def build_snapshot(als_path):
         if py:
             try:
                 import json
-                out = subprocess.run([py, '-I', os.path.abspath(__file__), '--snapshot', als_path],
-                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=900)
-                if out.returncode == 0:
+                import threading
+                _progress('open', 0, 0)
+                proc = subprocess.Popen([py, '-I', os.path.abspath(__file__), '--snapshot', als_path],
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                result = {}
+                reader = threading.Thread(target=lambda: result.update(out=proc.stdout.read()))
+                reader.daemon = True
+                reader.start()
+                errors = []
+                for raw in iter(proc.stderr.readline, b''):
+                    line = raw.decode('utf-8', 'replace').rstrip('\n')
+                    parts = line.split('\t')
+                    if len(parts) == 4 and parts[0] == 'P':
+                        PROGRESS.update(stage=parts[1], done=int(parts[2]), total=int(parts[3]))
+                    else:
+                        errors.append(line)
+                proc.wait(timeout=900)
+                reader.join(timeout=60)
+                if proc.returncode == 0 and result.get('out'):
                     LAST_READ.update(how=py, error=None)
-                    snap = json.loads(out.stdout.decode('utf-8'))
+                    snap = json.loads(result['out'].decode('utf-8'))
                     snap['reader'] = py
+                    _progress('done', 0, 0)
                     return snap
-                LAST_READ.update(how='in Live', error=out.stderr.decode('utf-8', 'replace')[-300:])
+                LAST_READ.update(how='in Live', error='\n'.join(errors)[-300:])
             except Exception as err:
                 LAST_READ.update(how='in Live', error=repr(err)[:300])
         else:
             LAST_READ.update(how='in Live', error='no separate python3 found')
     snap = _build_snapshot(als_path)
+    _progress('done', 0, 0)
     snap['reader'] = 'in Live' + (' (%s)' % LAST_READ['error'][:120] if LAST_READ.get('error') else '')
     return snap
 
@@ -850,7 +884,8 @@ def _build_snapshot(als_path):
 
     # --- per song metadata + evidence
     out = {}
-    for s in songs:
+    for n, s in enumerate(songs):
+        _progress('songs', n, len(songs))
         a, b = s['start'], s['end']
         loc = loc_at.get(round(a, 2))
         if loc is None:
@@ -941,4 +976,5 @@ def _build_snapshot(als_path):
 
 if __name__ == '__main__' and len(sys.argv) == 3 and sys.argv[1] == '--snapshot':
     import json
+    _CHILD = True
     sys.stdout.write(json.dumps(_build_snapshot(sys.argv[2])))

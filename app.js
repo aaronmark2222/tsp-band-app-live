@@ -2798,18 +2798,23 @@ function renderSyncStatus() {
     parts.push('Ableton is not connected. Open TSP Work on the Mac running Ableton, with TSPWork chosen as a Control Surface.');
   } else {
     parts.push(`Connected to Ableton (TSPWork ${escapeHtml(status.version || '')}).`);
-    if (status.als_saved_at) parts.push(`Set last saved ${new Date(status.als_saved_at * 1000).toLocaleString()}.`);
+    if (status.als_saved_at) parts.push(`Your set was last saved (⌘S) ${new Date(status.als_saved_at * 1000).toLocaleString()}.`);
   }
-  if (sync.readAt) parts.push(`Last read ${sync.readAt.toLocaleTimeString()}.`);
+  if (sync.readAt) {
+    const readOf = Date.parse(sync.snapshot?.als_modified_at || 0) / 1000;
+    const stale = status?.als_saved_at && readOf && status.als_saved_at - readOf > 2;
+    parts.push(`Last read ${sync.readAt.toLocaleTimeString()}${stale ? ' — <b>the set was saved again since; read again to see the changes</b>' : ' (up to date with the saved set)'}.`);
+  }
   // A read TSPWork is doing for another window (or for this page before a reload).
   const elsewhere = !sync.reading && status?.reading_since;
   if (elsewhere) parts.push(`<b>TSPWork is already reading the set</b> (started ${new Date(status.reading_since * 1000).toLocaleTimeString()}, from another window or before the page reloaded). You can read again when it finishes.`);
   box.innerHTML = parts.join(' ');
   $('#sync-read').disabled = sync.reading || !!elsewhere;
-  $('#sync-read').textContent = sync.reading || elsewhere ? 'Reading the set…' : 'Read Ableton set';
+  if (sync.reading || elsewhere) readProgressTick();
+  else { $('#sync-read').textContent = 'Read Ableton set'; $('#sync-read').classList.remove('reading'); }
   // Check again soon so the button comes back as soon as that read ends.
   clearTimeout(renderSyncStatus.recheck);
-  if (elsewhere && state.view === 'sync') renderSyncStatus.recheck = setTimeout(probeAbletonBridge, 3000);
+  if (elsewhere && state.view === 'sync') renderSyncStatus.recheck = setTimeout(probeAbletonBridge, 2000);
 }
 
 function renderSyncPage() {
@@ -2954,30 +2959,76 @@ function readProgressStep(label, step) {
   Object.assign(sync.progress, { phase: 'save', label, step });
   readProgressTick();
 }
+const READ_STAGE_LABEL = { open: 'Opening the saved set', tracks: 'Reading tracks', songs: 'Working out songs', done: 'Finishing the read' };
+// Where the read is, from TSPWork (1.20+) when it reports it; otherwise timed.
+function readStageInfo(p) {
+  const st = p.remoteStage;
+  if (st?.stage && READ_STAGE_LABEL[st.stage]) {
+    const frac = st.total ? Math.min(1, st.done / st.total) : 0;
+    const pct = st.stage === 'open' ? 6 : st.stage === 'tracks' ? 10 + 65 * frac : st.stage === 'songs' ? 75 + 10 * frac : 85;
+    const count = st.total ? ` ${st.done} of ${st.total}` : '';
+    return { pct, label: `${READ_STAGE_LABEL[st.stage]}${count}`, short: `${READ_STAGE_LABEL[st.stage]}${count}` };
+  }
+  return null;
+}
 function readProgressValue(p) {
   if (p.phase === 'save') return 85 + Math.min(3, p.step) * 5;
+  const real = readStageInfo(p);
+  if (real) return real.pct;
   const t = (Date.now() - p.started) / 1000;
   const k = t / p.estimate;
   // Linear up to the estimate, then creeps toward 95 % so it never sits still or lies about being done.
   return k <= 1 ? 85 * k : 85 + 10 * (1 - Math.exp(-(k - 1) * 1.5));
 }
+function readProgressStageText(p, remote) {
+  if (p.phase === 'save') return p.label;
+  const real = readStageInfo(p);
+  if (real) return `${remote ? 'Another window: ' : ''}${real.label}…`;
+  return remote ? 'TSPWork is reading the set for another window…' : 'Reading the saved Ableton set…';
+}
+const READ_STEPS = [['read', 'Read the saved set'], ['lyrics', 'Save lyrics for Practice'], ['fp', 'Save audio fingerprints'], ['colors', 'Save track colours']];
 function readProgressHtml(p, remote) {
   const pct = readProgressValue(p);
   const t = Math.round((Date.now() - p.started) / 1000);
   const left = Math.max(0, Math.round(p.estimate - t));
-  const detail = p.phase === 'save' ? p.label
-    : `${remote ? 'TSPWork is reading the set for another window' : 'Reading the saved Ableton set'}… ${t} s${t < p.estimate ? ` · about ${left} s left` : ' · taking longer than usual'}`;
+  const timing = p.phase === 'save' ? `${t} s` : `${t} s${t < p.estimate ? ` · about ${left} s left` : ' · taking longer than usual'}`;
+  const current = p.phase === 'save' ? Math.min(3, p.step) : 0;
+  const steps = remote ? '' : `<ol class="rp-steps">${READ_STEPS.map(([, label], i) => `<li class="${i < current ? 'done' : i === current ? 'now' : ''}">${i < current ? '✓' : i === current ? '●' : '○'} ${escapeHtml(label)}</li>`).join('')}</ol>`;
   return `<div class="read-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct)}">
     <div class="rp-bar"><span style="width:${pct.toFixed(1)}%"></span></div>
-    <div class="rp-label"><span>${escapeHtml(detail)}</span><b>${Math.round(pct)}%</b></div></div>`;
+    <div class="rp-label"><span>${escapeHtml(readProgressStageText(p, remote))}</span><b>${Math.round(pct)}%</b></div>
+    <div class="rp-time muted">${escapeHtml(timing)}</div>${steps}</div>`;
+}
+// Ask TSPWork where the read is (its /status answers at once during a read).
+async function readProgressPoll() {
+  if (readProgressPoll.busy) return;
+  readProgressPoll.busy = true;
+  try {
+    const st = await abletonRequest('/status', null, 1500);
+    if (st?.reading_progress) {
+      if (sync.progress) sync.progress.remoteStage = st.reading_progress;
+      readProgressPoll.remote = st.reading_progress;
+    }
+    if (!st?.reading_since) readProgressPoll.remote = null;
+  } catch { /* ignore */ } finally { readProgressPoll.busy = false; }
 }
 function readProgressTick() {
   clearTimeout(readProgressTick.timer);
   const remoteSince = !sync.reading && abletonBridge.status?.reading_since;
-  const p = sync.reading ? sync.progress : remoteSince ? { started: remoteSince * 1000, estimate: readEstimate(), phase: 'read' } : null;
+  const p = sync.reading ? sync.progress : remoteSince ? { started: remoteSince * 1000, estimate: readEstimate(), phase: 'read', remoteStage: readProgressPoll.remote } : null;
+  if (p && p.phase === 'read' && Date.now() - (readProgressTick.polled || 0) > 900) { readProgressTick.polled = Date.now(); readProgressPoll(); }
   const box = document.getElementById('read-progress-box');
   if (box && p) box.innerHTML = readProgressHtml(p, !!remoteSince);
-  if (p && state.view === 'sync') readProgressTick.timer = setTimeout(readProgressTick, 250);
+  // The button shows the stage and fills up too.
+  const btn = document.getElementById('sync-read');
+  if (btn && p) {
+    const pct = readProgressValue(p);
+    btn.classList.add('reading');
+    btn.style.setProperty('--p', `${pct.toFixed(1)}%`);
+    const real = readStageInfo(p);
+    btn.textContent = `${p.phase === 'save' ? p.label.replace(/…$/, '') : real ? real.short : 'Reading the set'} · ${Math.round(pct)}%`;
+  } else if (btn) { btn.classList.remove('reading'); btn.style.removeProperty('--p'); }
+  if (p) readProgressTick.timer = setTimeout(readProgressTick, 250);
 }
 
 // Reading the saved set takes ~20 s (separate python) to several minutes (inside Live).
@@ -3427,6 +3478,9 @@ async function pollExport() {
     exportJob.timer = null;
     const job = exportJob.state;
     practice.available = null;
+    // Songs that exported fine are unchecked; any that failed stay checked for another go.
+    (job?.results || []).forEach((r) => { if (r.state === 'done') exportJob.selected.delete(r.song_id); });
+    renderExportPanel();
     if (job?.state === 'done' && job.stopped_early) showNotice(`Export stopped as asked: ${job.results.filter((r) => r.state === 'done').length} songs exported.`);
     else if (job?.state === 'done') showNotice(`Export finished: ${(job.queue || []).length > 1 ? `${job.results.length} songs` : `${job.done.length} files for ${job.song_id}`}.`);
     if (job?.state === 'error') showNotice(`Export finished with problems: ${job.error}`, true);
