@@ -1728,7 +1728,7 @@ function setView(view) {
   $('#sync-view').classList.toggle('hidden', view !== 'sync');
   $('#practice-view').classList.toggle('hidden', view !== 'practice');
   if (view === 'sync') renderSyncPage();
-  if (view === 'practice') renderPracticePage();
+  if (view === 'practice') { renderPracticePage(); setTimeout(lyricsFit, 50); }
   document.body.classList.toggle('view-practice', view === 'practice');
   renderReviewBar();
   if (view === 'setlists') renderActiveSetlist();
@@ -4723,6 +4723,10 @@ function lyricLineHtml(text) {
 }
 
 function renderPracticeLyrics() {
+  renderPracticeLyricsInner();
+  lyricsFit();
+}
+function renderPracticeLyricsInner() {
   const box = $('#practice-lyrics');
   if (!box) return;
   const prefs = lyricsPrefs();
@@ -5401,12 +5405,34 @@ function ptMeasure() {
   if (!bar) return;
   const h = bar.classList.contains('hidden') ? 0 : bar.getBoundingClientRect().height;
   if (h || bar.classList.contains('hidden')) document.documentElement.style.setProperty('--pt-h', `${Math.round(h)}px`);
+  lyricsFit();
 }
 if (window.ResizeObserver) {
   const ptBarEl = document.getElementById('practice-transport');
   if (ptBarEl) new ResizeObserver(ptMeasure).observe(ptBarEl);
 }
 window.addEventListener('resize', ptMeasure);
+// Computer layout (lyrics column beside the players): the lyrics box always
+// ends just above the transport, so it's fully visible wherever the page is
+// scrolled; it grows as the page scrolls and the column sticks to the top.
+let lyricsFitRaf = 0;
+function lyricsFit() {
+  cancelAnimationFrame(lyricsFitRaf);
+  lyricsFitRaf = requestAnimationFrame(() => {
+    const box = document.getElementById('practice-lyrics-scroll');
+    const side = document.querySelector('.practice-side');
+    if (!box || !side || state.view !== 'practice') return;
+    if (getComputedStyle(side).position !== 'sticky') { box.style.height = ''; return; }
+    const bar = document.getElementById('practice-transport');
+    const ptH = bar && !bar.classList.contains('hidden') ? bar.getBoundingClientRect().height : 0;
+    const card = box.closest('.practice-card');
+    const below = card ? card.getBoundingClientRect().bottom - box.getBoundingClientRect().bottom : 30;
+    const h = Math.round(Math.max(260, Math.min(1000, window.innerHeight - ptH - 12 - below - box.getBoundingClientRect().top)));
+    if (Math.abs(box.offsetHeight - h) > 2) box.style.height = `${h}px`;
+  });
+}
+window.addEventListener('scroll', lyricsFit, { passive: true });
+window.addEventListener('resize', lyricsFit);
 document.addEventListener('input', (event) => {
   if (event.target.id === 'pt-seek' && !ptIsPlaying()) { practice.position = Number(event.target.value); const lcd = $('#pt-pos'); if (lcd) lcd.textContent = ptTime(practice.position); }
 });
