@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-08** · App version marker `?v=20261109-stop1` · TSPWork remote script **1.20** (alsreader md5 `d43ba9e8…`, exporter md5 `639f2b48…`, tspwork md5 `205bb454…`) · Supabase ledger head `20261108133025_member_activity_logs` · Edge Functions `practice-audio` v7, `member-access-admin` v7._
+_Last updated: **2026-11-08** · App version marker `?v=20261109-stop1` · TSPWork remote script **1.20** (alsreader md5 `322dd933…`, exporter md5 `639f2b48…`, tspwork md5 `205bb454…`) · Supabase ledger head `20261108133025_member_activity_logs` · Edge Functions `practice-audio` v7, `member-access-admin` v7._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -332,7 +332,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
   - `locator`, `start_beat`, `end_beat`, `start_bar`, `duration_seconds` (integrated through the tempo map).
   - `tempo_segments` and summary, `start_key`, **`key_segments`** (`[Key:]` clips on the Chords track, consecutive repeats dropped, bar numbers from the song start).
   - `evidence` (booleans per task); `fingerprints` (sha1 of each track's clips in the song, used by Snooze); `chord_mismatches`.
-  - `audio_fp`: per practice element (Stems, Parts, Backing, CPC, Mixdown) a 12-char hash of the source tracks' clips in the song (sound-relevant clip XML: loop, warp, gain, fades, envelopes, notes, plus position; the sample is identified by file name, size, CRC, length and rate only, so moving/collecting the project doesn't change it (since 2026-11-09)) and mixer volume/pan. Lyrics/SECTIONS/SONG ID/GUITAR TONE clips are not sound-hashed (speed).
+  - `audio_fp`: per practice element (Stems, Parts, Backing, CPC, Mixdown) a 12-char hash of the source tracks' clips in the song (sound-relevant clip XML: loop, warp, gain, fades, envelopes, notes, plus position; the sample is identified by file name, size, CRC, length and rate only, so moving/collecting the project doesn't change it; Live's object IDs (`Id`/`NoteId` attributes, `PointeeId`/`LomId` tags), which are renumbered on every save, are ignored too (since 2026-11-09)) and mixer volume/pan. Lyrics/SECTIONS/SONG ID/GUITAR TONE clips are not sound-hashed (speed).
   - `lyrics` = `{tracks, sections, tempo}`; `bars` (`[sec, num, den]` per bar; a new bar starts at each time-signature change, as in Ableton); `tone` (GUITAR TONE notes with seconds, bar, note, velocity, duration).
 - **Set-wide output:** `track_colors` (Live 70-colour palette index → hex for the practice elements), `warnings`, `als_modified_at`, `als_size`.
 - **Key cross-check:** Guitar/Keyboard/Lyrics `[Key:]` markers must match the Chords track (warning `key_mismatch`); a first marker not at bar 1 is warned (`key_late`).
@@ -516,3 +516,4 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 - **2026-11-08 (night):** Update App Plan run: repo pushed; ledger 29 migrations, head `member_activity_logs`, matches the repo; Edge Functions `practice-audio` v7, `member-access-admin` v7 unchanged; Mac TSPWork files were out of sync (1.19 alsreader/tspwork) and were redeployed (now 1.20, md5s in the header). Sections 8, 13, 14, 15 refreshed.
 - **2026-11-09:** Export Stop after this song / Cancel now keep retrying until TSPWork confirms (it was dropping requests while Live rendered); export polling every 4 s (`?v=20261109-stop1`).
 - **2026-11-09:** Audio fingerprints ignore sample paths and dates (moving the project to the SSD and Collect All and Save had turned every song yellow). Backup of the old upload fingerprints: table `practice_audio_state_backup_20261109`.
+- **2026-11-09:** Audio fingerprints also ignore Live's internal IDs (renumbered on every save; one save had turned 10 untouched songs yellow). Verified: between two saves only the edited song (EHKM1 bass) differs.

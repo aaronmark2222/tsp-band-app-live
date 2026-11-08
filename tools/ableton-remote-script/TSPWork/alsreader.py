@@ -124,6 +124,11 @@ def _esc_attr(t):
     return t
 
 
+# Live renumbers object IDs whenever it saves, so they say nothing about the sound.
+_ID_ATTRS = frozenset(('Id', 'NoteId'))
+_ID_TAGS = frozenset(('PointeeId', 'LomId', 'LomIdView'))
+
+
 def _xml_bytes(node):
     """Same bytes as ET.tostring(node) for .als elements (no namespaces,
     comments or PIs), several times faster: one list, no writer setup."""
@@ -134,8 +139,12 @@ def _xml_bytes(node):
 
     def walk(el):
         tag = el.tag
+        if tag in _ID_TAGS:  # internal references, renumbered on every save
+            return
         add('<' + tag)
         for k, v in el.attrib.items():
+            if k in _ID_ATTRS:  # Live renumbers these on every save
+                continue
             add(' %s="%s"' % (k, esc_attr(v)))
         text = el.text
         if text or len(el):
