@@ -1298,6 +1298,6 @@ body { padding-top: env(safe-area-inset-top); }
 }
 @media (min-width:1001px){
   .practice-layout>.practice-pick{flex-wrap:nowrap}
-  .practice-layout>.practice-pick #practice-source{flex:0 1 220px;min-width:0}
+  .practice-layout>.practice-pick #practice-source{flex:0 0 210px}
   .practice-layout>.practice-pick #practice-song{flex:1 1 auto;min-width:0;max-width:none}
 }
