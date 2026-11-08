@@ -80,7 +80,16 @@ function songTypeLabel(song) {
   return song.is_medley ? 'Medley' : song.type === 'Inst' ? 'Instrumental' : 'Standalone';
 }
 
+// The app always opens at the very top (logo and tabs), never where the
+// browser last left the page.
+try { history.scrollRestoration = 'manual'; } catch { /* ignore */ }
+function scrollToTopSoon() {
+  window.scrollTo(0, 0);
+  setTimeout(() => window.scrollTo(0, 0), 0);
+  setTimeout(() => window.scrollTo(0, 0), 350);
+}
 function showWorkspace() {
+  scrollToTopSoon();
   $('#loading').classList.add('hidden');
   $('#login-screen').classList.add('hidden');
   $('#first-login-screen').classList.add('hidden');
@@ -4767,7 +4776,16 @@ function lyricsFsExit() {
   }
   renderPracticeLyrics();
   practice.lyricIndex = -2;
-  setTimeout(() => { lyricsFit(); practiceLyricsTick(true); }, 80);
+  // Back on the page with the lyrics card at the top of the screen.
+  const bringLyricsUp = () => {
+    const card = document.getElementById('practice-lyrics');
+    if (!card) return;
+    const top = card.getBoundingClientRect().top + window.scrollY - 8;
+    window.scrollTo(0, Math.max(0, top));
+    lyricsFit();
+  };
+  setTimeout(() => { bringLyricsUp(); practiceLyricsTick(true); }, 60);
+  setTimeout(bringLyricsUp, 400); // again once the browser has left full screen
 }
 document.addEventListener('click', (event) => {
   if (event.target.closest('[data-lyrics-fs]')) { lyricsFs.on ? lyricsFsExit() : lyricsFsEnter(); }

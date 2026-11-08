@@ -1331,7 +1331,49 @@ body.lyrics-fs .ly-scroll.ly-size-l{font-size:clamp(28px,4.3vw,58px)}
 /* Full screen: the top controls sit on a solid panel (no see-through gradient over the words). */
 body.lyrics-fs #practice-lyrics > header{box-sizing:border-box;height:calc(56px + env(safe-area-inset-top));padding:env(safe-area-inset-top) max(16px,4vw) 0;display:flex;align-items:center;justify-content:space-between;background:rgba(14,14,15,.94);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
 body.lyrics-fs #practice-lyrics .ly-chips{top:calc(56px + env(safe-area-inset-top));padding:4px max(16px,4vw) 10px;background:rgba(14,14,15,.94);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-bottom:1px solid #2a2a2a}
-/* iPhone home-screen app: never let the page scroll underneath the clock/battery
-   (iOS blurs whatever sits there). The status bar is opaque (meta "black"); if
-   iOS still draws it see-through, this solid strip covers that area. */
-body::before{content:'';position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top);background:#292929;z-index:900;pointer-events:none}
+
+/* ---------- Full-screen lyrics: Liquid-Glass controls ---------- */
+/* One slim glass bar on top: track chips on the left, sizes + exit on the right. No "Lyrics" title. */
+body.lyrics-fs #practice-lyrics > header h2{display:none}
+body.lyrics-fs #practice-lyrics > header{
+  position:fixed;top:0;left:0;right:0;height:auto;min-height:0;
+  padding:calc(env(safe-area-inset-top) + 8px) max(12px,3vw) 8px;
+  display:flex;justify-content:flex-end;align-items:center;
+  background:rgba(28,28,30,.32);
+  -webkit-backdrop-filter:blur(22px) saturate(170%);backdrop-filter:blur(22px) saturate(170%);
+  border:0;border-bottom:1px solid rgba(255,255,255,.12);
+  box-shadow:inset 0 -1px 0 rgba(0,0,0,.25),0 8px 24px rgba(0,0,0,.18)
+}
+body.lyrics-fs #practice-lyrics .ly-chips{
+  position:fixed;top:calc(env(safe-area-inset-top) + 8px);left:max(12px,3vw);right:calc(max(12px,3vw) + 168px);
+  z-index:66;margin:0;padding:0;border:0;background:none;-webkit-backdrop-filter:none;backdrop-filter:none;
+  display:flex;flex-wrap:nowrap;gap:6px;overflow-x:auto;scrollbar-width:none
+}
+body.lyrics-fs #practice-lyrics .ly-chips::-webkit-scrollbar{display:none}
+body.lyrics-fs .ly-sizes{display:flex;gap:6px;align-items:center}
+body.lyrics-fs .ly-chip,body.lyrics-fs .ly-size,body.lyrics-fs .ly-fs-btn,
+body.lyrics-fs #practice-transport .pt-group button,body.lyrics-fs #practice-transport .pt-lcd,body.lyrics-fs #practice-transport .pt-chip{
+  background:rgba(255,255,255,.12);color:#fff;
+  border:1px solid rgba(255,255,255,.22);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 2px 10px rgba(0,0,0,.18);
+  -webkit-backdrop-filter:blur(12px) saturate(160%);backdrop-filter:blur(12px) saturate(160%)
+}
+body.lyrics-fs .ly-chip{flex:none;height:32px;padding:0 14px;border-radius:999px;font-size:13px}
+body.lyrics-fs .ly-chip.empty{opacity:.45}
+body.lyrics-fs .ly-size,body.lyrics-fs .ly-fs-btn{width:34px;height:32px;margin:0;border-radius:999px}
+body.lyrics-fs .ly-chip.on,body.lyrics-fs .ly-size.on,body.lyrics-fs #practice-transport .pt-modes button.on{
+  background:rgba(243,154,38,.78);border-color:rgba(255,200,130,.6);color:#1b1206
+}
+/* Bottom transport becomes a glass bar too. */
+body.lyrics-fs #practice-transport{
+  background:rgba(28,28,30,.32);border-top:1px solid rgba(255,255,255,.12);
+  -webkit-backdrop-filter:blur(22px) saturate(170%);backdrop-filter:blur(22px) saturate(170%);
+  box-shadow:0 -8px 24px rgba(0,0,0,.18)
+}
+body.lyrics-fs #practice-transport .pt-group{background:none;gap:6px;padding:0}
+body.lyrics-fs #practice-transport .pt-group button{border-radius:999px;min-width:38px;height:34px}
+body.lyrics-fs #practice-transport .pt-play.on{background:rgba(110,220,130,.7);color:#08200d}
+body.lyrics-fs #practice-transport .pt-lcd{border-radius:999px;color:#ffd08a}
+body.lyrics-fs #practice-transport .pt-chip b{color:#fff}
+/* Lines can sit under the glass; they start below the top bar. */
+body.lyrics-fs #practice-lyrics .ly-scroll{padding-top:calc(env(safe-area-inset-top) + 64px)!important}
