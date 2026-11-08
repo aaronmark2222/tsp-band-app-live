@@ -5415,10 +5415,8 @@ window.addEventListener('resize', ptMeasure);
 // Computer layout (lyrics column beside the players): the lyrics box always
 // ends just above the transport, so it's fully visible wherever the page is
 // scrolled; it grows as the page scrolls and the column sticks to the top.
-let lyricsFitRaf = 0;
 function lyricsFit() {
-  cancelAnimationFrame(lyricsFitRaf);
-  lyricsFitRaf = requestAnimationFrame(() => {
+  {
     const box = document.getElementById('practice-lyrics-scroll');
     const side = document.querySelector('.practice-side');
     if (!box || !side || state.view !== 'practice') return;
@@ -5429,7 +5427,7 @@ function lyricsFit() {
     const below = card ? card.getBoundingClientRect().bottom - box.getBoundingClientRect().bottom : 30;
     const h = Math.round(Math.max(260, Math.min(1000, window.innerHeight - ptH - 12 - below - box.getBoundingClientRect().top)));
     if (Math.abs(box.offsetHeight - h) > 2) box.style.height = `${h}px`;
-  });
+  }
 }
 window.addEventListener('scroll', lyricsFit, { passive: true });
 window.addEventListener('resize', lyricsFit);
