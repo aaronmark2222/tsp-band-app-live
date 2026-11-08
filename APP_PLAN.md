@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-08** · App version marker `?v=20261108-fs6` · TSPWork remote script **1.18** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `b6d35b41…`) · Supabase ledger head `20261108050849_save_setlist_rpc` · Edge Functions `practice-audio` v7, `member-access-admin` v7._
+_Last updated: **2026-11-08** · App version marker `?v=20261108-act1` · TSPWork remote script **1.18** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `b6d35b41…`) · Supabase ledger head `20261108133025_member_activity_logs` · Edge Functions `practice-audio` v7, `member-access-admin` v7._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -144,11 +144,14 @@ Aaron is the owner and the only person who runs Ableton Sync and exports. He mos
 | `app_meta` | 2 | key/value; `practice_track_colors` (element → hex from the set), `audio_fingerprints` |
 | `practice_audio_state` | 655 (all 62 songs) | per uploaded file (song × element): fingerprint of its Ableton tracks when exported; compared with app_meta `audio_fingerprints` (the set as last read) → yellow "changed since upload" in the export checklist |
 | `practice_export_log` | 60 | one row per exported song: export_seconds, files, song_seconds, per-file seconds; feeds the export time-left estimate |
+| `app_sessions` | new | one row per app session per member: started_at, last_seen_at (heartbeat every 30 s while visible; >5 min away = new session), device phone/computer, standalone, app_version |
+| `page_visits` | new | session_id, member, view (songs/setlists/gigs/dashboard/practice/sync), started_at, ended_at |
+| `practice_plays` | new | one row per song played on Practice (kept across pauses <5 min; ends on song/mode change or leaving Practice): song_id (text), mode mix/multi, seconds_played (real playing time), start/end position, song_seconds, reached_end, fullscreen, solo (multitrack on/solo/off snapshot) |
 
 Song ID families now: E 15, EM 11, I 9, HM 9, H 7, EHM 5, K 3, KM 2, EHKM 1.
 
 ### 5.2 Views, functions, triggers
-- **Views:** `song_readiness` (security invoker), `setlist_summary`, `setlist_member_progress`, `setlist_deadline_list`.
+- **Views:** `member_activity_daily` (minutes online per member per day, IST), `member_practice_by_song` (plays ≥30 s, minutes, played-to-end, last played), `song_readiness` (security invoker), `setlist_summary`, `setlist_member_progress`, `setlist_deadline_list`.
 - **Functions:** `save_setlist(p_setlist_id, p_name, p_items)` (admin; saves a setlist's name and whole running order in one transaction), `is_admin()`, `current_member_id()`, `owns_task()`, `complete_password_setup()`, `delete_song_and_shift_ids(p_song_id)` (admin; deletes a song and renumbers its family, cascading), `duplicate_setlist()`, `create_song_tasks`, `create_task_type_rows`, `flag_member_first_login`, `link_member_on_signup`, `song_tasks_before_update`, `touch_updated_at`.
 - **Triggers:** `songs_create_tasks`, `task_types_create_rows`, `song_tasks_guard`, `songs_touch`, `setlists_touch`, `member_email_requires_password_change`.
 - **Status enum `task_status`:** Incomplete, Completed, No, Corrections, Review, Draft, Recorded, Finished.
@@ -468,6 +471,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 ---
 
 ## 17. Changelog of this plan
+- **2026-11-08:** Activity logging for statistics (`?v=20261108-act1`): `app_sessions`, `page_visits`, `practice_plays` (+ summary views). Members write/read their own rows; admin reads all. Code: `activity*` functions at the end of `app.js`.
 - **2026-11-08:** Liquid Glass theme across the whole app (`?v=20261108-glass4`).
 - **2026-11-08:** App always opens at the top (`history.scrollRestoration = 'manual'`); glass full-screen controls; the iPhone status-bar experiment was reverted (the top fade is Safari's own Home Screen app effect; Aaron parked it) (`?v=20261108-fs4`).
 - **2026-11-08:** Full-screen lyrics with auto-hiding controls (`?v=20261108-fs2`); Songs/Setlists always show full song names.
