@@ -3445,7 +3445,10 @@ function offlineInit() {
   if (offline.initPromise) return offline.initPromise;
   offline.initPromise = (async () => {
     const prefs = offlinePrefsGet();
-    offline.mode = prefs.mode || 'none';
+    // Saving on the device is on by default (in the browser's storage); a
+    // member can switch it off or choose a folder instead.
+    offline.mode = prefs.mode || (offlineBrowserSupported() ? 'browser' : 'none');
+    if (!prefs.mode && offline.mode === 'browser') { try { navigator.storage?.persist?.(); } catch { /* ignore */ } }
     try { offline.manifest = JSON.parse(localStorage.getItem(OFFLINE_MANIFEST_KEY) || '{}'); } catch { offline.manifest = {}; }
     if (offline.mode === 'folder') {
       try {
@@ -3705,7 +3708,7 @@ function renderOfflinePanel() {
           <button type="button" class="button quiet" data-offline-dl="mix" ${mixNeed ? '' : 'disabled'}>Mixdowns${mixNeed ? ` · ${mb(mixNeed)}` : ' · saved'}</button>
           <button type="button" class="button quiet" data-offline-dl="all" ${allNeed ? '' : 'disabled'}>Everything${allNeed ? ` · ${mb(allNeed)}` : ' · saved'}</button>
         </div>`}
-      <p class="muted offline-small">Songs you open are saved as you play them. <button type="button" class="linklike" data-offline-off>Stop saving</button>${offline.mode === 'browser' ? ' · <button type="button" class="linklike" data-offline-clear>Delete saved audio</button>' : ''}</p>`;
+      <p class="muted offline-small">Songs you open are saved as you play them, so they don't download again. <button type="button" class="linklike" data-offline-off>Stop saving</button>${offline.mode === 'browser' ? ' · <button type="button" class="linklike" data-offline-clear>Delete saved audio</button>' : ''}${offline.mode === 'browser' && offlineFolderSupported() ? ' · <button type="button" class="linklike" data-offline-folder>Use a folder instead</button>' : ''}</p>`;
   }
   box.innerHTML = `<header><h2>Offline audio</h2>${offline.mode !== 'none' && !offline.needsPermission ? '<span class="offline-on">● On</span>' : ''}</header>${body}`;
 }
@@ -3988,6 +3991,10 @@ function renderPracticeMultitrack() {
 async function practiceLoadTracks() {
   const token = practice.loadToken;
   const tracks = practiceMultiTracks();
+  // Mark them loading straight away so every button shows the download at once.
+  tracks.forEach((t) => { if (!practice.buffers.has(t.element)) practice.loadState.set(t.element, 'loading'); });
+  renderPracticeMultitrack();
+  ptRender();
   if (!practice.ctx) {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     practice.ctx = new Ctx();
@@ -3995,8 +4002,6 @@ async function practiceLoadTracks() {
     practice.master.connect(practice.ctx.destination);
   }
   await practice.ctx.resume().catch(() => {});
-  tracks.forEach((t) => { if (!practice.buffers.has(t.element)) practice.loadState.set(t.element, 'loading'); });
-  renderPracticeMultitrack();
   // Two at a time keeps phones from running out of memory while decoding.
   const queue = tracks.filter((t) => !practice.buffers.has(t.element));
   const worker = async () => {
