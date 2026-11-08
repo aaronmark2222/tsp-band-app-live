@@ -103,6 +103,7 @@ function showWorkspace() {
   $('#member-name').textContent = state.member.name;
   $('#member-badge').textContent = state.member.name.slice(0, 1).toUpperCase();
   startAbletonBridge();
+  activityStart();
   // Wake the member-access function in the background so the dialog opens fast.
   if (state.member.is_admin && navigator.onLine !== false) setTimeout(() => { fetchAccessMembers().catch(() => {}); }, 4000);
 }
@@ -1722,6 +1723,7 @@ function setView(view) {
     return;
   }
   state.view = view;
+  activityView(view);
   if (view !== 'setlists') {
     state.setlistEditMode = false;
     state.originalSetlistItems = [];
@@ -1937,7 +1939,7 @@ $('#password-setup-sign-out').addEventListener('click', async () => {
   showLogin();
 });
 
-$('#sign-out').addEventListener('click', async () => { await db.auth.signOut(); state.member = null; showLogin(); });
+$('#sign-out').addEventListener('click', async () => { await activityEnd(); await db.auth.signOut(); state.member = null; showLogin(); });
 document.querySelectorAll('.tab').forEach((button) => button.addEventListener('click', () => setView(button.dataset.view)));
 $('#song-search').addEventListener('input', renderSongs);
 $('#dashboard-tabs').addEventListener('click', (event) => {
@@ -5591,3 +5593,142 @@ document.addEventListener('keydown', (event) => {
 document.addEventListener('keyup', (event) => {
   if (state.view === 'practice' && event.code === 'Space' && !event.target.closest?.('input[type="text"], textarea, select')) event.preventDefault();
 }, true);
+
+
+// ---------------------------------------------------------------------------
+// Activity logs (for later statistics): how long each member has the app open
+// (app_sessions), which page they're on (page_visits), and what they practise
+// (practice_plays). Saved quietly; nothing is shown and failures are ignored.
+const ACTIVITY_BEAT_MS = 30000;      // how often "still here" is saved
+const ACTIVITY_NEW_SESSION_MS = 5 * 60 * 1000; // away longer than this = a new session
+const PRACTICE_PAUSE_ENDS_MS = 5 * 60 * 1000;  // a play stays open across short pauses
+const activity = { sessionId: null, visitId: null, view: null, starting: null, lastBeat: 0, play: null, tick: null };
+const APP_VERSION = (document.querySelector('script[src*="app.js"]')?.src.match(/v=([^&]+)/) || [])[1] || '';
+
+async function activityStart() {
+  if (!state.member?.id || activity.starting || navigator.onLine === false) return;
+  activity.starting = (async () => {
+    try {
+      const { data, error } = await db.from('app_sessions').insert({
+        member_id: state.member.id,
+        device: PHONE ? 'phone' : 'computer',
+        standalone: !!(window.navigator.standalone || window.matchMedia?.('(display-mode: standalone)').matches),
+        app_version: APP_VERSION
+      }).select('id').single();
+      if (error) throw error;
+      activity.sessionId = data.id;
+      activity.visitId = null;
+      activity.lastBeat = Date.now();
+      await activityView(state.view || 'songs', true);
+    } catch (error) { console.warn('activity: session not saved', error?.message || error); }
+    finally { activity.starting = null; }
+  })();
+  return activity.starting;
+}
+async function activityView(view, force) {
+  if (!activity.sessionId || !state.member?.id) return;
+  if (!force && view === activity.view && activity.visitId) return;
+  const now = new Date().toISOString();
+  const previous = activity.visitId;
+  activity.view = view;
+  activity.visitId = null;
+  try {
+    if (previous) db.from('page_visits').update({ ended_at: now }).eq('id', previous).then(() => {}, () => {});
+    const { data, error } = await db.from('page_visits').insert({ session_id: activity.sessionId, member_id: state.member.id, view, started_at: now, ended_at: now }).select('id').single();
+    if (error) throw error;
+    if (activity.view === view) activity.visitId = data.id;
+  } catch (error) { console.warn('activity: page visit not saved', error?.message || error); }
+}
+async function activityBeat() {
+  if (!activity.sessionId) return;
+  const now = new Date().toISOString();
+  activity.lastBeat = Date.now();
+  try {
+    await Promise.all([
+      db.from('app_sessions').update({ last_seen_at: now }).eq('id', activity.sessionId),
+      activity.visitId ? db.from('page_visits').update({ ended_at: now }).eq('id', activity.visitId) : null,
+      activityPlaySave()
+    ]);
+  } catch { /* ignore */ }
+}
+async function activityEnd() {
+  await activityPlayEnd();
+  await activityBeat();
+  activity.sessionId = null;
+  activity.visitId = null;
+  activity.view = null;
+}
+setInterval(() => { if (!document.hidden && state.member) activityBeat(); }, ACTIVITY_BEAT_MS);
+document.addEventListener('visibilitychange', () => {
+  if (!state.member) return;
+  if (document.hidden) { activityBeat(); return; }
+  // Back after a long time away (phone locked, app in the background): a new session.
+  if (!activity.sessionId || Date.now() - activity.lastBeat > ACTIVITY_NEW_SESSION_MS) { activity.sessionId = null; activityStart(); }
+  else activityBeat();
+});
+window.addEventListener('pagehide', () => { if (state.member) activityBeat(); });
+window.addEventListener('online', () => { if (state.member && !activity.sessionId) activityStart(); });
+
+// Practice plays: one row per song a member plays, kept open across short
+// pauses and seeks; it ends when they change song or mode, leave Practice,
+// or stay paused for 5 minutes. seconds_played counts only real playing time.
+function activityPlayTick() {
+  const playing = state.view === 'practice' && ptIsPlaying();
+  const now = Date.now();
+  let p = activity.play;
+  if (p && (p.songId !== practice.songId || (playing && p.mode !== ptEngine()) || (!playing && now - p.lastPlayingAt > PRACTICE_PAUSE_ENDS_MS) || state.view !== 'practice')) {
+    activityPlayEnd();
+    p = null;
+  }
+  if (!playing) { if (p) p.lastTick = now; return; }
+  if (!p && state.member?.id && practice.songId) {
+    p = activity.play = {
+      id: null, songId: practice.songId, mode: ptEngine() || 'mix', startedAt: new Date().toISOString(),
+      startPosition: ptPosition(), seconds: 0, lastTick: now, lastPlayingAt: now, reachedEnd: false, fullscreen: false, dirty: true,
+      solo: ptEngine() === 'multi' ? Object.fromEntries(practiceMultiTracks().map((t) => { const st = practiceTrackSetting(t.element); return [t.element, st.solo ? 'solo' : st.on ? 'on' : 'off']; })) : null
+    };
+    activityPlayInsert(p);
+  }
+  p.seconds += Math.min(2, Math.max(0, (now - p.lastTick) / 1000));
+  p.lastTick = now;
+  p.lastPlayingAt = now;
+  p.endPosition = ptPosition();
+  p.songSeconds = ptDuration();
+  if (p.songSeconds && p.endPosition >= p.songSeconds - 2) p.reachedEnd = true;
+  if (typeof lyricsFs !== 'undefined' && lyricsFs.on) p.fullscreen = true;
+  p.dirty = true;
+  if (now - (p.savedAt || 0) > 15000) activityPlaySave();
+}
+async function activityPlayInsert(p) {
+  try {
+    const { data, error } = await db.from('practice_plays').insert({
+      session_id: activity.sessionId, member_id: state.member.id, song_id: p.songId, mode: p.mode,
+      started_at: p.startedAt, ended_at: p.startedAt, start_position: Math.round(p.startPosition * 10) / 10, solo: p.solo
+    }).select('id').single();
+    if (error) throw error;
+    p.id = data.id;
+    p.savedAt = Date.now();
+  } catch (error) { console.warn('activity: practice play not saved', error?.message || error); }
+}
+async function activityPlaySave(p = activity.play) {
+  if (!p?.id || !p.dirty) return;
+  p.dirty = false;
+  p.savedAt = Date.now();
+  try {
+    await db.from('practice_plays').update({
+      ended_at: new Date(Math.min(Date.now(), p.lastPlayingAt + 1000)).toISOString(),
+      seconds_played: Math.round(p.seconds * 10) / 10,
+      end_position: p.endPosition == null ? null : Math.round(p.endPosition * 10) / 10,
+      song_seconds: p.songSeconds ? Math.round(p.songSeconds * 10) / 10 : null,
+      reached_end: p.reachedEnd, fullscreen: p.fullscreen
+    }).eq('id', p.id);
+  } catch { p.dirty = true; }
+}
+async function activityPlayEnd() {
+  const p = activity.play;
+  activity.play = null;
+  if (!p) return;
+  p.dirty = true;
+  await activityPlaySave(p);
+}
+setInterval(activityPlayTick, 1000);
