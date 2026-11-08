@@ -1514,3 +1514,5 @@ body.lyrics-fs .ly-scroll{background:#0b0b0c!important;border:0;border-radius:0!
 select{color-scheme:dark}
 @media (min-width:1001px){.practice-side{top:88px}}
 #dashboard-member-select,.export-setlist,#access-member-select,#gig-setlist{background:rgba(255,255,255,.07)!important;border:1px solid var(--glass-edge)!important;border-radius:999px!important;color:#f2f2f2;padding:6px 12px}
+/* Phones: the top bar scrolls away (it's tall there) instead of staying pinned. */
+@media (max-width:800px){.topbar{position:relative}}
