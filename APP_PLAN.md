@@ -132,7 +132,7 @@ Aaron is the owner and the only person who runs Ableton Sync and exports. He mos
 | `medley_parts` | 0 | medley constituents (no UI yet) |
 | `task_types` | 23 | key, label, category (`ableset` `utility` `backing` `part`), owner_member_id, allowed_statuses, done_statuses, sort_order |
 | `song_tasks` | 1426 | status per song × task (created by trigger for every song) |
-| `task_status_log` | 514 | trigger-written history |
+| `task_status_log` | 513 | trigger-written history |
 | `percussion_instruments` / `song_percussion` | 12 / 0 | Gautham's per-song instruments (no UI yet) |
 | `setlists` / `setlist_items` | 3 / 70 | ordered songs (break/note item types exist but are unused) |
 | `gigs` | 3 | name, event_date, start_time, location, notes, setlist_id, completed |
@@ -401,6 +401,8 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 ## 14. Decision log (newest first)
 
 - **2026-11-08**
+  - Test pass fixes: keys keep the song's own order (first = starting key); durations are M:SS everywhere; password resets need a confirm; setlist saves are one transaction (`save_setlist`); Setlists opens on the next gig; status label is always "Completed".
+  - Data left as Aaron decides (Ableton spelling wins): I1/I2/I5 marked single despite "/" names; "Voulez-Vouz", "Uff teri Ada" spellings.
   - Lyrics: line goes under the section holding most of its clip; `[>]`/`[<]` force; dots only during 3+ beat gaps; current line grows smoothly; sections always clear.
   - Offline: audio saved on the device by default; the whole app works offline read-only (for the keyboardist on a cruise ship).
   - Exports: fingerprints mark changed songs yellow; stop-after-song; auto-retries; display kept awake overnight.
@@ -461,6 +463,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 ---
 
 ## 17. Changelog of this plan
+- **2026-11-08:** Update App Plan run: repo, Supabase ledger (28, head `save_setlist_rpc`), Edge Functions (v7/v6) and the Mac's TSPWork 1.18 files all in sync; decision log and counts refreshed.
 - **2026-11-08:** Test-pass fixes (`?v=20261108-fix2`, TSPWork 1.18): song editor keeps key order and uses M:SS; password reset/temporary password asks to confirm; setlist edits survive tab switches and save in one call (`save_setlist`); Setlists opens on the next gig; new setlist can copy an existing one; layout fixes (multitrack rows, lyrics box above the transport, dashboard widgets, dialog buttons, export checklist, disabled buttons); "Completed" label everywhere; progress-line legend; gig countdowns; Practice remembers the last song. Report: claude.ai Project `claude/TEST_REPORT_2026-11-08.md`.
 - **2026-11-08:** Update App Plan run; full app test pass started (report in the claude.ai Project).
 - **2026-11-08:** The app works offline (service worker + saved data/lyrics), read-only.
