@@ -1305,3 +1305,6 @@ body { padding-top: env(safe-area-inset-top); }
 .song-summary-toggle .song-title-container,.setlist-song-toggle .song-title-container{white-space:normal!important;overflow:visible!important}
 .song-summary-toggle .song-title-full{display:inline!important;white-space:normal;overflow-wrap:anywhere}
 .song-summary-toggle .song-title-initials{display:none!important}
+/* Setlist rows line up with Songs: the order number sits beside the title, the status reaches the right edge. */
+.setlist-row:has(.setlist-song-toggle) > .setlist-item-summary{padding-right:0}
+.setlist-song-toggle .item-title{padding-right:34px}
