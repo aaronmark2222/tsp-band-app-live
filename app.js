@@ -6133,7 +6133,7 @@ function ptMediaLog(event) {
   ptMediaFlush();
 }
 function ptMediaFlush() {
-  if (!state.member?.is_admin) return;
+  if (!ptMedia.debug || !state.member?.is_admin) return; // diagnostics off (set ptMedia.debug = true to log to app_meta.media_debug)
   clearTimeout(ptMedia.logTimer);
   ptMedia.logTimer = setTimeout(() => {
     db.from('app_meta').upsert({ key: 'media_debug', value: { ua: navigator.userAgent, standalone: !!(navigator.standalone || window.matchMedia?.('(display-mode: standalone)').matches), mediaSession: 'mediaSession' in navigator, log: ptMedia.log }, updated_at: new Date().toISOString() }, { onConflict: 'key' }).then(() => {}, () => {});
