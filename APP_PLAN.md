@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-08** · App version marker `?v=20261108-pt13` · TSPWork remote script **1.18** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `b6d35b41…`) · Supabase ledger head `20261108050849_save_setlist_rpc` · Edge Functions `practice-audio` v7, `member-access-admin` v7._
+_Last updated: **2026-11-08** · App version marker `?v=20261108-fs2` · TSPWork remote script **1.18** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `b6d35b41…`) · Supabase ledger head `20261108050849_save_setlist_rpc` · Edge Functions `practice-audio` v7, `member-access-admin` v7._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -244,6 +244,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
     - Count dots under a section heading while the track is silent for 3+ beats: one per beat up to 8 beats, otherwise up to 4 dots stepping through the bars. Empty space before the gap, visible during it, gone after.
     - A line is listed under the section holding most of its clip; `[>]` forces it under the later section, `[<]` under the earlier one (the tokens are hidden).
     - The current line grows (GPU transform scale 1.1×, no reflow; lines wrap at 90% width); lines ease back when they lose focus; sections never scale; autoscroll is an eased glide.
+  - **Full screen** (button beside the size letters, or F; Esc exits): only the lyrics, bigger text scaled to the screen, with the size/track controls on top and the transport at the bottom; like YouTube they fade out after 3 s without mouse/touch/keys while playing (a tap when hidden only brings them back). Uses the browser's real full screen where allowed (not on iPhone). `lyricsFs`, body classes `lyrics-fs` / `lyrics-fs-controls`.
   - **Behaviour:**
     - Autoscroll keeps the current line about 35% down; it pauses for 4 s after a manual scroll.
     - On computers (lyrics column beside the players, sticky) `lyricsFit` sizes the box on every scroll/resize so it always ends just above the transport and is fully visible; `lyricsPad` sizes the space above/below the lines to the box.
@@ -466,6 +467,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 ---
 
 ## 17. Changelog of this plan
+- **2026-11-08:** Full-screen lyrics with auto-hiding controls (`?v=20261108-fs2`); Songs/Setlists always show full song names.
 - **2026-11-08:** Practice layout (`?v=20261108-pt13`): lyrics column starts at the top of the page on computers.
 - **2026-11-08:** Lyrics box on computers always fully visible above the transport (`?v=20261108-pt10`).
 - **2026-11-08:** Offline audio saving is always on (`?v=20261108-pt7`): "Save on this device" and "Stop saving" removed.
