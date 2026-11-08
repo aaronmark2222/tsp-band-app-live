@@ -1529,7 +1529,7 @@ select{color-scheme:dark}
 .ly-line{width:fit-content}
 
 /* Full-screen lyrics: mixer button joined to the right of Multitrack, and its drop-up mixer. */
-.pt-mixer-btn{display:none}
+body:not(.lyrics-fs) #practice-transport .pt-mixer-btn{display:none!important}
 body.lyrics-fs #practice-transport .pt-mixer-btn{display:inline-flex;align-items:center;justify-content:center;min-width:36px;padding:0 10px;margin-left:-5px;border-radius:0 999px 999px 0!important;border-left:1px solid rgba(255,255,255,.22)}
 body.lyrics-fs #practice-transport .pt-multi{border-radius:999px 0 0 999px!important}
 body.lyrics-fs #practice-transport .pt-mixer-btn.open{background-color:rgba(255,255,255,.34);color:#fff}
