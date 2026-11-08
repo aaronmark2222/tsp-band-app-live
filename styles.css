@@ -1520,3 +1520,7 @@ select{color-scheme:dark}
 #sync-view .hero-row{gap:16px;flex-wrap:wrap}
 #sync-view .hero-row > div{flex:1 1 260px;min-width:0}
 #sync-view #sync-read{white-space:nowrap}
+.export-pick{columns:200px}
+.export-pick li{min-width:0;overflow:hidden}
+.export-pick label{max-width:100%}
+.export-pick .export-name{min-width:0;overflow:hidden;text-overflow:ellipsis}
