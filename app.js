@@ -4091,10 +4091,11 @@ function practiceKeepPlace(fn) {
   cards.forEach((card) => { card.style.minHeight = `${card.offsetHeight}px`; });
   try { fn(); } finally {
     if (Math.abs(window.scrollY - y) > 1) window.scrollTo(0, y);
-    requestAnimationFrame(() => requestAnimationFrame(() => {
+    setTimeout(() => {
       cards.forEach((card) => { card.style.minHeight = ''; });
       if (Math.abs(window.scrollY - y) > 1 && window.scrollY < y) window.scrollTo(0, Math.min(y, document.documentElement.scrollHeight - window.innerHeight));
-    }));
+      lyricsFit();
+    }, 60);
   }
 }
 function renderPracticePlayers() {
@@ -5420,14 +5421,23 @@ function lyricsFit() {
     const box = document.getElementById('practice-lyrics-scroll');
     const side = document.querySelector('.practice-side');
     if (!box || !side || state.view !== 'practice') return;
-    if (getComputedStyle(side).position !== 'sticky') { box.style.height = ''; return; }
+    if (getComputedStyle(side).position !== 'sticky') { box.style.height = ''; lyricsPad(box, box.clientHeight); return; }
     const bar = document.getElementById('practice-transport');
     const ptH = bar && !bar.classList.contains('hidden') ? bar.getBoundingClientRect().height : 0;
     const card = box.closest('.practice-card');
     const below = card ? card.getBoundingClientRect().bottom - box.getBoundingClientRect().bottom : 30;
     const h = Math.round(Math.max(260, Math.min(1000, window.innerHeight - ptH - 12 - below - box.getBoundingClientRect().top)));
+    lyricsPad(box, h);
     if (Math.abs(box.offsetHeight - h) > 2) box.style.height = `${h}px`;
   }
+}
+// Space above the first line and below the last, sized to the box (so the
+// current line can sit about a third of the way down) instead of the screen.
+function lyricsPad(box, h) {
+  const top = `${Math.round(h * 0.18)}px`;
+  const bottom = `${Math.round(h * 0.62)}px`;
+  if (box.style.paddingTop !== top) box.style.paddingTop = top;
+  if (box.style.paddingBottom !== bottom) box.style.paddingBottom = bottom;
 }
 window.addEventListener('scroll', lyricsFit, { passive: true });
 window.addEventListener('resize', lyricsFit);
