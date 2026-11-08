@@ -4030,6 +4030,7 @@ async function practiceLoadTracks() {
   practice.tracks = practice.tracks.filter((t) => t.element === 'Mixdown' || practice.buffers.has(t.element));
   practice.tracks.songId = practice.songId;
   renderPracticeMultitrack();
+  renderOfflinePanel();
   ptRender();
 }
 
