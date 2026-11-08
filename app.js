@@ -2907,10 +2907,21 @@ function syncAudioMismatches() {
 async function readAbletonSet() {
   if (!abletonBridge.connected) { await probeAbletonBridge(); }
   if (!abletonBridge.connected) { renderSyncStatus(); showNotice('Ableton is not connected.', true); return; }
+  if (sync.reading) return; // a read is already running
   sync.reading = true;
   renderSyncStatus();
   try {
-    const result = await abletonRequest('/snapshot', {}, 240000);
+    // TSPWork does one thing at a time (a read takes about a minute). If it's
+    // still busy with something else (another window's read, a jump), wait for it.
+    let result = null;
+    const waitUntil = Date.now() + 5 * 60 * 1000;
+    for (;;) {
+      result = await abletonRequest('/snapshot', {}, 240000);
+      if (result?.error !== 'busy' || Date.now() > waitUntil) break;
+      showNotice('TSPWork is busy with another request; reading as soon as it is free…');
+      await new Promise((resolve) => setTimeout(resolve, 4000));
+    }
+    if (result?.error === 'busy') throw new Error('TSPWork stayed busy for 5 minutes. Reselect TSPWork in Live (Settings › Link, Tempo & MIDI) and try again');
     if (!result?.ok) throw new Error(result?.error === 'als_not_found' ? `Saved set not found at ${result.als_path}` : (result?.detail || result?.error || 'Could not read the set'));
     sync.snapshot = result.snapshot;
     sync.readAt = new Date();
