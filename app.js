@@ -122,12 +122,53 @@ function showFirstLoginPasswordSetup() {
   $('#password-setup-error').textContent = '';
 }
 
+// ---------------------------------------------------------------------------
+// Offline: the last loaded data is kept on the device so the app (and the
+// Practice page with saved audio) opens without a connection, read-only.
+const DATA_CACHE_KEY = 'tsp-data-cache-v1';
+const DATA_CACHE = 'tsp-offline-data-v1';
+const appOffline = { active: false };
+function isNetworkError(error) {
+  const msg = String(error?.message || error || '');
+  return !navigator.onLine || /failed to fetch|networkerror|load failed|network request failed|internet connection|fetch failed|timed out/i.test(msg);
+}
+function dataCacheGet() { try { return JSON.parse(localStorage.getItem(DATA_CACHE_KEY) || 'null'); } catch { return null; } }
+function dataCacheSet(patch) {
+  try { localStorage.setItem(DATA_CACHE_KEY, JSON.stringify({ ...(dataCacheGet() || {}), ...patch, at: new Date().toISOString() })); } catch (error) { console.warn('Offline data not saved', error); }
+}
+async function jsonCacheGet(key) {
+  try { const res = await (await caches.open(DATA_CACHE)).match(`https://tsp-offline.local/data/${key}`); return res ? await res.json() : null; } catch { return null; }
+}
+async function jsonCachePut(key, value) {
+  try { await (await caches.open(DATA_CACHE)).put(`https://tsp-offline.local/data/${key}`, new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } })); } catch { /* ignore */ }
+}
+function enterOfflineMode() {
+  if (appOffline.active) return;
+  appOffline.active = true;
+  document.body.classList.add('app-offline');
+  const banner = document.createElement('div');
+  banner.id = 'offline-banner';
+  banner.textContent = `You're offline — showing what was saved on this device${dataCacheGet()?.at ? ` (${new Date(dataCacheGet().at).toLocaleString()})` : ''}. Changes need a connection.`;
+  document.body.prepend(banner);
+}
+window.addEventListener('online', () => { if (appOffline.active) { const b = $('#offline-banner'); if (b) b.textContent = 'Back online — reload to get the latest data.'; } });
+
 async function loadMember(user) {
   const { data, error } = await db.from('members').select('id,name,slug,instrument,is_admin,must_change_password').eq('user_id', user.id).maybeSingle();
-  if (error) throw error;
+  if (error) {
+    const cached = dataCacheGet();
+    if (isNetworkError(error) && cached?.member && cached.user_id === user.id) {
+      state.member = cached.member;
+      state.dashboardMemberId = cached.member.id;
+      enterOfflineMode();
+      return;
+    }
+    throw error;
+  }
   if (!data) throw new Error('This account is not linked to a band member. Ask Aaron to check the account setup.');
   state.member = data;
   state.dashboardMemberId = data.id;
+  dataCacheSet({ member: data, user_id: user.id });
 }
 
 async function loadAllSongTasks() {
@@ -156,8 +197,18 @@ async function loadData() {
     db.from('gigs').select('id,name,event_date,start_time,location,setlist_id,notes,completed').order('event_date'),
     db.from('members').select('id,name,is_admin,sort_order').order('sort_order')
   ]);
-  for (const result of [songs, tasks, taskTypes, languages, setlists, gigs, members, languageOptions]) if (result.error) throw result.error;
-  Object.assign(state, { songs: [...songs.data].sort(compareSongLibraryOrder), tasks: tasks.data, taskTypes: taskTypes.data, languages: languages.data, languageOptions: languageOptions.data, setlists: setlists.data, gigs: gigs.data, members: members.data });
+  const failed = [songs, tasks, taskTypes, languages, setlists, gigs, members, languageOptions].find((result) => result.error);
+  let loaded;
+  if (failed) {
+    const cached = dataCacheGet()?.data;
+    if (!isNetworkError(failed.error) || !cached) throw failed.error;
+    loaded = cached;
+    enterOfflineMode();
+  } else {
+    loaded = { songs: songs.data, tasks: tasks.data, taskTypes: taskTypes.data, languages: languages.data, languageOptions: languageOptions.data, setlists: setlists.data, gigs: gigs.data, members: members.data };
+    dataCacheSet({ data: loaded });
+  }
+  Object.assign(state, { ...loaded, songs: [...loaded.songs].sort(compareSongLibraryOrder) });
   $('#song-count').textContent = state.songs.length;
   $('#song-total').textContent = `· ${state.songs.length} tracks`;
   renderSongs();
@@ -422,8 +473,15 @@ function renderLanguageFilter() {
 
 async function loadReadiness() {
   const { data, error } = await db.from('song_readiness').select('song_id,backing_track,ready');
-  if (error) throw error;
+  if (error) {
+    const cached = dataCacheGet()?.readiness;
+    if (!isNetworkError(error) || !cached) throw error;
+    state.readiness = cached;
+    enterOfflineMode();
+    return;
+  }
   state.readiness = data;
+  dataCacheSet({ readiness: data });
 }
 
 async function loadSetlistItems(setlistId) {
@@ -2143,8 +2201,36 @@ document.addEventListener('click', (event) => {
   const form = $('#gig-form');
   if (form && !form.classList.contains('hidden') && !event.target.closest('#gig-form') && !event.target.closest('#new-gig,[data-edit-gig]')) form.classList.add('hidden');
 });
+// Keep the app itself on the device (service worker) so it opens offline.
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  navigator.serviceWorker.register('sw.js').catch((error) => console.warn('Service worker not registered', error));
+  window.addEventListener('load', () => setTimeout(async () => {
+    try {
+      // Make sure what this page is running right now is in the offline copy.
+      const cache = await caches.open('tsp-app-shell-v1');
+      const urls = new Set([new URL('./', location.href).href, new URL('index.html', location.href).href]);
+      for (const entry of performance.getEntriesByType('resource')) {
+        const u = new URL(entry.name);
+        if ((u.origin === location.origin && !u.pathname.endsWith('sw.js')) || u.hostname === 'esm.sh') urls.add(u.href);
+      }
+      for (const el of document.querySelectorAll('script[src], link[rel=stylesheet][href], img[src], link[rel~=icon][href]')) urls.add(new URL(el.src || el.href, location.href).href);
+      await Promise.all([...urls].map((u) => cache.match(u).then((hit) => hit || cache.add(u)).catch(() => {})));
+    } catch { /* ignore */ }
+  }, 3000));
+}
+
 db.auth.getSession().then(async ({ data, error }) => {
-  if (error || !data.session) return showLogin();
+  if (error || !data.session) {
+    // Offline with an expired sign-in: open read-only from the saved copy.
+    const cached = dataCacheGet();
+    if (!navigator.onLine && cached?.member && cached?.data) {
+      state.member = cached.member;
+      state.dashboardMemberId = cached.member.id;
+      enterOfflineMode();
+      try { await Promise.all([loadData(), loadReadiness()]); showWorkspace(); renderSongs(); return; } catch { /* fall through */ }
+    }
+    return showLogin();
+  }
   try {
     await loadMember(data.session.user);
     if (new URLSearchParams(window.location.hash.slice(1)).get('type') === 'recovery') return showPasswordRecovery();
@@ -2152,7 +2238,10 @@ db.auth.getSession().then(async ({ data, error }) => {
     await Promise.all([loadData(), loadReadiness()]);
     showWorkspace();
     renderSongs();
-  } catch (loadError) { await db.auth.signOut(); showLogin(); $('#login-error').textContent = loadError.message || 'Could not open the band workspace.'; }
+  } catch (loadError) {
+    if (isNetworkError(loadError)) { showLogin(); $('#login-error').textContent = 'No connection, and nothing saved on this device yet. Open TSP Work once while online.'; return; }
+    await db.auth.signOut(); showLogin(); $('#login-error').textContent = loadError.message || 'Could not open the band workspace.';
+  }
 });
 
 
@@ -3633,6 +3722,12 @@ async function offlineDownload(songIds, { everything, onlyUpdates } = {}) {
   renderOfflinePanel();
   const bySong = new Map();
   for (const p of plan) (bySong.get(p.id) || bySong.set(p.id, []).get(p.id)).push(p);
+  // Lyrics for every song in the list (small), so they work offline too.
+  for (const id of songIds) {
+    if (job.cancelled) break;
+    const { data } = await db.from('song_lyrics').select('tracks, sections, tempo, bars, tone, duration_seconds, updated_at').eq('song_id', id).maybeSingle();
+    if (data) await jsonCachePut(`lyrics/${id}`, data);
+  }
   for (const [id, items] of bySong) {
     if (job.cancelled) break;
     let tracks = [];
@@ -3789,8 +3884,15 @@ async function practiceSongList() {
   const setlistId = source.slice('setlist:'.length);
   if (!practiceSetlistSongs.has(setlistId)) {
     const { data, error } = await db.from('setlist_items').select('song_id, position, item_type').eq('setlist_id', setlistId).order('position');
-    if (error) throw error;
-    practiceSetlistSongs.set(setlistId, (data || []).filter((row) => row.song_id).map((row) => row.song_id));
+    const cachedLists = dataCacheGet()?.setlistSongs || {};
+    if (error) {
+      if (!isNetworkError(error) || !cachedLists[setlistId]) throw error;
+      practiceSetlistSongs.set(setlistId, cachedLists[setlistId]);
+    } else {
+      const ids = (data || []).filter((row) => row.song_id).map((row) => row.song_id);
+      practiceSetlistSongs.set(setlistId, ids);
+      dataCacheSet({ setlistSongs: { ...cachedLists, [setlistId]: ids } });
+    }
   }
   const ids = practiceSetlistSongs.get(setlistId);
   return ids.map((id) => state.songs.find((song) => song.id === id)).filter(Boolean);
@@ -3800,8 +3902,9 @@ async function renderPracticePage() {
   $('#practice-upload').classList.toggle('hidden', !state.member?.is_admin);
   renderTonePanel();
   if (!practice.colors) {
-    const { data } = await db.from('app_meta').select('value').eq('key', 'practice_track_colors').maybeSingle();
-    practice.colors = data?.value || {};
+    const { data, error } = await db.from('app_meta').select('value').eq('key', 'practice_track_colors').maybeSingle();
+    if (error) practice.colors = dataCacheGet()?.colors || {};
+    else { practice.colors = data?.value || {}; dataCacheSet({ colors: practice.colors }); }
   }
   if (!practice.available) {
     try { await practiceLoadAvailable(); } catch (error) { practice.available = new Map(); console.warn(error); }
@@ -4348,7 +4451,11 @@ function saveLyricsPrefs(patch) {
 async function practiceLoadLyrics(songId) {
   practice.lyrics = null;
   renderPracticeLyrics();
-  const { data, error } = await db.from('song_lyrics').select('tracks, sections, tempo, bars, tone, duration_seconds, updated_at').eq('song_id', songId).maybeSingle();
+  let { data, error } = await db.from('song_lyrics').select('tracks, sections, tempo, bars, tone, duration_seconds, updated_at').eq('song_id', songId).maybeSingle();
+  if (error && isNetworkError(error)) {
+    const cached = await jsonCacheGet(`lyrics/${songId}`);
+    if (cached) { data = cached; error = null; }
+  } else if (!error && data) jsonCachePut(`lyrics/${songId}`, data);
   if (practice.songId !== songId) return;
   practice.lyrics = error ? { error: error.message } : (data || { tracks: [], sections: [] });
   practice.lyricIndex = -2;

@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-07** · App version marker `?v=20261108-autoload` · TSPWork remote script **1.17** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `223967ff…`) · Supabase ledger head `20261107190244_practice_audio_state` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
+_Last updated: **2026-11-07** · App version marker `?v=20261108-pwa` · TSPWork remote script **1.17** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `223967ff…`) · Supabase ledger head `20261107190244_practice_audio_state` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -90,7 +90,7 @@ Aaron is the owner and the only person who runs Ableton Sync and exports. He mos
 |---|---|
 | Repo | `aaronmark2222/tsp-band-app-live` (public). Working clone used by Claude: `/home/claude/aaronmark2222/tsp-band-app-live` |
 | Live site | https://aaronmark2222.github.io/tsp-band-app-live/ |
-| Deploy | `.github/workflows/deploy.yml`, on push to `main`. Copies **only** `index.html app.js styles.css apple-touch-icon.png assets/the-string-project-logo.png assets/ableton-sync-logo.*`. Any new public file must be added there. |
+| Deploy | `.github/workflows/deploy.yml`, on push to `main`. Copies **only** `index.html app.js styles.css sw.js apple-touch-icon.png assets/the-string-project-logo.png assets/ableton-sync-logo.*`. Any new public file must be added there. |
 | Supabase project | `hzvfrvjuqvmkeqbrgmqu` · `https://hzvfrvjuqvmkeqbrgmqu.supabase.co` · publishable key is in `app.js` (public by design) |
 | Edge Functions | `member-access-admin` (v6, service role in secrets) · `practice-audio` (v7, R2 secrets `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, entered by Aaron himself) |
 | Cloudflare R2 | bucket **`tsp-practice`**, keys `songs/<SONG ID>/<element-slug>.m4a` (or older `.mp3`). CORS allows GET/PUT/HEAD from `https://aaronmark2222.github.io`. Free tier 10 GB. |
@@ -227,6 +227,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
   - Mixdown/Multitrack switch (keeps the playhead; Multitrack shows a download icon and progress until loaded), prev song, back to start, play/pause, stop, next song, position, seek, length.
   - Song ID and title; chips for live **Key**, live **BPM** (from the tempo map) and **Ready / Not ready · N left**.
   - On phones: title and modes on row 1, buttons and times on row 2, the seek bar alone on row 3, chips on row 4. Safe-area padding keeps it off the iOS home bar.
+- **Works offline:** `sw.js` service worker keeps the app shell (network-first for same-origin, cache-first for esm.sh) in `tsp-app-shell-v1`; the page also adds what it is running to that cache. Last loaded data (member, songs, tasks, setlists, readiness, practice colours, setlist song lists) is kept in localStorage `tsp-data-cache-v1`; lyrics per song in Cache Storage `tsp-offline-data-v1`. With no connection the app opens read-only from these, with an offline banner.
 - **Offline audio** card (all members): **on by default** (browser storage); save practice audio on the device so it downloads once. Folder mode (Chrome/Edge desktop, File System Access; handle kept in IndexedDB, manifest `tsp-audio-manifest.json` in the folder) or browser mode (Cache Storage `tsp-practice-audio-v1`, works on iPhone; `navigator.storage.persist()`). Manifest (`tsp-offline-manifest-v1`) stores each file's version = bytes|upload time; newer uploads show an "Update" prompt for just those files. Songs are saved as they're played (a song whose multitrack is saved loads it automatically on open); "Save … Mixdowns / Everything" saves the current song list. With no connection the page plays saved audio.
 - **Downloads:** every file, plus "Download all" (presigned links with `content-disposition`).
 - **Lyrics (AbleSet look):**
@@ -455,6 +456,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 ---
 
 ## 17. Changelog of this plan
+- **2026-11-08:** The app works offline (service worker + saved data/lyrics), read-only.
 - **2026-11-08:** Offline audio for practice (folder or in-browser), with update prompts for newer uploads.
 - **2026-11-08:** Lyrics: section placement by majority/`[>]`/`[<]`, dots only during 3+ beat gaps, growing current line, eased scrolling.
 - **2026-11-08:** Overnight hardening: caffeinate `-d -i -s` (display kept on so a locked screen can't block UI scripting); failed songs get one last try at the end of the run.
