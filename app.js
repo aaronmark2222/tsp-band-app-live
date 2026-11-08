@@ -95,6 +95,9 @@ function showWorkspace() {
   $('#first-login-screen').classList.add('hidden');
   $('#password-recovery-screen').classList.add('hidden');
   $('#workspace').classList.remove('hidden');
+  // Guests (e.g. Kenneth) only get the Practice page.
+  document.body.classList.toggle('guest-mode', isGuest());
+  if (isGuest() && state.view !== 'practice') setTimeout(() => setView('practice'), 0);
   $('#member-access-open').classList.toggle('hidden', !state.member.is_admin);
   $('#new-song-open').classList.toggle('hidden', !state.member.is_admin);
   $('#sync-tab').classList.toggle('hidden', !state.member.is_admin);
@@ -176,7 +179,7 @@ function enterOfflineMode() {
 window.addEventListener('online', () => { if (appOffline.active) { const b = $('#offline-banner'); if (b) b.textContent = 'Back online — reload to get the latest data.'; } });
 
 async function loadMember(user) {
-  const { data, error } = await db.from('members').select('id,name,slug,instrument,is_admin,must_change_password').eq('user_id', user.id).maybeSingle();
+  const { data, error } = await db.from('members').select('id,name,slug,instrument,is_admin,must_change_password,role').eq('user_id', user.id).maybeSingle();
   if (error) {
     const cached = dataCacheGet();
     if (isNetworkError(error) && cached?.member && cached.user_id === user.id) {
@@ -217,7 +220,7 @@ async function loadData() {
     db.from('languages').select('code,name,short_label').order('sort_order'),
     db.from('setlists').select('id,name,description,created_at').order('created_at'),
     db.from('gigs').select('id,name,event_date,start_time,location,setlist_id,notes,completed').order('event_date'),
-    db.from('members').select('id,name,is_admin,sort_order').order('sort_order')
+    db.from('members').select('id,name,is_admin,sort_order,role').order('sort_order')
   ]);
   const failed = [songs, tasks, taskTypes, languages, setlists, gigs, members, languageOptions].find((result) => result.error);
   let loaded;
@@ -231,6 +234,7 @@ async function loadData() {
     dataCacheSet({ data: loaded });
   }
   Object.assign(state, { ...loaded, songs: [...loaded.songs].sort(compareSongLibraryOrder) });
+  state.members = (state.members || []).filter((member) => member.role !== 'guest'); // guests aren't band members
   $('#song-count').textContent = state.songs.length;
   $('#song-total').textContent = `· ${state.songs.length} tracks`;
   renderSongs();
@@ -1716,7 +1720,9 @@ async function saveGig(event) {
   showNotice(id ? 'Gig updated.' : 'Gig created with its own setlist.');
 }
 
+function isGuest() { return state.member?.role === 'guest'; }
 function setView(view) {
+  if (isGuest() && view !== 'practice') view = 'practice';
   if (view !== 'practice' && typeof lyricsFs !== 'undefined' && lyricsFs.on) lyricsFsExit();
   if (view !== 'setlists' && state.setlistEditMode && hasSetlistChanges()) {
     showNotice('Save or discard your staged setlist changes before leaving edit mode.', true);
@@ -1817,7 +1823,7 @@ $('#member-access-open').addEventListener('click', async () => {
     state.accessMembers = await fetchAccessMembers();
     $('#access-member-select').innerHTML = state.accessMembers.length
       ? '<option value="">Choose a band member</option>' + state.accessMembers.map((member) =>
-          `<option value="${escapeHtml(member.id)}">${escapeHtml(member.name)}${member.linked ? (member.must_change_password ? ' · password change required' : '') : ' · sign-in not set up'}</option>`).join('')
+          `<option value="${escapeHtml(member.id)}">${escapeHtml(member.name)}${member.role === 'guest' ? ' (Guest: Practice only)' : ''}${member.linked ? (member.must_change_password ? ' · password change required' : '') : ' · sign-in not set up'}</option>`).join('')
       : '<option value="">No band members found</option>';
     $('#access-member-select').dispatchEvent(new Event('change'));
     $('#access-message').textContent = '';

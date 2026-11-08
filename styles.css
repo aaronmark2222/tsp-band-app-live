@@ -1590,3 +1590,7 @@ body.lyrics-fs #practice-transport .pt-mixer-btn:disabled{opacity:.4}
 /* Your own (orange) task rows: the status box keeps the same dark fill as on other rows,
    instead of letting the orange show through the see-through glass. */
 .task-detail.task-detail-personal select.status-select{background:#3a3a3c!important;border-color:rgba(255,255,255,.14)!important}
+
+/* Guests: only the Practice page. */
+body.guest-mode .tabs .tab:not([data-view="practice"]){display:none!important}
+body.guest-mode #member-access-open,body.guest-mode #ableton-chip,body.guest-mode #new-song-open{display:none!important}

@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-09** · App version marker `?v=20261109-stop1` · TSPWork remote script **1.20** (alsreader md5 `322dd933…`, exporter md5 `639f2b48…`, tspwork md5 `205bb454…`) · Supabase ledger head `20261108133025_member_activity_logs` · Edge Functions `practice-audio` v7, `member-access-admin` v7._
+_Last updated: **2026-11-09** · App version marker `?v=20261109-guest1` · TSPWork remote script **1.20** (alsreader md5 `322dd933…`, exporter md5 `639f2b48…`, tspwork md5 `205bb454…`) · Supabase ledger head `20261108210451_member_roles_guest` · Edge Functions `practice-audio` v7, `member-access-admin` v8._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -52,6 +52,8 @@ The app's visible name is **TSP Work**. The repo and Supabase project keep their
 | Gautham | `gautham` | Percussion | no | **not linked yet** |
 | Nishanth | `nishanth` | Drums | no | yes |
 
+**Guests** (`members.role = 'guest'`, since 2026-11-09): non-band people who only get the **Practice** page. Currently **Kenneth Shalom** (`kenneth`, login to be created by Aaron from Member access). Guests own no tasks, are left out of band member lists (dashboard picker, owners), and the app hides every tab except Practice (`body.guest-mode`, `isGuest()`; `setView` forces `practice`). Database reads are the same as members' (RLS is `current_member_id() is not null`), so the restriction is in the app; they cannot write anything (no tasks, not admin). Their activity is logged like members'.
+
 Aaron is the owner and the only person who runs Ableton Sync and exports. He mostly uses the app on iPhone (home-screen web app) and on his MacBook in Safari. He is not a programmer: explain things simply, and do the work rather than handing him steps, except steps only he can do (passwords, keys, GUI permission prompts).
 
 ---
@@ -92,7 +94,7 @@ Aaron is the owner and the only person who runs Ableton Sync and exports. He mos
 | Live site | https://aaronmark2222.github.io/tsp-band-app-live/ |
 | Deploy | `.github/workflows/deploy.yml`, on push to `main`. Copies **only** `index.html app.js styles.css sw.js apple-touch-icon.png assets/the-string-project-logo.png assets/ableton-sync-logo.*`. Any new public file must be added there. |
 | Supabase project | `hzvfrvjuqvmkeqbrgmqu` · `https://hzvfrvjuqvmkeqbrgmqu.supabase.co` · publishable key is in `app.js` (public by design) |
-| Edge Functions | `member-access-admin` (v7, service role in secrets; a temporary password also confirms the email) · `practice-audio` (v7, R2 secrets `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, entered by Aaron himself) |
+| Edge Functions | `member-access-admin` (v8, `list_members` returns `role`; service role in secrets; a temporary password also confirms the email) · `practice-audio` (v7, R2 secrets `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, entered by Aaron himself) |
 | Cloudflare R2 | bucket **`tsp-practice`**, keys `songs/<SONG ID>/<element-slug>.m4a` (or older `.mp3`). CORS allows GET/PUT/HEAD from `https://aaronmark2222.github.io`. Free tier 10 GB. |
 | Ableton set | `/Users/aaron/Desktop/TSP LIVE MASTER PROJECT Project/TSP LIVE MASTER PROJECT.als` (about 18 MB gzip XML). **Read only.** Optional override in `~/.tspwork.json` `{"als_path": ...}` |
 | TSPWork remote script | `~/Music/Ableton/User Library/Remote Scripts/TSPWork/` (`__init__.py`, `tspwork.py`, `alsreader.py`, `exporter.py`, `tspwork-localhost.crt/.key`, `requests.log`). Repo copy: `tools/ableton-remote-script/TSPWork/` (cert and key are git-ignored and must never be committed) |
@@ -125,7 +127,7 @@ Aaron is the owner and the only person who runs Ableton Sync and exports. He mos
 
 | Table | Rows (2026-11-08) | Purpose |
 |---|---|---|
-| `members` | 7 | id, name, slug, instrument, is_admin, user_id (Auth link), must_change_password, sort_order |
+| `members` | 8 (7 band + 1 guest) | id, name, slug, instrument, is_admin, user_id (Auth link), must_change_password, sort_order, **role** (`member` / `guest`) |
 | `member_emails` | 4 | admin-only email mapping for onboarding |
 | `languages` / `song_languages` | 6 / 71 | language catalogue (E, H, K, T, Kn, Ml) and song links |
 | `songs` | 62 | id (`E5`, `EM7`, …), name, type, is_medley, **keys text[]**, **key_segments jsonb**, tempo_start/end/change, **tempo_segments jsonb**, duration_seconds, backing_track_manual (`null`=Auto / `Sent to Mix` / `Mixed`), sort_order |
@@ -195,7 +197,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 - **Setlists:** opens on the next gig's setlist; read-only by default; admin "Edit setlist" stages adds, removes and drag-ordering until Save (kept across tab switches; saved in one call via `save_setlist`); new setlists can start as a copy of another; delete setlist; running time.
 - **Gigs:** list and editor; admin can mark past gigs complete; **Delete gig** (keeps its setlist).
 - **Dashboard:** a tab per active gig plus Total Setlist; member picker; widgets for Playback / AbleSet / Backing / Other work; Parts shown as optional.
-- **Member access (admin):** via the `member-access-admin` function: list members, create a login (temporary password), send a reset, set a temporary password. Public sign-ups are off.
+- **Member access (admin):** via the `member-access-admin` function (guests are labelled "Guest: Practice only"): list members, create a login (temporary password), send a reset, set a temporary password. Public sign-ups are off.
 
 ### 6.2 Ableton Sync page (admin; works only on Aaron's Mac with Live open and TSPWork selected)
 - **Status card:** TSPWork reachable? (tries `https://127.0.0.1:47711` then `http://127.0.0.1:47710`), version, `.als` path and mtime.
@@ -422,6 +424,7 @@ Aaron is testing whether the export checklist's yellow "changed since upload" fl
 ## 14. Decision log (newest first)
 
 - **2026-11-09**
+  - New user type **Guest** (Practice page only); Kenneth Shalom added as the first guest.
   - Fingerprints ignore file locations, dates and Live's internal IDs; everything was forced green to start a testing phase (section 13.1).
   - Export Stop/Cancel retry until TSPWork confirms.
 - **2026-11-08**
@@ -527,7 +530,8 @@ Aaron is testing whether the export checklist's yellow "changed since upload" fl
 - **2026-11-08:** Open apps check for a newer version (on open after 8 s, every 3 min, on return to the app) and show a "new version is ready — Update" bar; Update refreshes the cached files and reloads once.
 - **2026-11-08:** Read button and panel show the real read stage (opening, tracks n of 375, songs n of 62) from TSPWork 1.20, then the app's saving steps as a checklist; the button fills with progress. Status line says whether the last read is up to date with the saved set. Export unchecks songs that exported fine (failed ones stay checked).
 - **2026-11-08 (night):** Update App Plan run: repo pushed; ledger 29 migrations, head `member_activity_logs`, matches the repo; Edge Functions `practice-audio` v7, `member-access-admin` v7 unchanged; Mac TSPWork files were out of sync (1.19 alsreader/tspwork) and were redeployed (now 1.20, md5s in the header). Sections 8, 13, 14, 15 refreshed.
-- **2026-11-09:** Export Stop after this song / Cancel now keep retrying until TSPWork confirms (it was dropping requests while Live rendered); export polling every 4 s (`?v=20261109-stop1`).
+- **2026-11-09:** Export Stop after this song / Cancel now keep retrying until TSPWork confirms (it was dropping requests while Live rendered); export polling every 4 s (`?v=20261109-guest1`).
 - **2026-11-09:** Audio fingerprints ignore sample paths and dates (moving the project to the SSD and Collect All and Save had turned every song yellow). Backup of the old upload fingerprints: table `practice_audio_state_backup_20261109`.
 - **2026-11-09:** Audio fingerprints also ignore Live's internal IDs (renumbered on every save; one save had turned 10 untouched songs yellow). Verified: between two saves only the edited song (EHKM1 bass) differs.
 - **2026-11-09:** All songs forced green with the new-format fingerprints; section 13.1 records the ongoing freshness testing phase.
+- **2026-11-09:** Guest users: `members.role` (`member`/`guest`), Kenneth Shalom added as a guest (Practice only), `member-access-admin` v8 returns `role` (`?v=20261109-guest1`).

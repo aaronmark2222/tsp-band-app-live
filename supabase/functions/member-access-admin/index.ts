@@ -39,7 +39,7 @@ Deno.serve(async (request) => {
     const body = await request.json().catch(() => ({}));
     if (body.action === "list_members") {
       const [{ data: members, error: membersError }, { data: emails, error: emailsError }] = await Promise.all([
-        adminClient.from("members").select("id,name,user_id,must_change_password,sort_order").order("sort_order"),
+        adminClient.from("members").select("id,name,user_id,must_change_password,sort_order,role").order("sort_order"),
         adminClient.from("member_emails").select("member_id,email"),
       ]);
       if (membersError || emailsError) throw new HttpError(500, "Could not load member accounts.");
@@ -47,7 +47,7 @@ Deno.serve(async (request) => {
       return respond({ members: (members ?? []).map((member) => ({
         id: member.id, name: member.name, user_id: member.user_id,
         linked: Boolean(member.user_id), email: emailByMember.get(member.id) ?? null,
-        must_change_password: member.must_change_password, sort_order: member.sort_order,
+        must_change_password: member.must_change_password, sort_order: member.sort_order, role: member.role ?? "member",
       })) }, 200);
     }
     const memberId = typeof body.member_id === "string" ? body.member_id : "";
