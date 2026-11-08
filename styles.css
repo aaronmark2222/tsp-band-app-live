@@ -1421,7 +1421,7 @@ body.lyrics-fs-out #practice-lyrics,body.lyrics-fs-out #practice-transport{opaci
   --glass-accent-edge:rgba(255,200,130,.55);
 }
 html{background:#121214}
-body{background:#121214!important}
+body{background:transparent!important}
 /* Soft coloured light behind everything so the glass reads as glass. */
 body::after{content:'';position:fixed;inset:-10vmax;z-index:-1;pointer-events:none;
   background:
