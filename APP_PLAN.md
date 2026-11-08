@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-08** · App version marker `?v=20261108-fs5` · TSPWork remote script **1.18** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `b6d35b41…`) · Supabase ledger head `20261108050849_save_setlist_rpc` · Edge Functions `practice-audio` v7, `member-access-admin` v7._
+_Last updated: **2026-11-08** · App version marker `?v=20261108-glass4` · TSPWork remote script **1.18** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `b6d35b41…`) · Supabase ledger head `20261108050849_save_setlist_rpc` · Edge Functions `practice-audio` v7, `member-access-admin` v7._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -181,6 +181,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 
 - **No build step.** `index.html` + `app.js` (~4.5k lines, ES module, imports supabase-js from esm.sh) + `styles.css`. All state lives in one big `state` object plus per-feature objects (`sync`, `exportJob`, `practice`, `tone`).
 - **Cache-busting:** `index.html` loads `styles.css?v=…` and `app.js?v=…`. Bump both on every change.
+- **Look: Liquid Glass theme** (end of `styles.css`): softly lit dark backdrop (`body::after` colour glows), translucent panels with light edges, pill buttons (orange-tinted when selected), real blur only on the floating bars (top bar, pinned on computers; transport; review bar; dialogs). Avoid nesting `backdrop-filter` (iOS draws it black).
 - **Check before every push:** `cp app.js /tmp/a.mjs && node --check /tmp/a.mjs` (a stray `});` once took the whole app down at "Opening your workspace…").
 - **Views (tabs):** Songs · Setlists · Gigs · Dashboard · Practice · Ableton Sync (admin only, a logo-only tab using `assets/ableton-sync-logo.png`, which Aaron uploaded himself). The avatar and name in the top bar are hidden. On phones the tabs scroll sideways.
 - **Load on sign-in:** members (by `user_id`; selects `id,name,slug,instrument,is_admin,must_change_password`), songs (incl. `keys,key_segments,tempo_*`), song_tasks, task_types, languages, song_languages, setlists, setlist_items, gigs, readiness.
@@ -467,6 +468,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 ---
 
 ## 17. Changelog of this plan
+- **2026-11-08:** Liquid Glass theme across the whole app (`?v=20261108-glass4`).
 - **2026-11-08:** App always opens at the top (`history.scrollRestoration = 'manual'`); glass full-screen controls; the iPhone status-bar experiment was reverted (the top fade is Safari's own Home Screen app effect; Aaron parked it) (`?v=20261108-fs4`).
 - **2026-11-08:** Full-screen lyrics with auto-hiding controls (`?v=20261108-fs2`); Songs/Setlists always show full song names.
 - **2026-11-08:** Practice layout (`?v=20261108-pt13`): lyrics column starts at the top of the page on computers.
