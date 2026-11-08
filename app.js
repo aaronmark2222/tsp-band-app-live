@@ -4747,23 +4747,25 @@ const LY_FS_ICONS = {
 const lyricsFs = { on: false, timer: 0 };
 // Controls: shown on entering; while a song plays they fade out after 1 s
 // without a touch/click; while paused they stay until you tap empty space.
-function lyricsFsShowControls() {
+// ms: how long the controls stay after the last touch while playing (longer
+// after using a control, so there's time to pick a track or size).
+function lyricsFsShowControls(ms = 2500) {
   if (!lyricsFs.on) return;
   document.body.classList.add('lyrics-fs-controls');
-  lyricsFsArmHide();
+  lyricsFsArmHide(ms);
 }
 function lyricsFsHideControls() {
   clearTimeout(lyricsFs.timer);
   document.body.classList.remove('lyrics-fs-controls');
 }
-function lyricsFsArmHide() {
+function lyricsFsArmHide(ms = 2500) {
   clearTimeout(lyricsFs.timer);
   const check = () => {
     if (!lyricsFs.on || !document.body.classList.contains('lyrics-fs-controls')) return;
     if (ptIsPlaying()) lyricsFsHideControls();
     else lyricsFs.timer = setTimeout(check, 500); // paused: keep them; hide once playback starts
   };
-  lyricsFs.timer = setTimeout(check, 1000);
+  lyricsFs.timer = setTimeout(check, ms);
 }
 function lyricsChipsHint() {
   const row = document.querySelector('#practice-lyrics .ly-chips');
@@ -4772,7 +4774,15 @@ function lyricsChipsHint() {
   row.classList.toggle('more-right', more && row.scrollLeft + row.clientWidth < row.scrollWidth - 2);
   row.classList.toggle('more-left', more && row.scrollLeft > 2);
 }
-document.addEventListener('scroll', (event) => { if (event.target?.classList?.contains('ly-chips')) lyricsChipsHint(); }, true);
+document.addEventListener('scroll', (event) => {
+  if (!event.target?.classList?.contains('ly-chips')) return;
+  lyricsChipsHint();
+  if (lyricsFs.on) lyricsFsShowControls(5000); // swiping through the track chips keeps them up
+}, true);
+// A finger resting on the controls keeps them up.
+document.addEventListener('touchstart', (event) => {
+  if (lyricsFs.on && event.target.closest?.('#practice-transport, #practice-lyrics > header, #practice-lyrics .ly-chips')) lyricsFsShowControls(5000);
+}, { passive: true });
 function lyricsFsEnter() {
   if (lyricsFs.on) return;
   lyricsFs.on = true;
@@ -4838,7 +4848,7 @@ document.addEventListener('mousemove', (event) => {
 document.addEventListener('click', (event) => {
   if (!lyricsFs.on) return;
   const t = event.target;
-  if (t.closest('#practice-transport, #practice-lyrics > header, #practice-lyrics .ly-chips')) { lyricsFsShowControls(); return; }
+  if (t.closest('#practice-transport, #practice-lyrics > header, #practice-lyrics .ly-chips')) { lyricsFsShowControls(5000); return; }
   if (t.closest('.ly-line, .ly-section, button, a, input, select')) return;
   if (!t.closest('#practice-lyrics')) return;
   if (document.body.classList.contains('lyrics-fs-controls')) lyricsFsHideControls();

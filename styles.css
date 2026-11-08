@@ -1524,3 +1524,5 @@ select{color-scheme:dark}
 .export-pick li{min-width:0;overflow:hidden}
 .export-pick label{max-width:100%}
 .export-pick .export-name{min-width:0;overflow:hidden;text-overflow:ellipsis}
+/* A lyric line is only as wide as its words: tapping the empty space beside it doesn't jump there. */
+.ly-line{width:fit-content}
