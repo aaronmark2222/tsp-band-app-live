@@ -1504,3 +1504,13 @@ select.status-select{border-radius:999px!important}
 .ly-scroll{background:rgba(0,0,0,.55)!important;border:1px solid rgba(255,255,255,.08);border-radius:16px!important}
 body.lyrics-fs .ly-scroll{background:#0b0b0c!important;border:0;border-radius:0!important}
 .ab-track{background:rgba(255,255,255,.04)!important}
+/* Glass theme refinements */
+.dashboard-tab{border-radius:18px!important}
+.dashboard-tab.active,.dashboard-tab.on{background:rgba(243,154,38,.30)!important;border-color:var(--glass-accent-edge)!important;color:#fff!important}
+.dashboard-tab.active *,.dashboard-tab.on *{color:inherit}
+.dashboard-member-song-group,.dashboard-member-work-list{background:transparent!important}
+.dashboard-member-song-group{border-bottom:1px solid rgba(255,255,255,.07)!important}
+.dashboard-work-widget > header{border-bottom-color:rgba(255,255,255,.09)!important}
+select{color-scheme:dark}
+@media (min-width:1001px){.practice-side{top:88px}}
+#dashboard-member-select,.export-setlist,#access-member-select,#gig-setlist{background:rgba(255,255,255,.07)!important;border:1px solid var(--glass-edge)!important;border-radius:999px!important;color:#f2f2f2;padding:6px 12px}
