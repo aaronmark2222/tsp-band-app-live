@@ -3705,8 +3705,18 @@ function offlineSavedSongs() {
 function offlineStats() {
   let files = 0;
   let bytes = 0;
-  for (const songFiles of Object.values(offline.manifest)) for (const m of Object.values(songFiles)) { files += 1; bytes += m.bytes || 0; }
-  return { songs: Object.keys(offline.manifest).length, files, bytes };
+  let mixdowns = 0;
+  let multitracks = 0;
+  for (const [songId, songFiles] of Object.entries(offline.manifest)) {
+    for (const m of Object.values(songFiles)) { files += 1; bytes += m.bytes || 0; }
+    if (songFiles.Mixdown) mixdowns += 1;
+    // A multitrack counts when every track the band app has for the song is saved
+    // (when the list isn't known, e.g. offline, any saved tracks count).
+    const parts = (practice.available?.get(songId) || []).filter((f) => f.element !== 'Mixdown').map((f) => f.element);
+    const savedParts = Object.keys(songFiles).filter((el) => el !== 'Mixdown');
+    if (parts.length ? parts.every((el) => songFiles[el]) : savedParts.length) multitracks += 1;
+  }
+  return { songs: Object.keys(offline.manifest).length, files, bytes, mixdowns, multitracks };
 }
 // Saved files whose upload on the band app is newer.
 function offlineUpdates() {
@@ -3848,7 +3858,7 @@ function renderOfflinePanel() {
     const where = offline.mode === 'folder' ? `the folder <b>${escapeHtml(offline.folderName)}</b>` : 'this browser on this device';
     const mixNeed = need(false);
     const allNeed = need(true);
-    body = `<p>Saving in ${where} · <b>${stats.songs}</b> song${stats.songs === 1 ? '' : 's'}, ${mb(stats.bytes)} saved.${practice.availableFromDevice ? ' <span class="offline-badge">Offline: playing saved audio</span>' : ''}</p>
+    body = `<p>Saving in ${where} · <b>${stats.mixdowns}</b> mixdown${stats.mixdowns === 1 ? '' : 's'} and <b>${stats.multitracks}</b> multitrack${stats.multitracks === 1 ? '' : 's'} saved (${mb(stats.bytes)}).${practice.availableFromDevice ? ' <span class="offline-badge">Offline: playing saved audio</span>' : ''}</p>
       ${updates.length ? `<div class="offline-update"><b>Newer audio for ${updSongs.length} song${updSongs.length === 1 ? '' : 's'}</b> (${escapeHtml(updSongs.slice(0, 8).join(', '))}${updSongs.length > 8 ? '…' : ''}) · ${mb(upBytes)} <button type="button" class="button primary" data-offline-update ${job ? 'disabled' : ''}>Update</button></div>` : ''}
       ${job ? `<div class="export-progress"><span style="width:${job.total ? (job.done / job.total) * 100 : 0}%"></span></div>
         <p class="muted">Saving ${job.done} of ${job.total} files (${mb(job.bytes)} of ${mb(job.totalBytes)})${job.current ? ` · ${escapeHtml(job.current)}` : ''} <button type="button" class="button quiet" data-offline-cancel>Stop</button></p>`
