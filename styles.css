@@ -1586,3 +1586,7 @@ body.lyrics-fs #practice-transport .pt-mixer-btn:disabled{opacity:.4}
 .rp-steps{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:4px;font-size:13px;color:var(--muted)}
 .rp-steps li.done{color:#8fd19e}
 .rp-steps li.now{color:var(--ink);font-weight:600}
+
+/* Your own (orange) task rows: the status box keeps the same dark fill as on other rows,
+   instead of letting the orange show through the see-through glass. */
+.task-detail.task-detail-personal select.status-select{background:#3a3a3c!important;border-color:rgba(255,255,255,.14)!important}
