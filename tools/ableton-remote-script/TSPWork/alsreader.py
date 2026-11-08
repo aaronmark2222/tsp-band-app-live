@@ -11,6 +11,8 @@ import hashlib
 import math
 import os
 import re
+import subprocess
+import sys
 import xml.etree.ElementTree as ET
 
 SONG_ID_RE = re.compile(r'^[A-Z][A-Za-z]*[0-9]+$')
@@ -97,13 +99,38 @@ SOUND_PARTS = ('Loop', 'Disabled', 'SampleRef', 'WarpMarkers', 'IsWarped', 'Warp
                'PitchFine', 'SampleVolume', 'Fades', 'Envelopes', 'Notes', 'StartMarker', 'EndMarker')
 
 
+def _esc_text(t):
+    # As ElementTree._escape_cdata (Python 3.9-3.13).
+    if '&' in t:
+        t = t.replace('&', '&amp;')
+    if '<' in t:
+        t = t.replace('<', '&lt;')
+    if '>' in t:
+        t = t.replace('>', '&gt;')
+    return t
+
+
+def _esc_attr(t):
+    # As ElementTree._escape_attrib (Python 3.9-3.13, incl. Live 12's 3.11).
+    t = _esc_text(t)
+    if '"' in t:
+        t = t.replace('"', '&quot;')
+    if '\r' in t:
+        t = t.replace('\r', '&#13;')
+    if '\n' in t:
+        t = t.replace('\n', '&#10;')
+    if '\t' in t:
+        t = t.replace('\t', '&#09;')
+    return t
+
+
 def _xml_bytes(node):
     """Same bytes as ET.tostring(node) for .als elements (no namespaces,
     comments or PIs), several times faster: one list, no writer setup."""
     out = []
     add = out.append
-    esc_text = ET._escape_cdata
-    esc_attr = ET._escape_attrib
+    esc_text = _esc_text
+    esc_attr = _esc_attr
 
     def walk(el):
         tag = el.tag
@@ -211,7 +238,7 @@ def _parse_piece(data, a, b):
     view = memoryview(data)
     step = 1 << 20
     for i in range(a, b, step):
-        parser.feed(view[i:min(i + step, b)])
+        parser.feed(bytes(view[i:min(i + step, b)]))
     return parser.close()
 
 
@@ -717,7 +744,45 @@ def _track_colors(tracks):
     return out
 
 
+# Inside Live, Python shares time with Live itself and reads run ~10x slower,
+# so hand the read to a separate Python on this Mac when there is one.
+_PYTHONS = ('/opt/homebrew/bin/python3', '/usr/local/bin/python3',
+            '/Library/Developer/CommandLineTools/usr/bin/python3',
+            '/Applications/Xcode.app/Contents/Developer/usr/bin/python3')
+LAST_READ = {'how': None, 'error': None}
+
+
+def _external_python():
+    for p in _PYTHONS:
+        if os.path.isfile(p) and os.access(p, os.X_OK):
+            return p
+    return None
+
+
 def build_snapshot(als_path):
+    if 'Live' in sys.modules:
+        py = _external_python()
+        if py:
+            try:
+                import json
+                out = subprocess.run([py, '-I', os.path.abspath(__file__), '--snapshot', als_path],
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=900)
+                if out.returncode == 0:
+                    LAST_READ.update(how=py, error=None)
+                    snap = json.loads(out.stdout.decode('utf-8'))
+                    snap['reader'] = py
+                    return snap
+                LAST_READ.update(how='in Live', error=out.stderr.decode('utf-8', 'replace')[-300:])
+            except Exception as err:
+                LAST_READ.update(how='in Live', error=repr(err)[:300])
+        else:
+            LAST_READ.update(how='in Live', error='no separate python3 found')
+    snap = _build_snapshot(als_path)
+    snap['reader'] = 'in Live' + (' (%s)' % LAST_READ['error'][:120] if LAST_READ.get('error') else '')
+    return snap
+
+
+def _build_snapshot(als_path):
     raw = read_als(als_path)
     tl = Timeline(raw['tempo'], raw['timesig'])
     tracks = raw['tracks']
@@ -874,3 +939,6 @@ def build_snapshot(als_path):
     }
 
 
+if __name__ == '__main__' and len(sys.argv) == 3 and sys.argv[1] == '--snapshot':
+    import json
+    sys.stdout.write(json.dumps(_build_snapshot(sys.argv[2])))
