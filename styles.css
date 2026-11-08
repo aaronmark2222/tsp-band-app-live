@@ -1278,3 +1278,5 @@ body { padding-top: env(safe-area-inset-top); }
 .export-pick{max-height:none;overflow:visible}
 .export-pick label{min-width:0}
 .export-pick li{break-inside:avoid}
+.dashboard-member-work-list{grid-template-columns:minmax(0,1fr)}
+.dashboard-member-song-group{min-width:0}

@@ -4950,8 +4950,9 @@ function ptRender() {
   if (!bar) return;
   const song = state.songs.find((item) => item.id === practice.songId);
   const engine = ptEngine();
-  if (!engine) { bar.classList.add('hidden'); return; }
+  if (!engine) { bar.classList.add('hidden'); ptMeasure(); return; }
   bar.classList.remove('hidden');
+  requestAnimationFrame(ptMeasure);
   const playing = ptIsPlaying();
   const dur = ptDuration();
   const multiAvailable = practiceMultiTracks().length > 0;
@@ -5246,13 +5247,17 @@ document.addEventListener('click', (event) => {
   }
 });
 // Lyrics box height leaves room for the fixed transport (its height varies by screen).
+function ptMeasure() {
+  const bar = document.getElementById('practice-transport');
+  if (!bar) return;
+  const h = bar.classList.contains('hidden') ? 0 : bar.getBoundingClientRect().height;
+  if (h || bar.classList.contains('hidden')) document.documentElement.style.setProperty('--pt-h', `${Math.round(h)}px`);
+}
 if (window.ResizeObserver) {
   const ptBarEl = document.getElementById('practice-transport');
-  if (ptBarEl) new ResizeObserver(() => {
-    const h = ptBarEl.classList.contains('hidden') ? 0 : ptBarEl.getBoundingClientRect().height;
-    document.documentElement.style.setProperty('--pt-h', `${Math.round(h)}px`);
-  }).observe(ptBarEl);
+  if (ptBarEl) new ResizeObserver(ptMeasure).observe(ptBarEl);
 }
+window.addEventListener('resize', ptMeasure);
 document.addEventListener('input', (event) => {
   if (event.target.id === 'pt-seek' && !ptIsPlaying()) { practice.position = Number(event.target.value); const lcd = $('#pt-pos'); if (lcd) lcd.textContent = ptTime(practice.position); }
 });
