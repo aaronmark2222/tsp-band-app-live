@@ -3871,6 +3871,13 @@ async function practiceOpenSong(songId) {
     practice.loadingSong = false;
     renderPracticePlayers();
   }
+  // Multitrack already saved on this device: load it right away (no data used).
+  if (practice.songId === songId && practiceMultiTracks().length && practiceMultiSaved(songId)) practiceLoadTracks();
+}
+function practiceMultiSaved(songId) {
+  if (offline.mode === 'none' || (offline.mode === 'folder' && !offline.dir)) return false;
+  const saved = offline.manifest[songId] || {};
+  return practiceMultiTracks().every((t) => saved[t.element] && (t.offline || saved[t.element].v === offlineVersion(t)));
 }
 
 // Colour of a track as in the Ableton project (saved at each Sync read).
