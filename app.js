@@ -5952,3 +5952,34 @@ function safeAreaTop() {
   probe.remove();
   return h;
 }
+
+// --- New version check: GitHub Pages caches index.html for ~10 minutes, so an
+// open app can keep running an old version. Look for a newer one now and then
+// and offer a one-tap update (never reloads by itself: practice might be playing).
+async function checkForUpdate() {
+  if (!APP_VERSION || navigator.onLine === false || document.getElementById('update-bar')) return;
+  try {
+    const html = await fetch(`index.html?check=${Date.now()}`, { cache: 'no-store' }).then((r) => (r.ok ? r.text() : ''));
+    const latest = (html.match(/app\.js\?v=([^"'&]+)/) || [])[1];
+    if (!latest || latest === APP_VERSION) return;
+    const bar = document.createElement('div');
+    bar.id = 'update-bar';
+    bar.className = 'update-bar';
+    bar.innerHTML = '<span>A new version of TSP Work is ready.</span><button type="button" class="button primary">Update</button><button type="button" class="text-button" aria-label="Later">Later</button>';
+    bar.querySelector('.primary').onclick = async () => {
+      bar.querySelector('.primary').textContent = 'Updating…';
+      // Refresh the browser's saved copies first so one reload is enough.
+      try { await Promise.all(['index.html', './', `app.js?v=${latest}`, `styles.css?v=${latest}`].map((u) => fetch(u, { cache: 'reload' }))); } catch { /* ignore */ }
+      location.reload();
+    };
+    bar.querySelector('.text-button').onclick = () => { bar.remove(); checkForUpdate.snoozedUntil = Date.now() + 30 * 60 * 1000; };
+    document.body.append(bar);
+  } catch { /* offline or blocked: try later */ }
+}
+function maybeCheckForUpdate() {
+  if (Date.now() < (checkForUpdate.snoozedUntil || 0)) return;
+  checkForUpdate();
+}
+setTimeout(maybeCheckForUpdate, 8000);
+setInterval(maybeCheckForUpdate, 3 * 60 * 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) maybeCheckForUpdate(); });

@@ -1571,3 +1571,10 @@ body.lyrics-fs #practice-transport .pt-mixer-btn:disabled{opacity:.4}
 .rp-label{display:flex;justify-content:space-between;gap:12px;font-size:13px;color:var(--muted)}
 .rp-label b{color:var(--ink);font-variant-numeric:tabular-nums}
 .read-progress-card p{text-align:center;margin:14px 0 0;font-size:12px}
+
+/* "New version" bar */
+.update-bar{position:fixed;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top) + 12px);z-index:200;display:flex;align-items:center;gap:12px;
+  padding:10px 12px 10px 16px;border-radius:999px;background:rgba(28,28,30,.72);-webkit-backdrop-filter:blur(20px) saturate(170%);backdrop-filter:blur(20px) saturate(170%);
+  border:1px solid rgba(255,255,255,.16);box-shadow:0 10px 30px rgba(0,0,0,.4);font-size:14px;max-width:calc(100vw - 24px);animation:pmIn .2s ease-out}
+.update-bar .button{padding:7px 14px;border-radius:999px}
+.update-bar .text-button{padding:6px 8px}
