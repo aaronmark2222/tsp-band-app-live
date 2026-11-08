@@ -11,12 +11,12 @@
     <meta name="theme-color" content="#292929">
     <title>TSP Work · The String Project</title>
     <link rel="icon" href="assets/the-string-project-logo.png?v=20261019" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=20261108-mix3">
-    <script type="module" src="app.js?v=20261108-mix3"></script>
+    <link rel="stylesheet" href="styles.css?v=20261108-login1">
+    <script type="module" src="app.js?v=20261108-login1"></script>
   </head>
   <body>
     <main id="app" class="shell">
-      <section id="login-screen" class="login-screen">
+      <section id="login-screen" class="login-screen hidden">
         <div class="login-card">
           <img class="band-logo login-logo" src="assets/the-string-project-logo.png?v=20261019" alt="The String Project">
           <p class="eyebrow">TSP WORKSPACE</p>
@@ -245,6 +245,21 @@
         </section>
       </section>
       <div id="loading" class="loading"><span class="spinner"></span><span>Opening your workspace…</span></div>
+      <script>
+        // The sign-in form stays hidden (so password managers don't pop up) unless
+        // this device has no saved sign-in; the app shows it later if one fails.
+        (function () {
+          try {
+            var signedIn = Object.keys(localStorage).some(function (k) { return /^sb-.*-auth-token$/.test(k) && localStorage.getItem(k); });
+            if (!signedIn) {
+              document.getElementById('login-screen').classList.remove('hidden');
+              document.getElementById('loading').classList.add('hidden');
+            }
+          } catch (e) {
+            document.getElementById('login-screen').classList.remove('hidden');
+          }
+        })();
+      </script>
     </main>
   </body>
 </html>
