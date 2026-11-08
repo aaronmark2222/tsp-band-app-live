@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-07** · App version marker `?v=20261108-lysmooth` · TSPWork remote script **1.17** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `223967ff…`) · Supabase ledger head `20261107190244_practice_audio_state` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
+_Last updated: **2026-11-07** · App version marker `?v=20261108-secclear` · TSPWork remote script **1.17** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `223967ff…`) · Supabase ledger head `20261107190244_practice_audio_state` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -233,7 +233,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
   - **Default track by member:** Rowen → Guitar, Albert → Keyboard, Nishanth → Drums, Dale and Anston → Lyrics, everyone else (Aaron, Gautham) → Chords. If that track is missing in a song, they see Chords. A chip someone taps sticks on their device.
   - **Rendering:**
     - A title box (song name in caps) and a plain "Key: X" line.
-    - Section pills in the darkened SECTIONS clip colour, white text.
+    - Section pills in the SECTIONS clip colour (slightly deepened), white text, always fully clear (never dimmed).
     - Every `[ ]` token is a chord-style dark rounded box above the words (dashes kept).
     - `\` is a line break; `(text)` without brackets stays plain in the clip colour.
     - Words are in the clip colour; the current line is bright and others are dimmed.
