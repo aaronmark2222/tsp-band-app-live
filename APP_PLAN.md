@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-08** · App version marker `?v=20261108-fs2` · TSPWork remote script **1.18** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `b6d35b41…`) · Supabase ledger head `20261108050849_save_setlist_rpc` · Edge Functions `practice-audio` v7, `member-access-admin` v7._
+_Last updated: **2026-11-08** · App version marker `?v=20261108-sb1` · TSPWork remote script **1.18** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `b6d35b41…`) · Supabase ledger head `20261108050849_save_setlist_rpc` · Edge Functions `practice-audio` v7, `member-access-admin` v7._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -467,6 +467,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 ---
 
 ## 17. Changelog of this plan
+- **2026-11-08:** iPhone home-screen app: status bar style `black` (opaque) plus a solid strip over the safe area, so iOS's blur band over the top of the page goes away (`?v=20261108-sb1`); the full-screen lyrics top controls sit on a solid panel. Changing the status-bar style may need the Home Screen icon re-added.
 - **2026-11-08:** Full-screen lyrics with auto-hiding controls (`?v=20261108-fs2`); Songs/Setlists always show full song names.
 - **2026-11-08:** Practice layout (`?v=20261108-pt13`): lyrics column starts at the top of the page on computers.
 - **2026-11-08:** Lyrics box on computers always fully visible above the transport (`?v=20261108-pt10`).
