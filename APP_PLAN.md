@@ -132,16 +132,16 @@ Aaron is the owner and the only person who runs Ableton Sync and exports. He mos
 | `medley_parts` | 0 | medley constituents (no UI yet) |
 | `task_types` | 23 | key, label, category (`ableset` `utility` `backing` `part`), owner_member_id, allowed_statuses, done_statuses, sort_order |
 | `song_tasks` | 1426 | status per song × task (created by trigger for every song) |
-| `task_status_log` | 513 | trigger-written history |
+| `task_status_log` | 514 | trigger-written history |
 | `percussion_instruments` / `song_percussion` | 12 / 0 | Gautham's per-song instruments (no UI yet) |
-| `setlists` / `setlist_items` | 2 / 44 | ordered songs (break/note item types exist but are unused) |
-| `gigs` | 2 | name, event_date, start_time, location, notes, setlist_id, completed |
+| `setlists` / `setlist_items` | 3 / 70 | ordered songs (break/note item types exist but are unused) |
+| `gigs` | 3 | name, event_date, start_time, location, notes, setlist_id, completed |
 | `deadlines` | 0 | planned; no UI |
 | `ableton_sync_runs` | 23 | log of each applied Ableton Sync (als path, mtime, size, applied items) |
 | `ableton_sync_snoozes` | 22 | "Snooze" plus "Allow" (chord mismatches): song, task, clip fingerprint; admin only |
 | `practice_tracks` | 10 | **legacy**: early manual-upload index. The bucket listing is now the truth; kept for history |
 | `song_lyrics` | 62 | per song from the last Read set: `tracks` (+LYRICS lines `{t,e,text,c}`), `sections` (`{t,name,c}`), `tempo` (`[[sec,bpm]]`), `bars` (`[[sec,num,den]]`), `tone` (`{t,bar,n,v,d}`), duration_seconds, als_modified_at |
-| `app_meta` | 1 | key/value; `practice_track_colors` (element → hex from the set) |
+| `app_meta` | 2 | key/value; `practice_track_colors` (element → hex from the set), `audio_fingerprints` |
 | `practice_audio_state` | 655 (all 62 songs) | per uploaded file (song × element): fingerprint of its Ableton tracks when exported; compared with app_meta `audio_fingerprints` (the set as last read) → yellow "changed since upload" in the export checklist |
 | `practice_export_log` | 60 | one row per exported song: export_seconds, files, song_seconds, per-file seconds; feeds the export time-left estimate |
 
@@ -188,7 +188,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 
 ### 6.1 Songs, Setlists, Gigs, Dashboard (core tracker)
 - **Songs:** search and filters (language, single/medley, key), sorts, per-song progress (you vs band), expandable details (type, languages, duration, tempo with step/slope glyph and bar ranges, Scale(s), backing status, task dropdowns). Admin: Add song (M:SS duration, tempo chain editor, keys), Edit (one editor on Songs and Setlists), Delete song (renumbers the family via RPC).
-- **Setlists:** read-only by default; admin "Edit setlist" stages adds, removes and drag-ordering until Save; delete setlist; running time.
+- **Setlists:** opens on the next gig's setlist; read-only by default; admin "Edit setlist" stages adds, removes and drag-ordering until Save (kept across tab switches; saved in one call via `save_setlist`); new setlists can start as a copy of another; delete setlist; running time.
 - **Gigs:** list and editor; admin can mark past gigs complete; **Delete gig** (keeps its setlist).
 - **Dashboard:** a tab per active gig plus Total Setlist; member picker; widgets for Playback / AbleSet / Backing / Other work; Parts shown as optional.
 - **Member access (admin):** via the `member-access-admin` function: list members, create a login (temporary password), send a reset, set a temporary password. Public sign-ups are off.
@@ -247,7 +247,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
     - Clicking a line or section seeks there.
     - A section is highlighted only when no line is live.
     - Lyrics are timed only when the audio and set lengths agree.
-- **Guitar tones (MIDI)** card, at the very bottom, **only for Aaron and Rowen** (`TONE_MEMBERS`):
+- **Guitar tones (MIDI)** card, at the very bottom (below the admin's Upload card), **only for Aaron and Rowen** (`TONE_MEMBERS`):
   - Web MIDI (Chrome/Edge only; Safari can't) sends the `song_lyrics.tone` notes (Note On/Off, channel 1 by default) at the right times, with a 20 ms lookahead and a 15 ms timer that keeps running in the background.
   - Chase: after any seek, jump or paused move, it sends the tone active at the new spot.
   - Only songs whose **Guitar Tone Midi task is Completed or Finished** send tones.
