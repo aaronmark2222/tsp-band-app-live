@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-08** · App version marker `?v=20261108-pt4` · TSPWork remote script **1.18** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `b6d35b41…`) · Supabase ledger head `20261108050849_save_setlist_rpc` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
+_Last updated: **2026-11-08** · App version marker `?v=20261108-pt6` · TSPWork remote script **1.18** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `b6d35b41…`) · Supabase ledger head `20261108050849_save_setlist_rpc` · Edge Functions `practice-audio` v7, `member-access-admin` v6._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -223,7 +223,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
   - Settings persist for the session across songs.
   - **Solo overrides off.** Controls are **locked until every track has downloaded** ("Load multitrack (N MB)").
   - Web Audio: decodeAudioData, then per track BufferSource → Gain → Analyser. **Phones** (`PHONE`) decode in mono at 44.1/32/24/22.05 kHz, picked so a song's decoded tracks stay under ~520 MB (long medleys otherwise crash iOS Safari).
-  - **Song changes:** the Mixdown/Multitrack choice carries over (sessionStorage `tsp-practice-mode`); a multitrack loads by itself only if it's already saved on the device or in memory (downloading is always the member's choice: Load multitrack, or the transport's Multitrack button); once it's ready in Multitrack mode, playback hands over from the Mixdown at the same spot. While the next song loads, the previous song's cards stay on the page dimmed (`practice-switching`) and `practiceKeepPlace` holds card heights and the scroll position, so nothing blanks or jumps (iPhone used to scroll to the top). Every file opened in a visit is also kept in memory, compressed (`memBlobs`, 220 MB phone / 700 MB computer), so going back to a song never downloads again even if the device can't save it. Save errors show in the Offline audio card.
+  - **Song changes:** the Mixdown/Multitrack choice carries over (sessionStorage `tsp-practice-mode`); a multitrack loads by itself only if it's already saved on the device or in memory (downloading is always the member's choice: Load multitrack, or the transport's Multitrack button); once it's ready in Multitrack mode, playback hands over from the Mixdown at the same spot. While the next song loads, the previous song's cards stay on the page dimmed (`practice-switching`) and `practiceKeepPlace` holds card heights and the scroll position, so nothing blanks or jumps (iPhone used to scroll to the top). Every file opened in a visit is also kept in memory, compressed (`memBlobs`, 220 MB phone / 700 MB computer), so going back to a song never downloads again even if the device can't save it. Save errors show in the Offline audio card. Multitrack downloads run in a background queue (`bgFetch`, two files at a time) that keeps going when the member changes song; the Offline audio card lists songs still downloading, and returning to the song attaches to its download. The card counts saved mixdowns and complete multitracks separately.
 - **Bottom transport (Ableton look, fixed; stays on screen while the next song loads, buttons greyed until it's playable):**
   - Mixdown/Multitrack switch (keeps the playhead; Multitrack shows a download icon and progress until loaded), prev song, back to start, play/pause, stop, next song, position, seek, length.
   - Song ID and title; chips for live **Key**, live **BPM** (from the tempo map) and **Ready / Not ready · N left**.
@@ -464,6 +464,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 ---
 
 ## 17. Changelog of this plan
+- **2026-11-08:** Practice (`?v=20261108-pt6`): multitrack downloads continue in the background across song changes; offline card counts mixdowns and multitracks.
 - **2026-11-08:** Practice (`?v=20261108-pt4`): no automatic multitrack downloads; song changes keep the page in place.
 - **2026-11-08:** Practice song switching (`?v=20261108-pt3`): transport no longer disappears; Multitrack mode carries over; in-visit memory cache stops re-downloads (Aaron's iPhone re-downloaded I1); lighter decoding on phones.
 - **2026-11-08:** Update App Plan run: repo, Supabase ledger (28, head `save_setlist_rpc`), Edge Functions (v7/v6) and the Mac's TSPWork 1.18 files all in sync; decision log and counts refreshed.
