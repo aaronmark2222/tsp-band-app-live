@@ -1308,3 +1308,20 @@ body { padding-top: env(safe-area-inset-top); }
 /* Setlist rows line up with Songs: the order number sits beside the title, the status reaches the right edge. */
 .setlist-row:has(.setlist-song-toggle) > .setlist-item-summary{padding-right:0}
 .setlist-song-toggle .item-title{padding-right:34px}
+/* ---------- Full-screen lyrics (YouTube-style controls) ---------- */
+.ly-fs-btn{margin-left:8px;display:inline-grid;place-items:center;width:30px;height:28px;border:1px solid #4a4a4a;border-radius:4px;background:#2a2a2a;color:#ddd;cursor:pointer;vertical-align:middle}
+.ly-fs-btn:hover{border-color:#f39a26;color:#f39a26}
+body.lyrics-fs{overflow:hidden}
+body.lyrics-fs .topbar,body.lyrics-fs #notice,body.lyrics-fs .practice-hero,body.lyrics-fs .practice-pick,body.lyrics-fs .practice-main,body.lyrics-fs #practice-upload,body.lyrics-fs #practice-tone,body.lyrics-fs #review-bar,body.lyrics-fs #offline-banner{display:none!important}
+body.lyrics-fs .practice-side{position:fixed;inset:0;z-index:60;margin:0}
+body.lyrics-fs #practice-lyrics{position:fixed;inset:0;margin:0;padding:0;border:0;border-radius:0;background:#0b0b0c;min-height:0!important}
+body.lyrics-fs #practice-lyrics .ly-scroll{position:absolute;inset:0;height:100%!important;border-radius:0;padding-left:max(24px,6vw);padding-right:max(24px,6vw)}
+body.lyrics-fs #practice-lyrics > header,body.lyrics-fs #practice-lyrics .ly-chips{position:fixed;left:0;right:0;z-index:65;margin:0;padding:12px max(16px,4vw) 8px;transition:opacity .3s ease;background:linear-gradient(#000d,#0000)}
+body.lyrics-fs #practice-lyrics > header{top:0;padding-top:max(12px,env(safe-area-inset-top))}
+body.lyrics-fs #practice-lyrics .ly-chips{top:calc(52px + env(safe-area-inset-top));background:none;padding-top:0}
+body.lyrics-fs #practice-lyrics .ly-foot,body.lyrics-fs #practice-lyrics .ly-missing{display:none}
+body.lyrics-fs #practice-transport{transition:opacity .3s ease,transform .3s ease}
+body.lyrics-fs:not(.lyrics-fs-controls) #practice-lyrics > header,
+body.lyrics-fs:not(.lyrics-fs-controls) #practice-lyrics .ly-chips{opacity:0;pointer-events:none}
+body.lyrics-fs:not(.lyrics-fs-controls) #practice-transport{opacity:0;pointer-events:none;transform:translateY(12px)}
+body.lyrics-fs:not(.lyrics-fs-controls){cursor:none}

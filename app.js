@@ -1707,6 +1707,7 @@ async function saveGig(event) {
 }
 
 function setView(view) {
+  if (view !== 'practice' && typeof lyricsFs !== 'undefined' && lyricsFs.on) lyricsFsExit();
   if (view !== 'setlists' && state.setlistEditMode && hasSetlistChanges()) {
     showNotice('Save or discard your staged setlist changes before leaving edit mode.', true);
     return;
@@ -4725,6 +4726,72 @@ function renderPracticeLyrics() {
   renderPracticeLyricsInner();
   lyricsFit();
 }
+// Full-screen lyrics (YouTube-style): only the lyrics, with the track/size
+// controls on top and the transport at the bottom; both fade out after a few
+// seconds without moving the mouse or touching the screen while playing.
+const LY_FS_ICONS = {
+  enter: '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 2h5v2H4v3H2zM9 2h5v5h-2V4H9zM2 9h2v3h3v2H2zM12 9h2v5H9v-2h3z" fill="currentColor"/></svg>',
+  exit: '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M5 2h2v5H2V5h3zM9 2h2v3h3v2H9zM2 9h5v5H5v-3H2zM9 9h5v2h-3v3H9z" fill="currentColor"/></svg>'
+};
+const lyricsFs = { on: false, timer: 0 };
+function lyricsFsShowControls() {
+  if (!lyricsFs.on) return;
+  document.body.classList.add('lyrics-fs-controls');
+  clearTimeout(lyricsFs.timer);
+  lyricsFs.timer = setTimeout(() => {
+    if (lyricsFs.on && ptIsPlaying()) document.body.classList.remove('lyrics-fs-controls');
+    else lyricsFsShowControls();
+  }, 3000);
+}
+function lyricsFsEnter() {
+  if (lyricsFs.on) return;
+  lyricsFs.on = true;
+  document.body.classList.add('lyrics-fs');
+  // Real full screen where the browser allows it (computers, Android); iPhone keeps the browser bars.
+  const el = document.documentElement;
+  const request = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (request && !document.fullscreenElement && !document.webkitFullscreenElement) { try { request.call(el)?.catch?.(() => {}); } catch { /* not allowed */ } }
+  renderPracticeLyrics();
+  lyricsFsShowControls();
+  practice.lyricIndex = -2;
+  setTimeout(() => { lyricsFit(); practiceLyricsTick(true); }, 80);
+}
+function lyricsFsExit() {
+  if (!lyricsFs.on) return;
+  lyricsFs.on = false;
+  clearTimeout(lyricsFs.timer);
+  document.body.classList.remove('lyrics-fs', 'lyrics-fs-controls');
+  if (document.fullscreenElement || document.webkitFullscreenElement) {
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    try { exit?.call(document)?.catch?.(() => {}); } catch { /* ignore */ }
+  }
+  renderPracticeLyrics();
+  practice.lyricIndex = -2;
+  setTimeout(() => { lyricsFit(); practiceLyricsTick(true); }, 80);
+}
+document.addEventListener('click', (event) => {
+  if (event.target.closest('[data-lyrics-fs]')) { lyricsFs.on ? lyricsFsExit() : lyricsFsEnter(); }
+});
+['fullscreenchange', 'webkitfullscreenchange'].forEach((name) => document.addEventListener(name, () => {
+  if (lyricsFs.on && !document.fullscreenElement && !document.webkitFullscreenElement) lyricsFsExit();
+}));
+document.addEventListener('keydown', (event) => {
+  if (state.view !== 'practice' || event.target.closest?.('input, textarea, select')) return;
+  if (event.key === 'Escape' && lyricsFs.on) { lyricsFsExit(); return; }
+  if ((event.key === 'f' || event.key === 'F') && !event.metaKey && !event.ctrlKey) { lyricsFs.on ? lyricsFsExit() : lyricsFsEnter(); return; }
+  lyricsFsShowControls();
+});
+document.addEventListener('mousemove', () => lyricsFsShowControls(), { passive: true });
+// Touch: when the controls are hidden, a tap only brings them back (it doesn't jump in the song).
+document.addEventListener('click', (event) => {
+  if (!lyricsFs.on) return;
+  if (!document.body.classList.contains('lyrics-fs-controls') && event.target.closest('#practice-lyrics, #practice-transport')) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  lyricsFsShowControls();
+}, true);
+document.addEventListener('touchstart', () => { if (lyricsFs.on && document.body.classList.contains('lyrics-fs-controls')) lyricsFsShowControls(); }, { passive: true });
 function renderPracticeLyricsInner() {
   const box = $('#practice-lyrics');
   if (!box) return;
@@ -4778,7 +4845,7 @@ function renderPracticeLyricsInner() {
     if (n) withDots.push({ type: 'dots', t: it.t, t1: nextT, n });
   });
   const song = state.songs.find((row) => row.id === practice.songId);
-  box.innerHTML = `<header><h2>Lyrics</h2><span class="ly-sizes">${['s', 'm', 'l'].map((size) => `<button type="button" class="ly-size ${prefs.size === size ? 'on' : ''}" data-lyrics-size="${size}">${size === 's' ? 'A' : size === 'm' ? 'A' : 'A'}</button>`).join('')}</span></header>
+  box.innerHTML = `<header><h2>Lyrics</h2><span class="ly-sizes">${['s', 'm', 'l'].map((size) => `<button type="button" class="ly-size ${prefs.size === size ? 'on' : ''}" data-lyrics-size="${size}">${size === 's' ? 'A' : size === 'm' ? 'A' : 'A'}</button>`).join('')}<button type="button" class="ly-fs-btn" data-lyrics-fs title="${lyricsFs.on ? 'Exit full screen (Esc)' : 'Full screen (F)'}" aria-label="${lyricsFs.on ? 'Exit full screen' : 'Full screen lyrics'}">${lyricsFs.on ? LY_FS_ICONS.exit : LY_FS_ICONS.enter}</button></span></header>
     <div class="ly-chips">${chips}</div>${missing}
     <div class="ly-scroll ly-size-${prefs.size} ly-track-${escapeHtml(current?.slug || 'none')}" id="practice-lyrics-scroll">${song ? `<div class="ly-title">${escapeHtml(song.name)}</div>` : ''}${withDots.map((it) => it.type === 'dots'
       ? `<div class="ly-dots" data-t="${it.t}" data-t1="${it.t1}">${'<span class="ly-dot"></span>'.repeat(it.n)}</div>`
@@ -5419,6 +5486,12 @@ function lyricsFit() {
     const box = document.getElementById('practice-lyrics-scroll');
     const side = document.querySelector('.practice-side');
     if (!box || !side || state.view !== 'practice') return;
+    if (lyricsFs.on) {
+      const h = window.innerHeight;
+      lyricsPad(box, h);
+      if (Math.abs(box.offsetHeight - h) > 2) box.style.height = `${h}px`;
+      return;
+    }
     if (getComputedStyle(side).position !== 'sticky') { box.style.height = ''; lyricsPad(box, box.clientHeight); return; }
     const bar = document.getElementById('practice-transport');
     const ptH = bar && !bar.classList.contains('hidden') ? bar.getBoundingClientRect().height : 0;
