@@ -2360,7 +2360,7 @@ async function probeAbletonBridge() {
     abletonBridge.status = status?.ok ? status : null;
     if (status?.version) abletonBridge.version = status.version; // kept even if a later probe misses
     setAbletonConnected(!!status?.ok);
-    if (status?.exporting && !exportJob.timer) { exportJob.state = status.exporting; exportJob.timer = setInterval(pollExport, 2000); }
+    if (status?.exporting && !exportJob.timer) { exportJob.state = status.exporting; exportJob.timer = setInterval(pollExport, 4000); }
     if (state.view === 'sync') {
       const remote = !!status?.reading_since;
       if (remote !== !!abletonBridge.wasRemoteReading) { abletonBridge.wasRemoteReading = remote; renderSyncPage(); }
@@ -3242,7 +3242,7 @@ function renderExportPanel(opts = {}) {
       <button class="button quiet" type="button" data-export-changed ${running || !exportChangedIds().length ? 'disabled' : ''} title="Add the songs that changed in Ableton since their upload">+ Changed${exportChangedIds().length ? ` (${exportChangedIds().length})` : ''}</button>
       ${(() => { const up = [...exportJob.selected].filter((id) => practice.available?.has(id) && !audioChanges(id).length).length; return `<button class="button quiet" type="button" data-export-unuploaded ${running || !up ? 'disabled' : ''} title="Uncheck the checked songs that are already on the band app">Uncheck uploaded${up ? ` (${up})` : ''}</button>`; })()}
       <button id="export-start" class="button primary" type="button" ${running || exportJob.preparing || !count || (!abletonBridge.connected && !running) ? 'disabled' : ''}>${exportJob.preparing ? 'Starting…' : running ? 'Exporting…' : `Export ${count ? `${count} song${count === 1 ? '' : 's'}` : 'songs'}`}</button>
-      ${canStopAfter ? `<button id="export-stop-after" class="button ${job.stop_after_song ? 'primary' : 'quiet'}" type="button" ${stopSupported ? '' : 'disabled'} title="${stopSupported ? (job.stop_after_song ? 'Keep exporting the rest of the songs' : 'Finish the song being exported, then stop') : 'Needs TSPWork 1.17: in Live, set the TSPWork control surface to None and back to TSPWork'}">${job.stop_after_song ? `Keep going after ${escapeHtml(job.song_id)}` : 'Stop after this song'}</button>` : ''}
+      ${exportJob.control ? `<span class="muted export-control-wait"><span class="spinner" style="display:inline-block;width:12px;height:12px;vertical-align:middle;margin-right:6px"></span>${escapeHtml(exportJob.control.waiting)}</span>` : ''}${canStopAfter && !exportJob.control ? `<button id="export-stop-after" class="button ${job.stop_after_song ? 'primary' : 'quiet'}" type="button" ${stopSupported ? '' : 'disabled'} title="${stopSupported ? (job.stop_after_song ? 'Keep exporting the rest of the songs' : 'Finish the song being exported, then stop') : 'Needs TSPWork 1.17: in Live, set the TSPWork control surface to None and back to TSPWork'}">${job.stop_after_song ? `Keep going after ${escapeHtml(job.song_id)}` : 'Stop after this song'}</button>` : ''}
       ${running ? '<button id="export-cancel" class="button quiet" type="button" title="Stop right away (the current song is left unfinished) and put Ableton back">Cancel now</button>' : ''}
     </div>
     <p class="muted export-legend"><span class="export-up">●</span> on the band app${practice.available ? ` (${practice.available.size} songs)` : ''} · <span class="export-changed">●</span> changed in Ableton since its upload${exportChangedIds().length ? ` (${exportChangedIds().length})` : ''}${exportJob.preparing ? ` · <b>${escapeHtml(exportJob.preparing)}</b>` : ''}</p>
@@ -3548,7 +3548,7 @@ async function startExport() {
     exportJob.state = result.job;
     renderExportPanel();
     clearInterval(exportJob.timer);
-    exportJob.timer = setInterval(pollExport, 2000);
+    exportJob.timer = setInterval(pollExport, 4000);
   } catch (error) {
     exportJob.preparing = null;
     renderExportPanel();
@@ -3586,8 +3586,8 @@ document.addEventListener('click', (event) => {
   }
   if (event.target.closest('#export-cancel')) {
     if (!window.confirm('Cancel the export right now? The song being exported is left unfinished. (To finish it first, use "Stop after this song".)')) return;
-    showNotice('Cancelling the export…');
-    abletonRequest('/export/cancel', {}, 5000).then(pollExport).catch(() => showNotice('TSPWork did not answer; try again.', true));
+    exportControl({}, (job, direct) => direct || !job || !['starting', 'running'].includes(job.state),
+      'Cancelling the export…', 'OK: the export is being cancelled.', 'cancel');
   }
   const stopBtn = event.target.closest('#export-stop-after');
   if (stopBtn && !stopBtn.disabled) {
@@ -3595,17 +3595,41 @@ document.addEventListener('click', (event) => {
     const songId = exportJob.state?.song_id || 'this song';
     stopBtn.disabled = true;
     stopBtn.textContent = undo ? 'Resuming…' : 'Asking TSPWork to stop…';
-    abletonRequest('/export/cancel', { after_song: true, undo }, 5000)
-      .then((result) => {
-        if (result?.job) exportJob.state = result.job;
-        const on = !!result?.job?.stop_after_song;
-        if (!result?.ok || on === undo) throw new Error('not applied');
-        showNotice(on ? `OK: the export will stop after ${songId} finishes.` : 'OK: the export will carry on with the remaining songs.');
-      })
-      .catch(() => showNotice('TSPWork did not confirm the stop; try again.', true))
-      .finally(() => renderExportPanel());
+    exportControl({ after_song: true, undo }, (job) => !!job?.stop_after_song === !undo,
+      undo ? 'Asking TSPWork to carry on…' : `Asking TSPWork to stop after ${songId}…`,
+      undo ? 'OK: the export will carry on with the remaining songs.' : `OK: the export will stop after ${songId} finishes.`, 'stop');
   }
 });
+// While Live renders, TSPWork's server inside Live gets little time and drops
+// connections in bursts, so a stop/cancel is sent again (with a long wait each
+// time) until TSPWork confirms it, for up to ~4 minutes.
+async function exportControl(body, applied, waitingMsg, okMsg, kind) {
+  const token = {};
+  exportJob.control = { token, kind, waiting: waitingMsg };
+  renderExportPanel();
+  showNotice(waitingMsg);
+  const until = Date.now() + 4 * 60 * 1000;
+  let done = false;
+  for (let attempt = 1; Date.now() < until && exportJob.control?.token === token; attempt += 1) {
+    try {
+      const result = await abletonRequest('/export/cancel', body, 25000);
+      if (result?.job !== undefined) exportJob.state = result.job || exportJob.state;
+      if (result?.ok && applied(result.job, true)) { done = true; break; }
+    } catch { /* dropped while Live renders: try again */ }
+    // Maybe it got through but the answer was lost: check the state too.
+    try {
+      const st = await abletonRequest('/export/state', {}, 15000);
+      if (st?.job) exportJob.state = st.job;
+      if (st && applied(st.job, false)) { done = true; break; }
+    } catch { /* ignore */ }
+    if (exportJob.control?.token === token) { exportJob.control.waiting = `${waitingMsg} (try ${attempt + 1}; Live is busy rendering)`; renderExportPanel(); }
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+  if (exportJob.control?.token === token) exportJob.control = null;
+  renderExportPanel();
+  if (done) showNotice(okMsg);
+  else showNotice(`TSPWork still hasn't confirmed after 4 minutes. ${kind === 'stop' ? 'Try again, or use Cancel.' : 'In Ableton, press Esc to close the Export dialog, then set TSPWork to None and back.'}`, true);
+}
 $('#sync-content').addEventListener('click', (event) => {
   const jump = event.target.closest('[data-sync-jump]');
   if (jump) { sendAbletonCommand('/jump', { song_id: jump.dataset.syncJump }); return; }
