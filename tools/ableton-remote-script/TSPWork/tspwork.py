@@ -31,7 +31,7 @@ from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
 TLS_PORT = 47711
-VERSION = '1.18'
+VERSION = '1.19'
 DEBUG_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requests.log')
 # https listener for the live site in Safari. Certificate made for 127.0.0.1 /
 # localhost only, trusted once in this Mac's Keychain. Files sit next to this
@@ -178,6 +178,7 @@ class TSPWork(ControlSurface):
         ControlSurface.__init__(self, c_instance)
         self._jobs = queue.Queue()
         self._busy = False
+        self._reading_since = None  # set while /snapshot reads the saved set
         self._stop = False
         self._servers = []
         self._review = None        # what is being reviewed (song, task, tracks)
@@ -790,6 +791,10 @@ class TSPWork(ControlSurface):
                 return self._reply(conn, 200, {'ok': True, 'version': VERSION, 'https': self._tls is not None,
                                                'exporting': self._export.state}, origin)
             if method == 'GET' and path.startswith('/status'):
+                if self._reading_since:
+                    # A read is running (maybe from another window): say so straight away.
+                    return self._reply(conn, 200, {'ok': True, 'version': VERSION, 'https': self._tls is not None,
+                                                   'reading_since': self._reading_since}, origin)
                 return self._reply(conn, 200, self._run_on_main(self._cmd_status), origin)
             if method != 'POST':
                 return self._reply(conn, 404, {'ok': False, 'error': 'not_found'}, origin)
@@ -814,7 +819,11 @@ class TSPWork(ControlSurface):
             self._busy = True
             try:
                 if path.startswith('/snapshot'):
-                    result = self._snapshot()
+                    self._reading_since = time.time()
+                    try:
+                        result = self._snapshot()
+                    finally:
+                        self._reading_since = None
                 elif path.startswith('/jump'):
                     result = self._run_on_main(self._cmd_jump, song_id)
                 elif path.startswith('/select'):

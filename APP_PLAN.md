@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-08** · App version marker `?v=20261108-act1` · TSPWork remote script **1.18** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `b6d35b41…`) · Supabase ledger head `20261108133025_member_activity_logs` · Edge Functions `practice-audio` v7, `member-access-admin` v7._
+_Last updated: **2026-11-08** · App version marker `?v=20261108-read2` · TSPWork remote script **1.19** (alsreader md5 `b356e5fa…`, exporter md5 `639f2b48…`, tspwork md5 `200d62f4…`) · Supabase ledger head `20261108133025_member_activity_logs` · Edge Functions `practice-audio` v7, `member-access-admin` v7._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -266,7 +266,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 ## 7. TSPWork (Ableton remote script) — `tools/ableton-remote-script/TSPWork/`
 
 - A `_Framework.ControlSurface` for **Live 12**, chosen as a Control Surface named "TSPWork" in Live's MIDI settings. It runs HTTP/HTTPS servers on a thread; Live API work is marshalled to the main thread with `schedule_message` ticks (`_run_on_main`).
-- **Version 1.18** (1.18: the review bar after a song jump reports the section at the jump target). `alsreader` and `exporter` are `importlib.reload`ed on every use, so updating those two files needs **no Live restart**. Changing `tspwork.py` needs TSPWork reselected in Live's Control Surface menu (None → TSPWork).
+- **Version 1.19** (1.19: `/status` answers at once with `reading_since` while a set read is running, so every window shows it; 1.18: the review bar after a song jump reports the section at the jump target). `alsreader` and `exporter` are `importlib.reload`ed on every use, so updating those two files needs **no Live restart**. Changing `tspwork.py` needs TSPWork reselected in Live's Control Surface menu (None → TSPWork).
 - **Deploy to the Mac:** copy files into a fresh `/mnt/user-data/outputs/deploy_vXXX/`, `device_commit_files` to `~/Music/Ableton/User Library/Remote Scripts/TSPWork/…` (force), then verify the md5 with `device_bash` (`$HOME/mnt/Remote Scripts/TSPWork`). Don't swap the exporter mid-export: check `ls -t` of the export folder or `/export/state` first.
 - **Endpoints** (POST JSON, CORS-restricted):
 
@@ -493,3 +493,4 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 - **2026-11-07 (late):** TSPWork 1.17: **Stop after this song** (the remaining songs are marked `stopped`, not errors); the export checklist keeps its scroll position.
 - **2026-11-07 (late):** Export timing: the exporter reports per-song and per-file seconds, the app logs them to `practice_export_log`, and the time-left estimate uses them.
 - **2026-11-07:** Created. Consolidated everything since the start: the tracker, Ableton Sync, TSPWork 1.16, the overnight export, the Practice page, AbleSet lyrics and guitar tones. The repo was synced with the live Supabase ledger (10 migration files renamed to their live versions; 3 missing migrations added; migrations README). Edge Functions and Mac scripts were verified identical to the repo.
+- **2026-11-08:** Full-screen lyrics mixer drop-up; sign-in form hidden while a saved sign-in opens the app; exiting full screen puts the Lyrics title at the top; Read Ableton set waits while TSPWork is busy, shows a reading panel, and shows reads started elsewhere (TSPWork 1.19, `?v=20261108-read2`).

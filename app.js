@@ -2797,15 +2797,25 @@ function renderSyncStatus() {
     if (status.als_saved_at) parts.push(`Set last saved ${new Date(status.als_saved_at * 1000).toLocaleString()}.`);
   }
   if (sync.readAt) parts.push(`Last read ${sync.readAt.toLocaleTimeString()}.`);
+  // A read TSPWork is doing for another window (or for this page before a reload).
+  const elsewhere = !sync.reading && status?.reading_since;
+  if (elsewhere) parts.push(`<b>TSPWork is already reading the set</b> (started ${new Date(status.reading_since * 1000).toLocaleTimeString()}, from another window or before the page reloaded). You can read again when it finishes.`);
   box.innerHTML = parts.join(' ');
-  $('#sync-read').disabled = sync.reading;
-  $('#sync-read').textContent = sync.reading ? 'Reading the set…' : 'Read Ableton set';
+  $('#sync-read').disabled = sync.reading || !!elsewhere;
+  $('#sync-read').textContent = sync.reading || elsewhere ? 'Reading the set…' : 'Read Ableton set';
+  // Check again soon so the button comes back as soon as that read ends.
+  clearTimeout(renderSyncStatus.recheck);
+  if (elsewhere && state.view === 'sync') renderSyncStatus.recheck = setTimeout(probeAbletonBridge, 3000);
 }
 
 function renderSyncPage() {
   renderSyncStatus();
   renderExportPanel();
   const content = $('#sync-content');
+  if (sync.reading) {
+    content.innerHTML = `<div class="empty-state"><span class="spinner" style="display:inline-block;vertical-align:middle;margin-right:10px"></span><b>Reading the saved Ableton set…</b><br><span class="muted">Takes about a minute. You can use other pages meanwhile; the result shows here when it's done.</span></div>`;
+    return;
+  }
   if (!sync.snapshot) {
     content.innerHTML = '<div class="empty-state">Press <b>Read Ableton set</b> to compare your saved Ableton set with TSP Work. Reading takes up to a minute; avoid doing it during a show.</div>';
     return;
@@ -2909,7 +2919,7 @@ async function readAbletonSet() {
   if (!abletonBridge.connected) { renderSyncStatus(); showNotice('Ableton is not connected.', true); return; }
   if (sync.reading) return; // a read is already running
   sync.reading = true;
-  renderSyncStatus();
+  if (state.view === 'sync') renderSyncPage(); else renderSyncStatus();
   try {
     // TSPWork does one thing at a time (a read takes about a minute). If it's
     // still busy with something else (another window's read, a jump), wait for it.
