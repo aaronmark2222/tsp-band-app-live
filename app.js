@@ -5348,12 +5348,14 @@ function ptPlay() {
     audio.play().catch(() => {});
   }
   ptRender();
+  ptMediaUpdate(true);
 }
 function ptPause() {
   practice.position = ptPosition();
   practicePause();
   $('#practice-mix-audio')?.pause();
   ptRender();
+  ptMediaUpdate(true);
 }
 function ptStop() {
   ptPause();
@@ -5370,6 +5372,7 @@ function ptSeek(t) {
   }
   practice.lyricIndex = -2;
   ptRender();
+  ptMediaUpdate(true);
 }
 function ptMultiLoading() {
   return practiceMultiTracks().some((tr) => practice.loadState.get(tr.element) === 'loading');
@@ -5466,6 +5469,7 @@ function ptTick() {
   if (!bar || bar.classList.contains('hidden')) return;
   if (bar.classList.contains('pt-idle')) { if (ptEngine()) ptRender(); return; }
   const pos = ptPosition();
+  ptMediaUpdate();
   const lcd = $('#pt-pos');
   if (lcd) lcd.textContent = ptTime(pos);
   const live = ptLive(pos);
@@ -6067,3 +6071,76 @@ function maybeCheckForUpdate() {
 setTimeout(maybeCheckForUpdate, 8000);
 setInterval(maybeCheckForUpdate, 3 * 60 * 1000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) maybeCheckForUpdate(); });
+
+
+// --- iPhone lock screen / Dynamic Island / Control Centre (Media Session).
+// The system scrubber, play/pause and skip buttons drive the app's transport,
+// so they work for both the Mixdown and the Multitrack. The multitrack plays
+// through Web Audio, which iOS doesn't show as "now playing" by itself, so a
+// silent looping audio element runs alongside it while it plays.
+const ptMedia = { key: '', lastPos: 0, silent: null, handlers: false };
+function ptSilentAudio() {
+  if (ptMedia.silent) return ptMedia.silent;
+  // 1 s of 8 kHz 8-bit silence as a WAV.
+  const n = 8000;
+  const buf = new ArrayBuffer(44 + n);
+  const v = new DataView(buf);
+  const str = (o, t) => { for (let i = 0; i < t.length; i += 1) v.setUint8(o + i, t.charCodeAt(i)); };
+  str(0, 'RIFF'); v.setUint32(4, 36 + n, true); str(8, 'WAVE'); str(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+  str(36, 'data'); v.setUint32(40, n, true);
+  for (let i = 0; i < n; i += 1) v.setUint8(44 + i, 128);
+  const a = new Audio(URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })));
+  a.loop = true;
+  a.setAttribute('playsinline', '');
+  ptMedia.silent = a;
+  return a;
+}
+function ptMediaHandlers() {
+  if (ptMedia.handlers || !('mediaSession' in navigator)) return;
+  ptMedia.handlers = true;
+  const set = (action, fn) => { try { navigator.mediaSession.setActionHandler(action, fn); } catch { /* not supported */ } };
+  set('play', () => ptPlay());
+  set('pause', () => ptPause());
+  set('stop', () => ptStop());
+  set('seekto', (d) => { if (Number.isFinite(d.seekTime)) ptSeek(d.seekTime); });
+  set('seekbackward', (d) => ptSeek(ptPosition() - (d.seekOffset || 10)));
+  set('seekforward', (d) => ptSeek(ptPosition() + (d.seekOffset || 10)));
+  set('previoustrack', () => { practice.autoplay = ptIsPlaying(); ptPause(); practiceStepSong(-1); });
+  set('nexttrack', () => { practice.autoplay = ptIsPlaying(); ptPause(); practiceStepSong(1); });
+}
+function ptMediaUpdate(force) {
+  if (!('mediaSession' in navigator)) return;
+  ptMediaHandlers();
+  const song = state.songs.find((item) => item.id === practice.songId);
+  if (!song || state.view !== 'practice' && !ptIsPlaying()) return;
+  const engine = ptEngine();
+  const playing = ptIsPlaying();
+  // Multitrack: keep iOS's now-playing session alive with the silent element.
+  if (engine === 'multi' && playing) { const a = ptSilentAudio(); if (a.paused) a.play().catch(() => {}); }
+  else if (ptMedia.silent && !ptMedia.silent.paused) ptMedia.silent.pause();
+  const key = `${song.id}|${engine}`;
+  if (key !== ptMedia.key) {
+    ptMedia.key = key;
+    try {
+      const art = new URL('apple-touch-icon.png', location.href).href;
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: song.name,
+        artist: `${song.id} · The String Project`,
+        album: engine === 'multi' ? 'Practice · Multitrack' : 'Practice · Mixdown',
+        artwork: [{ src: art, sizes: '180x180', type: 'image/png' }]
+      });
+    } catch { /* ignore */ }
+  }
+  try { navigator.mediaSession.playbackState = playing ? 'playing' : 'paused'; } catch { /* ignore */ }
+  const now = Date.now();
+  if (!force && now - ptMedia.lastPos < 1000) return;
+  ptMedia.lastPos = now;
+  const dur = ptDuration();
+  if (dur > 0 && navigator.mediaSession.setPositionState) {
+    try { navigator.mediaSession.setPositionState({ duration: dur, playbackRate: 1, position: Math.max(0, Math.min(dur, ptPosition())) }); } catch { /* ignore */ }
+  }
+}
+// Keep the lock screen in step while the screen is off (no animation frames then).
+setInterval(() => { if (ptIsPlaying()) ptMediaUpdate(); }, 2000);
