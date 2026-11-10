@@ -120,3 +120,9 @@ Keep this file and the repository copy in sync for every meaningful project step
 ### 2026-11-10 — Review branch ready
 
 - Opened draft [PR #62](https://github.com/aaronmark2222/tsp-band-app-live/pull/62) against `main` and recorded the work in tracking issue [#61](https://github.com/aaronmark2222/tsp-band-app-live/issues/61). The PR is unmerged and no deployment has run.
+
+### 2026-11-10 — Local sign-in preview
+
+- Diagnosed the input clearing in the local file preview: `file://` does not provide the web origin the app's JavaScript module needs to load, so the sign-in submit handler cannot prevent the browser's normal form reload.
+- Started the current review build at http://127.0.0.1:8000/ and confirmed the sign-in form loads there without browser console errors. The live app's `practice-audio` function already allows this localhost origin for local preview use.
+- No credentials or Supabase Auth settings were changed. The local preview server is running; use the localhost address for sign-in rather than opening `index.html` directly.
