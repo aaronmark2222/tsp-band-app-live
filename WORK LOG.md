@@ -135,3 +135,11 @@ Keep this file and the repository copy in sync for every meaningful project step
 - Multitrack loading now retains tracks after a fetch failure, keeps the Download buttons connected, and shows how many failed tracks can be retried instead of removing the section.
 - Bumped the app/style cache marker to `20261110-practice-mp3b`.
 - Changes are in progress on the existing draft PR #62. R2 rule is saved; browser download and multitrack retry are being rechecked.
+
+### 2026-11-10 — Verified Practice audio fixes
+
+- Confirmed the R2 CORS policy includes the two localhost origins with GET/HEAD only, while retaining the deployed GitHub Pages origin with GET/PUT/HEAD. Public access remains disabled.
+- Verified the Practice download header no longer shows the extra AAC conversion sentence.
+- Downloaded `I1 - Part - Bass.mp3` successfully from the local preview.
+- Loaded all 11 I1 multitrack rows successfully. During R2 rule propagation, one track failed once; it remained visible and loaded on retry. This confirmed the retry path and that the section no longer disappears.
+- JavaScript syntax check passed. The fixes and this log update remain in draft PR #62; nothing was merged or deployed.
