@@ -1694,3 +1694,6 @@ body>.pt-song-menu,body>.pt-work-popover{z-index:300;pointer-events:auto}
 }
 .pt-song-option>b,.pt-work-song-heading .song-id{color:var(--lime)!important}
 .pt-work-popover .dashboard-owner.mine{border-left-color:#f2c94c!important}
+
+/* Top-level glass menus can blur the page beyond the transport backdrop. */
+.pt-song-menu,.pt-work-popover{position:fixed;z-index:300;left:0;right:auto;top:0;bottom:auto}
