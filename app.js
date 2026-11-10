@@ -2482,6 +2482,9 @@ document.addEventListener('click', (event) => {
     return;
   }
   const title = event.target.closest('.song-summary-toggle, .dashboard-open-song');
+  // Songs-page title clicks only expand/collapse their details; they should not
+  // start an Ableton review session or display its transport bar.
+  if (title?.matches('.song-summary-toggle[data-view="songs"]')) return;
   const collapsing = title?.getAttribute('aria-expanded') === 'true';
   if (title?.dataset.songId && !collapsing && !(title.dataset.view === 'setlists' && state.setlistEditMode)) {
     hideReviewBar(); // TSPWork ends the review (and un-solos) on a song jump
