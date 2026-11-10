@@ -126,3 +126,12 @@ Keep this file and the repository copy in sync for every meaningful project step
 - Diagnosed the input clearing in the local file preview: `file://` does not provide the web origin the app's JavaScript module needs to load, so the sign-in submit handler cannot prevent the browser's normal form reload.
 - Started the current review build at http://127.0.0.1:8000/ and confirmed the sign-in form loads there without browser console errors. The live app's `practice-audio` function already allows this localhost origin for local preview use.
 - No credentials or Supabase Auth settings were changed. The local preview server is running; use the localhost address for sign-in rather than opening `index.html` directly.
+
+### 2026-11-10 — Local Practice audio access and retry fix
+
+- Diagnosed local audio fetch failures: the correct `tsp-practice` R2 bucket CORS policy initially allowed browser requests only from the deployed GitHub Pages origin. The review app runs at localhost, so its MP3 conversion and multitrack fetches were blocked by the browser.
+- Added a separate R2 CORS rule for `http://127.0.0.1:8000` and `http://localhost:8000`, limited to GET and HEAD. The existing GitHub Pages rule, bucket contents, and disabled public access remain unchanged; localhost was not granted PUT access.
+- Removed the extra MP3 conversion sentence from the Download header.
+- Multitrack loading now retains tracks after a fetch failure, keeps the Download buttons connected, and shows how many failed tracks can be retried instead of removing the section.
+- Bumped the app/style cache marker to `20261110-practice-mp3b`.
+- Changes are in progress on the existing draft PR #62. R2 rule is saved; browser download and multitrack retry are being rechecked.
