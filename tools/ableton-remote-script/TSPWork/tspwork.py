@@ -31,7 +31,7 @@ from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
 TLS_PORT = 47711
-VERSION = '1.20'
+VERSION = '1.21'
 DEBUG_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requests.log')
 # https listener for the live site in Safari. Certificate made for 127.0.0.1 /
 # localhost only, trusted once in this Mac's Keychain. Files sit next to this
@@ -44,20 +44,15 @@ ALLOWED_ORIGINS = (
     'http://127.0.0.1:8000',
 )
 SONG_ID_RE = re.compile(r'^[A-Z][A-Za-z]*[0-9]+$')
-DEFAULT_ALS = os.path.expanduser(
-    '~/Desktop/TSP LIVE MASTER PROJECT Project/TSP LIVE MASTER PROJECT.als')
+TEST_ALS_PATH = '/Users/aaron/Desktop/TSP LIVE MASTER PROJECT Project/TSP LIVE MASTER PROJECT TEST COPY.als'
+DEFAULT_ALS = TEST_ALS_PATH
 CONFIG_FILE = os.path.expanduser('~/.tspwork.json')  # optional {"als_path": "..."}
 
 
 def als_path():
-    try:
-        with open(CONFIG_FILE) as fh:
-            path = json.load(fh).get('als_path')
-            if path:
-                return os.path.expanduser(path)
-    except Exception:
-        pass
-    return DEFAULT_ALS
+    # Temporary hard safety boundary: Sync is only allowed to read/write this
+    # exact test copy until the feature has been accepted for production.
+    return TEST_ALS_PATH
 
 # task key -> (parent group name or None, track name prefix)
 TASK_TRACKS = {
@@ -326,7 +321,7 @@ class TSPWork(ControlSurface):
         except Exception:
             pass
         return {'ok': True, 'version': VERSION, 'https': self._tls is not None, 'songs': count, 'playing': self.song().is_playing,
-                'als_path': path, 'als_saved_at': saved}
+                'als_path': path, 'open_als_path': getattr(self.song(), 'file_path', ''), 'als_saved_at': saved}
 
     def _cmd_jump(self, song_id):
         self._end_review()
@@ -695,6 +690,121 @@ class TSPWork(ControlSurface):
             result['error'] = outcome
         return result
 
+    # ------------------------------------------------------------ musician lyric writeback (test copy only)
+    def _cmd_prepare_lyrics_writeback(self, edits):
+        expected = os.path.realpath(TEST_ALS_PATH)
+        opened = os.path.realpath(getattr(self.song(), 'file_path', '') or '')
+        if opened != expected:
+            return {'ok': False, 'error': 'wrong_open_set', 'expected_path': TEST_ALS_PATH,
+                    'open_path': getattr(self.song(), 'file_path', '')}
+        if not os.path.exists(TEST_ALS_PATH):
+            return {'ok': False, 'error': 'test_set_not_found', 'expected_path': TEST_ALS_PATH}
+        tracks = [t for t in self._all_tracks() if '+LYRICS' in (t.name or '').upper()]
+        by_slug = {}
+        for track in tracks:
+            label = re.split(r'\s+\+', track.name, maxsplit=1)[0].strip()
+            slug = re.sub(r'[^a-z0-9]+', '-', label.lower()).strip('-')
+            by_slug.setdefault(slug, track)
+        song_track = self._find_track(None, 'SONG ID')
+        if song_track is None:
+            return {'ok': False, 'error': 'song_id_track_missing'}
+        regions = {}
+        for clip in song_track.arrangement_clips:
+            if not clip.muted and SONG_ID_RE.match(clip.name or ''):
+                regions.setdefault(clip.name, (clip.start_time, clip.end_time))
+        plans = []
+        # Preflight every requested track before changing any clip.
+        for item in edits:
+            song_id = str(item.get('song_id', ''))
+            slug = str(item.get('track_slug', ''))
+            base = item.get('base_lines') or []
+            desired = item.get('lines') or []
+            if not SONG_ID_RE.match(song_id) or song_id not in regions:
+                return {'ok': False, 'error': 'song_not_found', 'song_id': song_id}
+            track = by_slug.get(slug)
+            if track is None:
+                return {'ok': False, 'error': 'lyrics_track_not_found', 'song_id': song_id, 'track_slug': slug}
+            if len(base) != len(desired):
+                return {'ok': False, 'error': 'line_count_changed', 'song_id': song_id, 'track_slug': slug,
+                        'message': 'Adding or removing clip rows is not supported by this safe sync yet; edits remain saved in Practice.'}
+            start, end = regions[song_id]
+            clips = sorted([c for c in track.arrangement_clips
+                            if not c.muted and c.end_time > start and c.start_time < end
+                            and (c.name or '').strip()], key=lambda c: c.start_time)
+            base = sorted(base, key=lambda x: float(x.get('t', 0)))
+            desired = sorted(desired, key=lambda x: float(x.get('t', 0)))
+            if len(clips) != len(base):
+                return {'ok': False, 'error': 'clip_count_mismatch', 'song_id': song_id, 'track_slug': slug}
+            for i, (clip, old, new) in enumerate(zip(clips, base, desired)):
+                if (clip.name or '') not in (str(old.get('text', '')), str(new.get('text', ''))):
+                    return {'ok': False, 'error': 'source_changed', 'song_id': song_id, 'track_slug': slug,
+                            'line': i + 1, 'message': 'The Ableton clip changed since this Practice edit was based on it.'}
+                text = str(new.get('text', '')).strip()
+                if not text or len(text) > 12000:
+                    return {'ok': False, 'error': 'invalid_lyrics_text', 'song_id': song_id, 'track_slug': slug, 'line': i + 1}
+                if text != clip.name:
+                    plans.append((clip, clip.name, text, song_id, slug))
+        return {'ok': True, 'plans': plans, 'count': len(plans)}
+
+    def _cmd_apply_lyrics_writeback(self, plans):
+        opened = os.path.realpath(getattr(self.song(), 'file_path', '') or '')
+        if opened != os.path.realpath(TEST_ALS_PATH):
+            return {'ok': False, 'error': 'wrong_open_set', 'open_path': getattr(self.song(), 'file_path', '')}
+        changed = []
+        try:
+            for clip, old, new, song_id, slug in plans:
+                clip.name = new
+                changed.append((clip, old))
+        except Exception as err:
+            for clip, old in reversed(changed):
+                try:
+                    clip.name = old
+                except Exception:
+                    pass
+            return {'ok': False, 'error': 'clip_write_failed', 'detail': str(err)[:200]}
+        return {'ok': True, 'changed': len(changed)}
+
+    def _sync_lyrics(self, edits):
+        if not isinstance(edits, list) or len(edits) > 1000:
+            return {'ok': False, 'error': 'invalid_edits'}
+        pre = self._run_on_main(self._cmd_prepare_lyrics_writeback, edits, timeout=15)
+        if not pre.get('ok'):
+            return pre
+        plans = pre.pop('plans', [])
+        if not plans and not edits:
+            return {'ok': True, 'changed': 0, 'saved': False}
+        before = os.path.getmtime(TEST_ALS_PATH)
+        applied = self._run_on_main(self._cmd_apply_lyrics_writeback, plans, timeout=15)
+        if not applied.get('ok'):
+            return applied
+        # Fixed AppleScript: focus Live and press Command+S. No request text is
+        # inserted into the script. The open-set path was checked on Live's thread.
+        outcome = self._osascript('''
+tell application "System Events"
+    set liveProc to first application process whose bundle identifier is "com.ableton.live"
+    set frontmost of liveProc to true
+    delay 0.15
+    tell liveProc to keystroke "s" using {command down}
+end tell
+return "ok"
+''')
+        if outcome != 'ok':
+            return {'ok': False, 'error': 'save_shortcut_failed', 'detail': outcome,
+                    'changed': applied.get('changed', 0), 'message': 'Clip names changed in Live but save was not confirmed.'}
+        deadline = time.time() + 20
+        while time.time() < deadline:
+            try:
+                if os.path.getmtime(TEST_ALS_PATH) > before:
+                    break
+            except Exception:
+                pass
+            time.sleep(0.25)
+        elif applied.get('changed', 0):
+            return {'ok': False, 'error': 'save_not_confirmed', 'changed': applied.get('changed', 0),
+                    'message': 'Live did not update the test copy save time; Practice edits were kept.'}
+        return {'ok': True, 'changed': applied.get('changed', 0), 'saved': True,
+                'saved_at': os.path.getmtime(TEST_ALS_PATH), 'als_path': TEST_ALS_PATH}
+
     # ------------------------------------------------------------ .als reading
     def _snapshot(self):
         # Reads the SAVED .als file (read-only) in this background thread.
@@ -770,7 +880,7 @@ class TSPWork(ControlSurface):
                     k, v = line.split(':', 1)
                     headers[k.strip().lower()] = v.strip()
             # /export carries a batch of signed upload links (~1 MB for every song).
-            limit = 4 * 1024 * 1024 if path.startswith('/export') else 4096
+            limit = 4 * 1024 * 1024 if path.startswith(('/export', '/sync-lyrics')) else 4096
             length = min(int(headers.get('content-length', '0') or 0), limit)
             while len(body) < length:
                 chunk = conn.recv(4096)
@@ -818,13 +928,15 @@ class TSPWork(ControlSurface):
                 if self._busy and action != 'state':
                     return self._reply(conn, 409, {'ok': False, 'error': 'busy'}, origin)
                 return self._reply(conn, 200, self._run_on_main(self._cmd_transport, action), origin)
-            if not path.startswith('/snapshot') and not SONG_ID_RE.match(song_id):
+            if not path.startswith(('/snapshot', '/sync-lyrics')) and not SONG_ID_RE.match(song_id):
                 return self._reply(conn, 400, {'ok': False, 'error': 'bad_song_id'}, origin)
             if self._busy:
                 return self._reply(conn, 409, {'ok': False, 'error': 'busy'}, origin)
             self._busy = True
             try:
-                if path.startswith('/snapshot'):
+                if path.startswith('/sync-lyrics'):
+                    result = self._sync_lyrics(payload.get('edits', []))
+                elif path.startswith('/snapshot'):
                     self._reading_since = time.time()
                     try:
                         result = self._snapshot()
