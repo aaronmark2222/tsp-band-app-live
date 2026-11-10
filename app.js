@@ -5633,7 +5633,7 @@ function ptRender() {
       <button type="button" data-pt-mixer class="pt-mixer-btn ${ptMixer.open ? 'open' : ''}" ${multiAvailable ? '' : 'disabled'} title="Multitrack mixer" aria-label="Multitrack mixer" aria-expanded="${ptMixer.open}">${ptIcons.mixer}</button>
     </div>
     <div class="pt-song-wrap">
-      <button type="button" class="pt-song" data-pt-songs aria-haspopup="menu" aria-expanded="${ptSongPickerOpen}" title="Choose a song from the current list"><b>${song ? escapeHtml(song.id) : ''}</b> ${song ? escapeHtml(song.name) : ''}${ptQueueLabel()} <span class="pt-song-arrow" aria-hidden="true">${ptSongPickerOpen ? '▾' : '▴'}</span></button>
+      <button type="button" class="pt-song" data-pt-songs aria-haspopup="menu" aria-expanded="${ptSongPickerOpen}" title="Choose a song from the current list"><b>${song ? escapeHtml(song.id) : ''}</b> ${song ? escapeHtml(song.name) : ''}${ptQueueLabel()}</button>
       ${songMenu}
     </div>
     <span class="pt-break" aria-hidden="true"></span>
@@ -5777,7 +5777,8 @@ function ptWorkOwnerGroups(items, song) {
   }
   return [...groups.entries()].map(([ownerId, ownerItems]) => {
     const owner = ownerId === 'unassigned' ? null : state.members.find((member) => member.id === ownerId);
-    return `<section class="dashboard-owner"><h4>${escapeHtml(owner?.name || 'Unassigned')}</h4><div class="dashboard-owner-tasks">${ownerItems.map((item) => `<div class="dashboard-task-row"><span>${escapeHtml(item.type.label)}</span><span class="pt-work-status">${escapeHtml(item.status)}</span></div>`).join('')}</div></section>`;
+    const isMine = owner?.id === state.member?.id;
+    return `<section class="dashboard-owner ${isMine ? 'mine' : ''}"><h4>${escapeHtml(owner?.name || 'Unassigned')}${isMine ? '<span>Dashboard</span>' : ''}</h4><div class="dashboard-owner-tasks">${ownerItems.map((item) => `<div class="dashboard-task-row"><span>${escapeHtml(item.type.label)}</span><span class="pt-work-status" data-status="${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></div>`).join('')}</div></section>`;
   }).join('');
 }
 function ptWorkPopoverHtml(song) {
@@ -5790,7 +5791,7 @@ function ptWorkPopoverHtml(song) {
       <div class="dashboard-work-heading"><h3>Required work</h3><span>${required.length} ${required.length === 1 ? 'task' : 'tasks'} remaining</span></div>
       ${ptWorkOwnerGroups(required, song)}
     </div>
-    ${optional.length ? `<details class="dashboard-optional" open><summary>Optional Parts <span>${optional.length} remaining</span></summary>${ptWorkOwnerGroups(optional, song)}</details>` : ''}
+    ${optional.length ? `<details class="dashboard-optional"><summary>Optional Parts <span>${optional.length} remaining</span></summary>${ptWorkOwnerGroups(optional, song)}</details>` : ''}
     ${!required.length && waitingForMix ? '<p class="pt-work-waiting">Required work is complete. Waiting on the mix.</p>' : ''}
   </div>`;
 }

@@ -1660,3 +1660,15 @@ body>.pt-song-menu,body>.pt-work-popover{z-index:300;pointer-events:auto}
 .pt-song:hover{border-color:rgba(243,154,38,.55);color:#fff;background:#1c1c1c!important}
 .pt-song:focus-visible{outline:2px solid #f3a447;outline-offset:2px}
 @media(max-width:760px){.pt-song-wrap{display:block;order:14;flex:1 1 140px;min-width:110px}.pt-bar{column-gap:7px}}
+
+/* Playback information and remaining-work accents follow Dashboard status colors. */
+.pt-chip.pt-readonly,.pt-chip.pt-readonly b{color:#f2f2f2!important}
+.pt-chip.pt-readonly b{font-weight:600}
+.pt-work-status[data-status="Incomplete"],.pt-work-status[data-status="Not Finished"]{color:#F27A73;border-color:#A8463F}
+.pt-work-status[data-status="Corrections"],.pt-work-status[data-status="Recorded"]{color:#F6CAAE;border-color:#A96A40}
+.pt-work-status[data-status="Completed"],.pt-work-status[data-status="Mixed"]{color:#A5D17D;border-color:#5A7240}
+.dashboard-owner.mine .pt-work-status{color:#f6c54a}
+.pt-queue{margin-left:auto;flex:none;padding-left:8px;color:#aaa;font:10px var(--mono);white-space:nowrap}
+.pt-song{display:flex;align-items:center;gap:6px;width:100%;max-width:100%;min-width:0}
+.pt-song>b{color:#f3a447;font:600 11px var(--mono)}
+.pt-song .pt-queue{margin-left:auto}
