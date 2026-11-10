@@ -94,6 +94,6 @@ Keep this file and the repository copy in sync for every meaningful project step
 ### 2026-11-10 — Refreshed live inventory and log naming
 
 - Re-read live Supabase table counts, migration ledger, and function versions. This refreshed several counts from the 2026-11-08 plan snapshot: `member_emails` 5, `task_status_log` 518, `app_meta` 3, and `practice_export_log` 71.
-- Renamed the local log from `CODEX_WORK_LOG.md` to `WORK LOG.md` and prepared the same reference for the GitHub repository.
+- Renamed the local log to the requested `WORK LOG.md` filename and added the matching copy to the GitHub repository.
 - Retried Cloudflare's connector; calls still report `Unknown tool`. Opened the dashboard and reached GitHub authentication; waiting for Aaron to complete sign-in before verifying the account, bucket, or permissions.
 - No app, Supabase, Cloudflare, or Ableton data was changed.
