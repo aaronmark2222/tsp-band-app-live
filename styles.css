@@ -1672,3 +1672,16 @@ body>.pt-song-menu,body>.pt-work-popover{z-index:300;pointer-events:auto}
 .pt-song{display:flex;align-items:center;gap:6px;width:100%;max-width:100%;min-width:0}
 .pt-song>b{color:#f3a447;font:600 11px var(--mono)}
 .pt-song .pt-queue{margin-left:auto}
+
+/* Clearer liquid-glass surfaces for the two Practice popovers. */
+.pt-song-menu,.pt-work-popover{
+ background:rgba(38,40,44,.9)!important;
+ -webkit-backdrop-filter:blur(30px) saturate(185%) contrast(108%)!important;
+ backdrop-filter:blur(30px) saturate(185%) contrast(108%)!important;
+ border-color:rgba(255,255,255,.2)!important;
+ box-shadow:0 18px 48px rgba(0,0,0,.5),inset 0 1px rgba(255,255,255,.1)!important
+}
+.pt-work-popover .dashboard-owner.mine .pt-work-status[data-status="Incomplete"],
+.pt-work-popover .dashboard-owner.mine .pt-work-status[data-status="Not Finished"]{
+ color:#F27A73!important;border-color:#A8463F!important
+}

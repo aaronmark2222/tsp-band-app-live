@@ -751,7 +751,7 @@ function renderDashboardTaskGroups(items, song, viewedMemberId) {
   return [...groups.entries()].map(([ownerId, ownerItems]) => {
     const owner = ownerId === 'unassigned' ? null : state.members.find((member) => member.id === ownerId);
     const isViewedMember = owner?.id === viewedMemberId;
-    return `<section class="dashboard-owner ${isViewedMember ? 'mine' : ''}"><h4>${escapeHtml(owner?.name || 'Unassigned')}${isViewedMember ? '<span>Dashboard</span>' : ''}</h4><div class="dashboard-owner-tasks">${ownerItems.map((item) => `<div class="dashboard-task-row"><span>${escapeHtml(item.type.label)}</span>${statusControl(song.id, item.type, item.status)}</div>`).join('')}</div></section>`;
+    return `<section class="dashboard-owner ${isViewedMember ? 'mine' : ''}"><h4>${escapeHtml(owner?.name || 'Unassigned')}</h4><div class="dashboard-owner-tasks">${ownerItems.map((item) => `<div class="dashboard-task-row"><span>${escapeHtml(item.type.label)}</span>${statusControl(song.id, item.type, item.status)}</div>`).join('')}</div></section>`;
   }).join('');
 }
 
@@ -5775,10 +5775,10 @@ function ptWorkOwnerGroups(items, song) {
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(item);
   }
-  return [...groups.entries()].map(([ownerId, ownerItems]) => {
+  return [...groups.entries()].sort(([a], [b]) => Number(b === state.member?.id) - Number(a === state.member?.id)).map(([ownerId, ownerItems]) => {
     const owner = ownerId === 'unassigned' ? null : state.members.find((member) => member.id === ownerId);
     const isMine = owner?.id === state.member?.id;
-    return `<section class="dashboard-owner ${isMine ? 'mine' : ''}"><h4>${escapeHtml(owner?.name || 'Unassigned')}${isMine ? '<span>Dashboard</span>' : ''}</h4><div class="dashboard-owner-tasks">${ownerItems.map((item) => `<div class="dashboard-task-row"><span>${escapeHtml(item.type.label)}</span><span class="pt-work-status" data-status="${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></div>`).join('')}</div></section>`;
+    return `<section class="dashboard-owner ${isMine ? 'mine' : ''}"><h4>${escapeHtml(owner?.name || 'Unassigned')}</h4><div class="dashboard-owner-tasks">${ownerItems.map((item) => `<div class="dashboard-task-row"><span>${escapeHtml(item.type.label)}</span><span class="pt-work-status" data-status="${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></div>`).join('')}</div></section>`;
   }).join('');
 }
 function ptWorkPopoverHtml(song) {
