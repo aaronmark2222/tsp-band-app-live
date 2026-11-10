@@ -116,3 +116,7 @@ Keep this file and the repository copy in sync for every meaningful project step
 - Bumped the `app.js` and `styles.css` cache marker in `index.html` to `20261110-practice-mp3`.
 - Read the live `practice-audio` v7 Edge Function: R2 objects may be `.m4a` or `.mp3`, with the current upload path writing AAC/M4A. No Supabase, Cloudflare, bucket, token, or permission settings were changed.
 - Repository-required JavaScript syntax check passed with `node --check`. No browser UI checks or broader tests were run.
+
+### 2026-11-10 — Review branch ready
+
+- Opened draft [PR #62](https://github.com/aaronmark2222/tsp-band-app-live/pull/62) against `main` and recorded the work in tracking issue [#61](https://github.com/aaronmark2222/tsp-band-app-live/issues/61). The PR is unmerged and no deployment has run.
