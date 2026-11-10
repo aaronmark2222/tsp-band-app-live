@@ -1621,3 +1621,25 @@ body.lyrics-fs #practice-transport .pt-mixer-btn:disabled{opacity:.4}
 /* Guests: only the Practice page. */
 body.guest-mode .tabs .tab:not([data-view="practice"]){display:none!important}
 body.guest-mode #member-access-open,body.guest-mode #ableton-chip,body.guest-mode #new-song-open{display:none!important}
+
+/* Practice popovers stay inside the visual viewport on phones and tablets. */
+.pt-song-menu,.pt-work-popover{position:fixed;box-sizing:border-box;z-index:120;width:min(360px,calc(100vw - 24px));max-width:calc(100vw - 24px);background:rgba(54,56,60,.78);-webkit-backdrop-filter:blur(22px) saturate(145%);backdrop-filter:blur(22px) saturate(145%);border:1px solid rgba(255,255,255,.17);box-shadow:0 14px 42px rgba(0,0,0,.42)}
+.pt-song-menu{left:0;right:auto;bottom:auto}
+.pt-song-option:hover,.pt-song-option.current{background:rgba(255,255,255,.13);color:#fff}
+.pt-song-option.current{box-shadow:inset 3px 0 #f2c94c}
+.pt-song-option>b,.pt-work-song-heading .song-id{color:#f2c94c}
+.pt-work-popover{left:0;right:auto;bottom:auto;padding:12px;color:#e2e2e2;white-space:normal}
+.pt-work-song-heading{min-width:0;width:100%;gap:8px;align-items:center;padding:0 0 9px;border-bottom:1px solid rgba(255,255,255,.14)}
+.pt-work-song-heading .song-id{flex:none;font:11px var(--mono)}
+.pt-work-song-heading .song-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.pt-work-song-heading>button{flex:none;margin-left:auto;width:26px;height:26px;padding:0;border:0;border-radius:50%;background:rgba(255,255,255,.1);color:#ddd;font-size:18px}
+.pt-work-popover .dashboard-work{margin-top:9px;padding-top:8px;border-color:rgba(255,255,255,.14)}
+.pt-work-popover .dashboard-work-heading{gap:8px;align-items:baseline}
+.pt-work-popover .dashboard-work-heading>span{flex:none;color:#aaa;font-size:10px}
+.pt-work-popover .dashboard-owner{margin-top:7px;padding:7px 9px;border-left-color:#929292;background:rgba(24,25,27,.38)}
+.pt-work-popover .dashboard-owner h4{font-size:11px}
+.pt-work-popover .dashboard-task-row{grid-template-columns:minmax(0,1fr) auto;gap:8px;font-size:10px}
+.pt-work-status{justify-self:end;max-width:42%;padding:2px 6px;border:1px solid rgba(255,255,255,.12);border-radius:4px;color:#c4c7c9;font-size:9px;text-align:right;overflow-wrap:anywhere}
+.pt-work-popover .dashboard-optional{padding:8px 0 0;border-color:rgba(255,255,255,.14);color:#bbb}
+.pt-work-popover .dashboard-optional summary{font-size:10px}
+.pt-work-waiting{margin:9px 0 0;color:#c4c7c9;font-size:11px}
