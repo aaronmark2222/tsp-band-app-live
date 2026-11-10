@@ -4049,7 +4049,7 @@ function renderOfflinePanel() {
     body = `<p>Saving in ${where} · <b>${stats.mixdowns}</b> mixdown${stats.mixdowns === 1 ? '' : 's'} and <b>${stats.multitracks}</b> multitrack${stats.multitracks === 1 ? '' : 's'} saved (${mb(stats.bytes)}).${practice.availableFromDevice ? ' <span class="offline-badge">Offline: playing saved audio</span>' : ''}</p>
       ${updates.length ? `<div class="offline-update"><b>Newer audio for ${updSongs.length} song${updSongs.length === 1 ? '' : 's'}</b> (${escapeHtml(updSongs.slice(0, 8).join(', '))}${updSongs.length > 8 ? '…' : ''}) · ${mb(upBytes)} <button type="button" class="button primary" data-offline-update ${job ? 'disabled' : ''}>Update</button></div>` : ''}
       ${job ? `<div class="export-progress"><span style="width:${job.total ? (job.done / job.total) * 100 : 0}%"></span></div>
-        <p class="muted">Saving ${job.done} of ${job.total} files (${mb(job.bytes)} of ${mb(job.totalBytes)})${job.current ? ` · ${escapeHtml(job.current)}` : ''} <button type="button" class="button quiet" data-offline-cancel>Stop</button></p>`
+        <div class="offline-progress-status"><span class="muted offline-progress-label">Saving ${job.done} of ${job.total} files (${mb(job.bytes)} of ${mb(job.totalBytes)})${job.current ? ` · ${escapeHtml(job.current)}` : ''}</span><button type="button" class="button quiet" data-offline-cancel>Stop</button></div>`
       : `<div class="offline-row">
           <span class="muted">Save “${escapeHtml(sourceLabel)}” (${scopeIds.length} songs):</span>
           <button type="button" class="button quiet" data-offline-dl="mix" ${mixNeed ? '' : 'disabled'}>Mixdowns${mixNeed ? ` · ${mb(mixNeed)}` : ' · saved'}</button>
@@ -4368,8 +4368,8 @@ function renderPracticePlayersInner() {
   renderOfflinePanel();
   ptRender();
   const files = practice.tracks.slice().sort((a, b) => (a.element === 'Mixdown' ? -1 : b.element === 'Mixdown' ? 1 : practiceRank(a.element) - practiceRank(b.element)));
-  dlBox.innerHTML = `<header><h2>Download</h2><span class="muted">Full-length audio files (.m4a/.mp3) to keep</span><button type="button" class="button quiet" data-practice-dl-all title="Download every file of this song">Download all (${files.length})</button></header>
-    <ul class="practice-dl-list">${files.map((t) => `<li><span class="practice-dl-dot" style="background:${t.element === 'Mixdown' ? '#f39a26' : practiceColor(t.element)}"></span><span>${escapeHtml(t.element)}</span><small class="muted">${t.bytes ? `${(t.bytes / 1048576).toFixed(1)} MB` : ''}</small><a class="button quiet" href="${escapeHtml(t.download || t.url)}" ${t.download ? '' : 'target="_blank" rel="noopener"'}>Download</a></li>`).join('')}</ul>`;
+  dlBox.innerHTML = `<header><h2>Download</h2><button type="button" class="button quiet" data-practice-dl-all title="Download every file of this song">Download all (${files.length})</button></header>
+    <ul class="practice-dl-list">${files.map((t) => `<li><span class="practice-dl-dot" style="background:${t.element === 'Mixdown' ? '#f39a26' : practiceColor(t.element)}"></span><span>${escapeHtml(t.element)}</span><small class="muted">${t.bytes ? `${(t.bytes / 1048576).toFixed(1)} MB` : ''}</small><button type="button" class="button quiet" data-practice-dl-track="${escapeHtml(t.element)}">Download MP3</button></li>`).join('')}</ul>`;
   practiceCheckLyricsLength();
 }
 
@@ -4383,6 +4383,7 @@ function renderPracticeMultitrack() {
   if (!tracks.length) { box.innerHTML = ''; return; }
   const loaded = tracks.every((t) => practice.buffers.has(t.element));
   const loading = tracks.some((t) => practice.loadState.get(t.element) === 'loading');
+  const failed = tracks.filter((t) => practice.loadState.get(t.element) === 'error').length;
   const totalMb = tracks.reduce((sum, t) => sum + (t.bytes || 0), 0) / 1048576;
   const anySolo = tracks.some((t) => practiceTrackSetting(t.element).solo);
   const myTaskKeys = new Set(Object.entries(PRACTICE_TASK).filter(([, key]) => state.taskTypes.find((type) => type.key === key)?.owner_member_id === state.member?.id).map(([element]) => element));
@@ -4408,7 +4409,7 @@ function renderPracticeMultitrack() {
         <button type="button" class="pt-pick ${ptMode() === 'multi' ? 'on' : ''}" data-pt-mode="multi">${ptMode() === 'multi' ? '● Using the Multitrack' : 'Play the Multitrack'}</button>
         <button type="button" class="button quiet" data-practice-reset title="Reset all tracks: on, no solo, 0 dB (stems off)">Reset mix</button>
       </div>`
-    : `<div class="ab-transport"><button type="button" class="button primary" data-practice-load ${loading ? 'disabled' : ''}>${loading ? 'Loading tracks…' : `Load multitrack (${totalMb.toFixed(0)} MB)`}</button><span class="muted">Downloads every track once so they play in sync.</span></div>`}
+    : `<div class="ab-transport"><button type="button" class="button primary" data-practice-load ${loading ? 'disabled' : ''}>${loading ? 'Loading tracks…' : `Load multitrack (${totalMb.toFixed(0)} MB)`}</button><span class="muted">${loading ? 'Preparing tracks to play in sync.' : failed ? `${failed} track${failed === 1 ? '' : 's'} failed to load. Select Load multitrack to retry.` : 'Downloads every track once so they play in sync.'}</span></div>`}
     <ul class="ab-tracks ${loaded ? '' : 'ab-locked'}">${rows}</ul>`;
   if (ptMixer.open) ptMixerRender();
 }
@@ -4513,8 +4514,7 @@ async function practiceLoadTracks() {
   };
   await Promise.all([worker(), worker()]);
   if (token !== practice.loadToken) return;
-  // Tracks that failed are dropped so the rest can still play.
-  practice.tracks = practice.tracks.filter((t) => t.element === 'Mixdown' || practice.buffers.has(t.element));
+  // Keep failed tracks visible and in the download list so members can retry.
   practice.tracks.songId = practice.songId;
   // Multitrack chosen and the Mixdown was standing in: carry on from the same spot.
   const audio = $('#practice-mix-audio');
@@ -4563,7 +4563,7 @@ function practicePlay() {
     const gain = practice.ctx.createGain();
     const analyser = practice.ctx.createAnalyser();
     analyser.fftSize = 512;
-    source.connect(gain).connect(analyser).connect(practice.master);
+    source.connect(analyser).connect(gain).connect(practice.master);
     gain.gain.value = 0;
     source.start(when, Math.min(practice.offset, buffer.duration));
     practice.nodes.set(t.element, { source, gain, analyser });
@@ -4639,24 +4639,100 @@ function practiceStepSong(delta) {
   if (next && next.id !== practice.songId) practiceOpenSong(next.id);
 }
 $('#practice-prev').addEventListener('click', () => practiceStepSong(-1));
-// Download all: one file after another (the browser may ask once to allow several downloads).
+let practiceMp3EncoderPromise = null;
+function practiceMp3Encoder() {
+  if (window.lamejs) return Promise.resolve(window.lamejs);
+  if (practiceMp3EncoderPromise) return practiceMp3EncoderPromise;
+  practiceMp3EncoderPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js';
+    script.async = true;
+    script.onload = () => window.lamejs ? resolve(window.lamejs) : reject(new Error('MP3 encoder did not load'));
+    script.onerror = () => reject(new Error('Could not load the MP3 encoder. Check your connection and try again.'));
+    document.head.append(script);
+  }).catch((error) => { practiceMp3EncoderPromise = null; throw error; });
+  return practiceMp3EncoderPromise;
+}
+function practiceMp3Samples(channel, start, end) {
+  const out = new Int16Array(end - start);
+  for (let i = start; i < end; i += 1) {
+    const sample = Math.max(-1, Math.min(1, channel[i]));
+    out[i - start] = sample < 0 ? sample * 32768 : sample * 32767;
+  }
+  return out;
+}
+async function practiceDownloadMp3(track, onStatus = () => {}) {
+  if (!track?.url) throw new Error('This audio file is not available online.');
+  onStatus('Downloading source audio…');
+  const response = await fetch(track.url);
+  if (!response.ok) throw new Error(`Could not download audio (HTTP ${response.status}).`);
+  const sourceBlob = await response.blob();
+  let mp3Blob = sourceBlob;
+  if (track.ext !== 'mp3') {
+    onStatus('Preparing MP3 conversion…');
+    const lamejs = await practiceMp3Encoder();
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) throw new Error('This browser cannot convert the audio to MP3.');
+    const audioContext = new AudioContextClass();
+    let decoded;
+    try { decoded = await audioContext.decodeAudioData(await sourceBlob.arrayBuffer()); }
+    finally { await audioContext.close().catch(() => {}); }
+    const channels = decoded.numberOfChannels > 1 ? 2 : 1;
+    const encoder = new lamejs.Mp3Encoder(channels, decoded.sampleRate, 192);
+    const left = decoded.getChannelData(0);
+    const right = channels === 2 ? decoded.getChannelData(1) : null;
+    const blocks = [];
+    const chunkSize = 1152;
+    const blockCount = Math.ceil(left.length / chunkSize);
+    for (let start = 0; start < left.length; start += chunkSize) {
+      const end = Math.min(start + chunkSize, left.length);
+      const data = channels === 2
+        ? encoder.encodeBuffer(practiceMp3Samples(left, start, end), practiceMp3Samples(right, start, end))
+        : encoder.encodeBuffer(practiceMp3Samples(left, start, end));
+      if (data.length) blocks.push(data);
+      const completed = Math.min(blockCount, Math.floor(start / chunkSize) + 1);
+      if (completed % 40 === 0 || completed === blockCount) {
+        onStatus(`Converting to MP3… ${Math.round(completed / blockCount * 100)}%`);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    }
+    const final = encoder.flush();
+    if (final.length) blocks.push(final);
+    mp3Blob = new Blob(blocks, { type: 'audio/mpeg' });
+  }
+  const link = document.createElement('a');
+  const url = URL.createObjectURL(mp3Blob);
+  link.href = url;
+  link.download = `${practice.songId} - ${track.element}.mp3`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+// Download all: convert and save one MP3 at a time (the browser may ask once to allow several downloads).
 $('#practice-downloads').addEventListener('click', async (event) => {
   const button = event.target.closest('[data-practice-dl-all]');
-  if (!button) return;
-  const links = [...$('#practice-downloads').querySelectorAll('.practice-dl-list a')].map((a) => a.href);
-  button.disabled = true;
-  for (let i = 0; i < links.length; i += 1) {
-    button.textContent = `Downloading ${i + 1} of ${links.length}…`;
-    const a = document.createElement('a');
-    a.href = links[i];
-    a.rel = 'noopener';
-    document.body.append(a);
-    a.click();
-    a.remove();
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+  const one = event.target.closest('[data-practice-dl-track]');
+  if (one) {
+    const track = practice.tracks.find((item) => item.element === one.dataset.practiceDlTrack);
+    one.disabled = true;
+    one.textContent = 'Preparing…';
+    try { await practiceDownloadMp3(track, (status) => { one.textContent = status; }); }
+    catch (error) { showNotice(error.message, true); }
+    finally { one.disabled = false; one.textContent = 'Download MP3'; }
+    return;
   }
-  button.disabled = false;
-  button.textContent = `Download all (${links.length})`;
+  if (!button) return;
+  const tracks = practice.tracks.slice().sort((a, b) => (a.element === 'Mixdown' ? -1 : b.element === 'Mixdown' ? 1 : practiceRank(a.element) - practiceRank(b.element)));
+  button.disabled = true;
+  try {
+    for (let i = 0; i < tracks.length; i += 1) {
+      button.textContent = `MP3 ${i + 1} of ${tracks.length}…`;
+      await practiceDownloadMp3(tracks[i], (status) => { button.textContent = `${i + 1}/${tracks.length}: ${status}`; });
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+    }
+  } catch (error) { showNotice(error.message, true); }
+  finally { button.disabled = false; button.textContent = `Download all (${tracks.length})`; }
 });
 $('#practice-next').addEventListener('click', () => practiceStepSong(1));
 // Mixer controls (main Multitrack card and the full-screen drop-up share these).

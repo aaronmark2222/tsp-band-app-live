@@ -104,3 +104,42 @@ Keep this file and the repository copy in sync for every meaningful project step
 - Confirmed the authenticated Cloudflare account contains the app's `tsp-practice` bucket, with 655 objects (3.14 GB) and public access disabled.
 - Confirmed an active R2 API token is scoped to this bucket with Object Read & Write, matching the deployed `practice-audio` function's list/read/upload/delete operations. No token secret was viewed or copied.
 - The Cloudflare API connector still returns `Unknown tool`, but the authenticated dashboard provides the bucket and token verification. No permissions or bucket settings were changed.
+
+### 2026-11-10 — Practice downloads and layout fixes
+
+- Created GitHub review branch `fix/practice-mp3-downloads-and-layout` from the latest `main`; app edits remain off `main`, so this work does not trigger the Pages deployment.
+- Refreshed the local current-app snapshot in `tsp-band-app-live/` from GitHub `main`. The older `tsp-work-local/` frontend remains untouched and is not the source for these changes.
+- Practice → Download now saves real MP3 files. Existing MP3 objects are saved as MP3; AAC/M4A objects are fetched and converted in the browser at 192 kbps using pinned lamejs 1.2.1 from jsDelivr. Download all converts and downloads each track sequentially. The app's Offline audio cache continues saving its original playback files.
+- Offline audio progress now gives its changing status text the flexible space and anchors Stop at the right edge.
+- Multitrack meters now read each decoded track before its on/off gain, so disabled tracks still show their audio level; disabled meters use a neutral grey fill.
+- The Songs list wrapper now clips its contents to the rounded frame, removing square corners behind its border.
+- Bumped the `app.js` and `styles.css` cache marker in `index.html` to `20261110-practice-mp3`.
+- Read the live `practice-audio` v7 Edge Function: R2 objects may be `.m4a` or `.mp3`, with the current upload path writing AAC/M4A. No Supabase, Cloudflare, bucket, token, or permission settings were changed.
+- Repository-required JavaScript syntax check passed with `node --check`. No browser UI checks or broader tests were run.
+
+### 2026-11-10 — Review branch ready
+
+- Opened draft [PR #62](https://github.com/aaronmark2222/tsp-band-app-live/pull/62) against `main` and recorded the work in tracking issue [#61](https://github.com/aaronmark2222/tsp-band-app-live/issues/61). The PR is unmerged and no deployment has run.
+
+### 2026-11-10 — Local sign-in preview
+
+- Diagnosed the input clearing in the local file preview: `file://` does not provide the web origin the app's JavaScript module needs to load, so the sign-in submit handler cannot prevent the browser's normal form reload.
+- Started the current review build at http://127.0.0.1:8000/ and confirmed the sign-in form loads there without browser console errors. The live app's `practice-audio` function already allows this localhost origin for local preview use.
+- No credentials or Supabase Auth settings were changed. The local preview server is running; use the localhost address for sign-in rather than opening `index.html` directly.
+
+### 2026-11-10 — Local Practice audio access and retry fix
+
+- Diagnosed local audio fetch failures: the correct `tsp-practice` R2 bucket CORS policy initially allowed browser requests only from the deployed GitHub Pages origin. The review app runs at localhost, so its MP3 conversion and multitrack fetches were blocked by the browser.
+- Added a separate R2 CORS rule for `http://127.0.0.1:8000` and `http://localhost:8000`, limited to GET and HEAD. The existing GitHub Pages rule, bucket contents, and disabled public access remain unchanged; localhost was not granted PUT access.
+- Removed the extra MP3 conversion sentence from the Download header.
+- Multitrack loading now retains tracks after a fetch failure, keeps the Download buttons connected, and shows how many failed tracks can be retried instead of removing the section.
+- Bumped the app/style cache marker to `20261110-practice-mp3b`.
+- Changes are in progress on the existing draft PR #62. R2 rule is saved; browser download and multitrack retry are being rechecked.
+
+### 2026-11-10 — Verified Practice audio fixes
+
+- Confirmed the R2 CORS policy includes the two localhost origins with GET/HEAD only, while retaining the deployed GitHub Pages origin with GET/PUT/HEAD. Public access remains disabled.
+- Verified the Practice download header no longer shows the extra AAC conversion sentence.
+- Downloaded `I1 - Part - Bass.mp3` successfully from the local preview.
+- Loaded all 11 I1 multitrack rows successfully. During R2 rule propagation, one track failed once; it remained visible and loaded on retry. This confirmed the retry path and that the section no longer disappears.
+- JavaScript syntax check passed. The fixes and this log update remain in draft PR #62; nothing was merged or deployed.
