@@ -326,6 +326,14 @@ function labelAutoBackingOption(select, showAuto) {
   option.style.color = auto ? '#D0D0D0' : (BACKING_TRACK_COLORS[derived] || '#D0D0D0');
 }
 
+function songReadinessStatus(songId) {
+  const applicable = songWorkItems(songId);
+  const readinessStatus = songReadinessStatus(songId);
+  const { ready, finishedBacking, sentToMixOnly } = readinessStatus;
+  const label = ready ? 'Ready' : finishedBacking ? 'Finished' : sentToMixOnly ? 'Sent to Mix' : '';
+  return { ready, finishedBacking, sentToMixOnly, label };
+}
+
 function songProgress(songId, songName) {
   const applicable = songWorkItems(songId);
   const mine = applicable.filter((item) => item.owner_member_id === state.member.id);
@@ -5797,13 +5805,13 @@ function ptWorkPopoverHtml(song) {
 function ptInfoHtml(song) {
   if (!song) return '';
   const live = ptLive(ptPosition());
-  const readiness = (state.readiness || []).find((row) => row.song_id === song.id);
-  const ready = !!readiness?.ready;
+  const readinessStatus = songReadinessStatus(song.id);
+  const ready = readinessStatus.ready;
   const bandLeft = remainingWork(song.id);
-  const workLabel = ready ? 'Ready' : bandLeft ? `Not ready · ${bandLeft} left` : song.backing_track_manual === 'Sent to Mix' ? 'Waiting on mix' : 'Not ready';
+  const workLabel = readinessStatus.label || (bandLeft ? `Not ready · ${bandLeft} left` : 'Not ready');
   const workStatus = ready
     ? `<span class="pt-chip pt-ready is-ready" aria-label="Song is ready">${workLabel}</span>`
-    : `<span class="pt-work-anchor"><button type="button" class="pt-chip pt-ready pt-work-toggle ${ptWorkOpen ? 'open' : ''}" data-pt-work aria-haspopup="dialog" aria-expanded="${ptWorkOpen}">${workLabel}</button>${ptWorkOpen ? ptWorkPopoverHtml(song) : ''}</span>`;
+    : `<span class="pt-work-anchor"><button type="button" class="pt-chip pt-ready pt-work-toggle ${ptWorkOpen ? 'open' : ''}" data-status="${escapeHtml(workLabel)}" data-pt-work aria-haspopup="dialog" aria-expanded="${ptWorkOpen}">${workLabel}</button>${ptWorkOpen ? ptWorkPopoverHtml(song) : ''}</span>`;
   return `<span class="pt-chip pt-readonly" aria-label="Key, read only">Key <b id="pt-key">${escapeHtml(live.key)}</b></span>
     <span class="pt-chip pt-readonly" aria-label="Tempo, read only"><b id="pt-bpm">${escapeHtml(live.bpm)}</b></span>
     ${workStatus}`;

@@ -1698,8 +1698,6 @@ body>.pt-song-menu,body>.pt-work-popover{z-index:300;pointer-events:auto}
 /* Top-level glass menus can blur the page beyond the transport backdrop. */
 .pt-song-menu,.pt-work-popover{position:fixed;z-index:300;left:0;right:auto;top:0;bottom:auto}
 
-/* Match Practice popover backdrop blur to the fullscreen playback bar. */
-.pt-song-menu,.pt-work-popover{
- -webkit-backdrop-filter:blur(22px) saturate(170%)!important;
- backdrop-filter:blur(22px) saturate(170%)!important
-}
+/* Match the Songs page readiness status accents in the playback bar. */
+.pt-work-toggle[data-status="Finished"]{color:#F6CAAE;border-color:#8E735D;background:rgba(142,115,93,.14)}
+.pt-work-toggle[data-status="Sent to Mix"]{color:#7FA8D8;border-color:#466185;background:rgba(70,97,133,.18)}
