@@ -1685,3 +1685,12 @@ body>.pt-song-menu,body>.pt-work-popover{z-index:300;pointer-events:auto}
 .pt-work-popover .dashboard-owner.mine .pt-work-status[data-status="Not Finished"]{
  color:#F27A73!important;border-color:#A8463F!important
 }
+
+/* Stronger liquid-glass blur and shared app song-ID colour. */
+.pt-song-menu,.pt-work-popover{
+ background:rgba(34,36,40,.92)!important;
+ -webkit-backdrop-filter:blur(50px) saturate(185%) contrast(110%)!important;
+ backdrop-filter:blur(50px) saturate(185%) contrast(110%)!important
+}
+.pt-song-option>b,.pt-work-song-heading .song-id{color:var(--lime)!important}
+.pt-work-popover .dashboard-owner.mine{border-left-color:#f2c94c!important}
