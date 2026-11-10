@@ -3,9 +3,9 @@
 Safety rules (agreed with Aaron, 6 Nov 2026):
   * Listens on 127.0.0.1 only: nothing outside this Mac can reach it.
   * Accepts requests only from the TSP Work site (and localhost for testing).
-  * Never edits the set. It only moves the playhead, selects a track,
-    selects a time region and zooms. The loop brace is borrowed for the
-    selection and restored exactly afterwards.
+  * Lyrics writeback is enabled only for the explicitly guarded test-copy
+    path; every other set is refused. Other commands only move the playhead,
+    select a track or time region and zoom. The loop brace is restored.
   * Zooming uses Live's own menu commands, clicked by name through macOS
     UI scripting (never a raw "z" keystroke), and only when Live is in front.
 """
