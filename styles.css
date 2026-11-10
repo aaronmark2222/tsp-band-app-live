@@ -1643,3 +1643,8 @@ body.guest-mode #member-access-open,body.guest-mode #ableton-chip,body.guest-mod
 .pt-work-popover .dashboard-optional{padding:8px 0 0;border-color:rgba(255,255,255,.14);color:#bbb}
 .pt-work-popover .dashboard-optional summary{font-size:10px}
 .pt-work-waiting{margin:9px 0 0;color:#c4c7c9;font-size:11px}
+
+/* Keep the song picker available on narrow portrait screens too. */
+@media(max-width:760px){.pt-song-wrap{display:block;order:14;flex:1 1 140px;min-width:110px}.pt-bar{column-gap:7px}}
+/* Portaled popovers sit above the transport's fullscreen stacking context. */
+body>.pt-song-menu,body>.pt-work-popover{z-index:300;pointer-events:auto}

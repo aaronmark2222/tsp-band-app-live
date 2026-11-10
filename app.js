@@ -5611,6 +5611,7 @@ function ptTime(seconds) {
 function ptRender() {
   const bar = $('#practice-transport');
   if (!bar) return;
+  document.querySelectorAll('body > .pt-song-menu, body > .pt-work-popover').forEach((menu) => menu.remove());
   const song = state.songs.find((item) => item.id === practice.songId);
   const engine = ptEngine();
   // Stays on screen while the next song loads (only hidden when nothing is chosen).
@@ -5648,6 +5649,9 @@ function ptRender() {
     <input type="range" id="pt-seek" class="pt-seek" min="0" max="${dur.toFixed(2)}" step="0.05" value="${ptPosition().toFixed(2)}" aria-label="Position" ${off}>
     <div class="pt-lcd pt-dim">${ptTime(dur)}</div>
     <div class="pt-info">${ptInfoHtml(song)}</div>`;
+  // Portal both popovers to the document layer so fixed positioning escapes
+  // transformed fullscreen controls and their stacking context.
+  bar.querySelectorAll('.pt-song-menu, .pt-work-popover').forEach((menu) => document.body.append(menu));
   if (ptMixer.open) requestAnimationFrame(ptMixerPlace);
   if (ptSongPickerOpen) requestAnimationFrame(ptPlaceSongPicker);
   if (ptWorkOpen) requestAnimationFrame(ptPlaceWorkPopover);
@@ -5988,12 +5992,12 @@ document.addEventListener('click', (event) => {
     ptRender();
     return;
   }
-  if (event.target.closest('#practice-transport [data-pt-work-close]')) {
+  if (event.target.closest('.pt-work-popover [data-pt-work-close]')) {
     ptWorkOpen = false;
     ptRender();
     return;
   }
-  if (ptWorkOpen && !event.target.closest('#practice-transport .pt-work-anchor')) {
+  if (ptWorkOpen && !event.target.closest('#practice-transport .pt-work-anchor') && !event.target.closest('.pt-work-popover')) {
     ptWorkOpen = false;
     ptRender();
   }
@@ -6002,10 +6006,10 @@ document.addEventListener('click', (event) => {
     ptWorkOpen = false;
     ptSongPickerOpen = !ptSongPickerOpen;
     ptRender();
-    if (ptSongPickerOpen) document.querySelector('#practice-transport [data-pt-song-id][aria-current="true"]')?.focus({ preventScroll: true });
+    if (ptSongPickerOpen) document.querySelector('.pt-song-menu [data-pt-song-id][aria-current="true"]')?.focus({ preventScroll: true });
     return;
   }
-  const songChoice = event.target.closest('#practice-transport [data-pt-song-id]');
+  const songChoice = event.target.closest('.pt-song-menu [data-pt-song-id]');
   if (songChoice) {
     const songId = songChoice.dataset.ptSongId;
     ptSongPickerOpen = false;
@@ -6016,7 +6020,7 @@ document.addEventListener('click', (event) => {
     } else ptRender();
     return;
   }
-  if (ptSongPickerOpen && !event.target.closest('#practice-transport .pt-song-wrap')) {
+  if (ptSongPickerOpen && !event.target.closest('#practice-transport .pt-song-wrap') && !event.target.closest('.pt-song-menu')) {
     ptSongPickerOpen = false;
     ptRender();
   }
