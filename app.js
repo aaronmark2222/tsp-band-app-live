@@ -5012,11 +5012,19 @@ const LYRICS_EDITABLE_TRACKS = ['guitar', 'keyboard', 'drums'];
 let lyricsEditChannel = null;
 let lyricsEditDraft = null;
 function lyricsEditorTrackForMember(shown = lyricsShownSlug()) {
-  if (state.member?.is_admin) return LYRICS_EDITABLE_TRACKS.includes(shown) ? shown : null;
+  if (state.member?.is_admin) {
+    const standard = LYRICS_STANDARD.some(([key]) => key === shown);
+    const custom = (practice.lyrics?.tracks || []).some((track) => track.slug === shown);
+    return shown && (standard || custom) ? shown : null;
+  }
   const i = String(state.member?.instrument || '').toLowerCase();
   return /guitar/.test(i) ? 'guitar' : /key/.test(i) ? 'keyboard' : /drum/.test(i) ? 'drums' : null;
 }
-function lyricsTrackLabel(slug) { return LYRICS_STANDARD.find(([key]) => key === slug)?.[1] || slug; }
+function lyricsTrackLabel(slug) {
+  return LYRICS_STANDARD.find(([key]) => key === slug)?.[1]
+    || practice.lyrics?.tracks?.find((track) => track.slug === slug)?.label
+    || slug;
+}
 function applyLyricsEdits(rows) {
   const ly = practice.lyrics;
   if (!ly || ly.error) return;
@@ -5394,7 +5402,8 @@ function renderPracticeLyricsInner() {
   const current = lyricsTrack();
   const shown = lyricsShownSlug();
   const editSlug = lyricsEditorTrackForMember(shown);
-  const editTools = editSlug ? '<div class="ly-edit-tools"><button type="button" class="button quiet" data-lyrics-edit="' + escapeHtml(editSlug) + '">Edit my ' + escapeHtml(lyricsTrackLabel(editSlug)) + ' lyrics</button><span class="muted">Edits appear for everyone in Practice as soon as you save.</span></div>' : '';
+  const editActionLabel = state.member?.is_admin ? 'Edit ' + lyricsTrackLabel(editSlug) + ' lyrics' : 'Edit my ' + lyricsTrackLabel(editSlug) + ' lyrics';
+  const editTools = editSlug ? '<div class="ly-edit-tools"><button type="button" class="button quiet" data-lyrics-edit="' + escapeHtml(editSlug) + '">' + escapeHtml(editActionLabel) + '</button><span class="muted">Edits appear for everyone in Practice as soon as you save.</span></div>' : '';
   const chipList = [...LYRICS_STANDARD, ...tracks.filter((t) => !LYRICS_STANDARD.some(([slug]) => slug === t.slug)).map((t) => [t.slug, t.label])];
   const chips = chipList.map(([slug, label]) => {
     const has = tracks.some((t) => t.slug === slug && t.lines?.length);
