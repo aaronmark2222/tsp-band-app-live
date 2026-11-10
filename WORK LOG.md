@@ -159,4 +159,5 @@ Keep this file and the repository copy in sync for every meaningful project step
 - Off tracks now show grey peak signals in fullscreen; moving a fullscreen fader updates its own dB number and keeps the matching control in the main Practice section synchronized.
 - Removed the redundant per-track download arrow from the main multitrack list; downloads remain in the Download section.
 - Bumped the app and style asset cache marker to `20261110-fullscreen-mixer-sync`.
-- Updated this WORK LOG in the local folder and on GitHub `main`. JavaScript syntax and live deployment are being checked.
+- Updated this WORK LOG in the local folder and on GitHub `main`. JavaScript syntax check passed.
+- GitHub Pages deployment run [42823581175](https://github.com/aaronmark2222/tsp-band-app-live/actions/runs/42823581175) completed successfully; the changes are live.
