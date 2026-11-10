@@ -104,3 +104,15 @@ Keep this file and the repository copy in sync for every meaningful project step
 - Confirmed the authenticated Cloudflare account contains the app's `tsp-practice` bucket, with 655 objects (3.14 GB) and public access disabled.
 - Confirmed an active R2 API token is scoped to this bucket with Object Read & Write, matching the deployed `practice-audio` function's list/read/upload/delete operations. No token secret was viewed or copied.
 - The Cloudflare API connector still returns `Unknown tool`, but the authenticated dashboard provides the bucket and token verification. No permissions or bucket settings were changed.
+
+### 2026-11-10 — Practice downloads and layout fixes
+
+- Created GitHub review branch `fix/practice-mp3-downloads-and-layout` from the latest `main`; app edits remain off `main`, so this work does not trigger the Pages deployment.
+- Refreshed the local current-app snapshot in `tsp-band-app-live/` from GitHub `main`. The older `tsp-work-local/` frontend remains untouched and is not the source for these changes.
+- Practice → Download now saves real MP3 files. Existing MP3 objects are saved as MP3; AAC/M4A objects are fetched and converted in the browser at 192 kbps using pinned lamejs 1.2.1 from jsDelivr. Download all converts and downloads each track sequentially. The app's Offline audio cache continues saving its original playback files.
+- Offline audio progress now gives its changing status text the flexible space and anchors Stop at the right edge.
+- Multitrack meters now read each decoded track before its on/off gain, so disabled tracks still show their audio level; disabled meters use a neutral grey fill.
+- The Songs list wrapper now clips its contents to the rounded frame, removing square corners behind its border.
+- Bumped the `app.js` and `styles.css` cache marker in `index.html` to `20261110-practice-mp3`.
+- Read the live `practice-audio` v7 Edge Function: R2 objects may be `.m4a` or `.mp3`, with the current upload path writing AAC/M4A. No Supabase, Cloudflare, bucket, token, or permission settings were changed.
+- Repository-required JavaScript syntax check passed with `node --check`. No browser UI checks or broader tests were run.
