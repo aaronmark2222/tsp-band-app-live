@@ -3695,7 +3695,7 @@ const PRACTICE_SETTINGS_KEY = 'tsp-practice-mix-v1';
 const practice = {
   songId: '', available: null, tracks: [], loadingSong: false, error: '',
   ctx: null, master: null, buffers: new Map(), nodes: new Map(), loadState: new Map(),
-  playing: false, offset: 0, startedAt: 0, duration: 0, raf: null, loadToken: 0,
+  playing: false, offset: 0, startedAt: 0, duration: 0, raf: null, loadToken: 0, loadingRun: -1,
   upload: { items: [], running: false }
 };
 
@@ -4205,6 +4205,7 @@ async function practiceOpenSong(songId) {
   if (oldAudio) { oldAudio.pause(); oldAudio.removeAttribute('id'); }
   document.querySelector('.practice-layout')?.classList.add('practice-switching');
   practice.songId = songId;
+  ptSongPickerOpen = false;
   try { localStorage.setItem('tsp-practice-song', songId); } catch { /* ignore */ }
   practice.tracks = [];
   practice.tracks.songId = songId;
@@ -4219,6 +4220,8 @@ async function practiceOpenSong(songId) {
   practice.lyricIndex = -2;
   practice.lyricsUnsynced = false;
   practice.loadToken += 1;
+  const songToken = practice.loadToken;
+  practice.loadingRun = -1;
   const select = $('#practice-song');
   if (select && select.value !== songId) select.value = songId;
   practiceLoadLyrics(songId);
@@ -4241,14 +4244,18 @@ async function practiceOpenSong(songId) {
     tracks.songId = songId;
     practice.tracks = tracks;
   } catch (error) {
-    practice.error = error.message === 'r2_not_configured' ? 'Audio storage is not set up yet.' : `Could not load this song's audio: ${error.message}`;
+    if (practice.songId === songId && practice.loadToken === songToken) {
+      practice.error = error.message === 'r2_not_configured' ? 'Audio storage is not set up yet.' : `Could not load this song's audio: ${error.message}`;
+    }
   } finally {
-    practice.loadingSong = false;
-    renderPracticePlayers();
+    if (practice.songId === songId && practice.loadToken === songToken) {
+      practice.loadingSong = false;
+      renderPracticePlayers();
+    }
   }
   // Load the multitrack straight away only when it's already on this device
   // (or in memory); downloading is always the member's choice.
-  if (practice.songId === songId && practiceMultiTracks().length
+  if (practice.songId === songId && practice.loadToken === songToken && practiceMultiTracks().length
     && (practiceMultiSaved(songId) || practiceMultiInMemory(songId) || bgFetchActive(songId))) practiceLoadTracks();
 }
 function practiceMultiInMemory(songId) {
@@ -4418,7 +4425,7 @@ function practiceDecodePlan(trackCount) {
   if (!PHONE) return { rate: 0, mono: false };
   const song = state.songs.find((item) => item.id === practice.songId);
   const seconds = Math.max(60, Number(song?.duration_seconds) || 300) + 5;
-  const budget = 520 * 1048576; // decoded bytes (float32)
+  const budget = 320 * 1048576; // Keep decoded audio below 320 MiB on older tablets/phones.
   for (const rate of [44100, 32000, 24000]) if (seconds * trackCount * 4 * rate <= budget) return { rate, mono: true };
   return { rate: 22050, mono: true };
 }
@@ -4435,6 +4442,14 @@ function practiceToMono(buffer) {
 // Multitrack downloads run in the background: leaving a song doesn't stop its
 // download, and coming back picks up where it is. At most two files at a time.
 const bgFetch = { files: new Map(), songs: new Map(), active: 0, waiting: [] };
+const PRACTICE_AUDIO_TIMEOUT_MS = 120000;
+function practiceWithTimeout(promise, label, timeoutMs = PRACTICE_AUDIO_TIMEOUT_MS) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${label} timed out. Try loading the multitrack again.`)), timeoutMs); })
+  ]).finally(() => clearTimeout(timer));
+}
 function bgFetchTrack(songId, track) {
   const key = `${songId}|${track.element}`;
   if (bgFetch.files.has(key)) return bgFetch.files.get(key);
@@ -4444,7 +4459,7 @@ function bgFetchTrack(songId, track) {
   const run = async () => {
     while (bgFetch.active >= 2) await new Promise((resolve) => bgFetch.waiting.push(resolve));
     bgFetch.active += 1;
-    try { return await offlineTrackBlob(songId, track); }
+    try { return await practiceWithTimeout(offlineTrackBlob(songId, track), `Loading ${track.element}`); }
     finally {
       bgFetch.active -= 1;
       bgFetch.waiting.shift()?.();
@@ -4462,6 +4477,8 @@ function bgFetchTrack(songId, track) {
 function bgFetchActive(songId) { return bgFetch.songs.has(songId); }
 async function practiceLoadTracks() {
   const token = practice.loadToken;
+  if (practice.loadingRun === token) return;
+  practice.loadingRun = token;
   const tracks = practiceMultiTracks();
   // Mark them loading straight away so every button shows the download at once.
   tracks.forEach((t) => { if (!practice.buffers.has(t.element)) practice.loadState.set(t.element, 'loading'); });
@@ -4470,18 +4487,29 @@ async function practiceLoadTracks() {
   // Phones: decoded audio takes ~10× the download size, so long songs are
   // decoded in mono and, if needed, at a lower sample rate to stay in memory.
   const plan = practiceDecodePlan(tracks.length);
-  if (practice.ctx && plan.rate && practice.ctx.sampleRate !== plan.rate && !practice.playing) {
-    try { await practice.ctx.close(); } catch { /* ignore */ }
-    practice.ctx = null;
+  try {
+    if (practice.ctx && plan.rate && practice.ctx.sampleRate !== plan.rate && !practice.playing) {
+      await practiceWithTimeout(practice.ctx.close(), 'Audio engine reset', 30000);
+      practice.ctx = null;
+    }
+    if (!practice.ctx) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      try { practice.ctx = plan.rate ? new Ctx({ sampleRate: plan.rate }) : new Ctx(); } catch { practice.ctx = new Ctx(); }
+      practice.master = practice.ctx.createGain();
+      practice.master.connect(practice.ctx.destination);
+    }
+    practice.mono = plan.mono;
+    await practiceWithTimeout(practice.ctx.resume(), 'Audio engine startup', 30000).catch(() => {});
+  } catch (error) {
+    if (token === practice.loadToken) {
+      tracks.forEach((t) => { if (!practice.buffers.has(t.element)) practice.loadState.set(t.element, 'error'); });
+      console.warn('Practice audio engine failed', error);
+      renderPracticeMultitrack();
+      ptRender();
+    }
+    if (practice.loadingRun === token) practice.loadingRun = -1;
+    return;
   }
-  if (!practice.ctx) {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    try { practice.ctx = plan.rate ? new Ctx({ sampleRate: plan.rate }) : new Ctx(); } catch { practice.ctx = new Ctx(); }
-    practice.master = practice.ctx.createGain();
-    practice.master.connect(practice.ctx.destination);
-  }
-  practice.mono = plan.mono;
-  await practice.ctx.resume().catch(() => {});
   // Downloads start for every track now and carry on in the background even
   // if the member moves to another song. Decoding (two at a time, to spare
   // phone memory) only happens while this song is open.
@@ -4496,8 +4524,8 @@ async function practiceLoadTracks() {
       try {
         const blob = await blobs.get(t.element);
         if (token !== practice.loadToken) return;
-        const data = await blob.arrayBuffer();
-        let buffer = await practice.ctx.decodeAudioData(data);
+        const data = await practiceWithTimeout(blob.arrayBuffer(), `Reading ${t.element}`);
+        let buffer = await practiceWithTimeout(practice.ctx.decodeAudioData(data), `Decoding ${t.element}`);
         if (token !== practice.loadToken) return;
         if (practice.mono && buffer.numberOfChannels > 1) buffer = practiceToMono(buffer);
         practice.buffers.set(t.element, buffer);
@@ -4513,7 +4541,8 @@ async function practiceLoadTracks() {
     }
   };
   await Promise.all([worker(), worker()]);
-  if (token !== practice.loadToken) return;
+  if (token !== practice.loadToken) { if (practice.loadingRun === token) practice.loadingRun = -1; return; }
+  if (practice.loadingRun === token) practice.loadingRun = -1;
   // Keep failed tracks visible and in the download list so members can retry.
   practice.tracks.songId = practice.songId;
   // Multitrack chosen and the Mixdown was standing in: carry on from the same spot.
@@ -5411,6 +5440,7 @@ async function saveSongLyrics(snapshot) {
 // Practice transport: one Ableton-style bar at the bottom drives whichever
 // player is chosen (Mixdown or Multitrack); both follow its single playhead.
 const PT_MODE_KEY = 'tsp-practice-mode';
+let ptSongPickerOpen = false;
 function ptMode() {
   let mode = 'mix';
   try { mode = sessionStorage.getItem(PT_MODE_KEY) || 'mix'; } catch { /* ignore */ }
@@ -5548,13 +5578,18 @@ function ptRender() {
   const off = idle ? 'disabled' : '';
   const idleNote = idle ? (practice.loadingSong ? 'Loading…' : practice.error ? 'Not available' : practice.tracks.length ? 'Loading…' : 'No audio yet') : '';
   bar.classList.toggle('pt-idle', idle);
+  const songList = practice.songList || state.songs;
+  const songMenu = ptSongPickerOpen ? `<div class="pt-song-menu" role="menu" aria-label="Songs in the current list">${songList.map((item, i) => `<button type="button" role="menuitem" class="pt-song-option ${item.id === practice.songId ? 'current' : ''}" data-pt-song-id="${escapeHtml(item.id)}" ${item.id === practice.songId ? 'aria-current="true"' : ''}><span class="pt-song-option-num">${i + 1}</span><b>${escapeHtml(item.id)}</b><span class="pt-song-option-name">${escapeHtml(item.name)}</span></button>`).join('')}</div>` : '';
   bar.innerHTML = `
     <div class="pt-group pt-modes" role="radiogroup" aria-label="Play from">
       <button type="button" data-pt-mode="mix" class="${engine === 'mix' ? 'on' : ''}" ${$('#practice-mix-audio') ? '' : 'disabled'}>Mixdown</button>
       <button type="button" data-pt-mode="multi" class="pt-multi ${engine === 'multi' ? 'on' : ''}" ${multiAvailable ? '' : 'disabled'} title="${ptMultiReady() ? 'Play from the multitrack' : 'Download the multitrack tracks first'}">Multitrack${multiAvailable && !ptMultiReady() ? (ptMultiLoading() ? ` <span class="pt-spin" aria-label="Downloading"></span><small>${practiceMultiTracks().filter((t) => practice.buffers.has(t.element)).length}/${practiceMultiTracks().length}</small>` : ` <span class="pt-dl" aria-hidden="true">${ptIcons.download}</span>`) : ''}</button>
       <button type="button" data-pt-mixer class="pt-mixer-btn ${ptMixer.open ? 'open' : ''}" ${multiAvailable ? '' : 'disabled'} title="Multitrack mixer" aria-label="Multitrack mixer" aria-expanded="${ptMixer.open}">${ptIcons.mixer}</button>
     </div>
-    <div class="pt-song" title="${song ? escapeHtml(`${song.id} ${song.name}`) : ''}">${song ? `<b>${escapeHtml(song.id)}</b> ${escapeHtml(song.name)}` : ''}${ptQueueLabel()}</div>
+    <div class="pt-song-wrap">
+      <button type="button" class="pt-song" data-pt-songs aria-haspopup="menu" aria-expanded="${ptSongPickerOpen}" title="Choose a song from the current list"><b>${song ? escapeHtml(song.id) : ''}</b> ${song ? escapeHtml(song.name) : ''}${ptQueueLabel()} <span class="pt-song-arrow" aria-hidden="true">${ptSongPickerOpen ? '▾' : '▴'}</span></button>
+      ${songMenu}
+    </div>
     <span class="pt-break" aria-hidden="true"></span>
     <div class="pt-group pt-buttons">
       <button type="button" data-pt="prev" title="Previous song in the list">${ptIcons.prev}</button>
@@ -5827,6 +5862,28 @@ document.addEventListener('change', (event) => {
   requestAnimationFrame(ptLoop);
 })();
 document.addEventListener('click', (event) => {
+  const songToggle = event.target.closest('#practice-transport [data-pt-songs]');
+  if (songToggle) {
+    ptSongPickerOpen = !ptSongPickerOpen;
+    ptRender();
+    if (ptSongPickerOpen) document.querySelector('#practice-transport [data-pt-song-id][aria-current="true"]')?.focus({ preventScroll: true });
+    return;
+  }
+  const songChoice = event.target.closest('#practice-transport [data-pt-song-id]');
+  if (songChoice) {
+    const songId = songChoice.dataset.ptSongId;
+    ptSongPickerOpen = false;
+    if (songId !== practice.songId) {
+      practice.autoplay = ptIsPlaying();
+      ptPause();
+      practiceOpenSong(songId);
+    } else ptRender();
+    return;
+  }
+  if (ptSongPickerOpen && !event.target.closest('#practice-transport .pt-song-wrap')) {
+    ptSongPickerOpen = false;
+    ptRender();
+  }
   const modeBtn = event.target.closest('[data-pt-mode]');
   if (modeBtn && event.target.closest('#practice-view')) { ptSetMode(modeBtn.dataset.ptMode); return; }
   const btn = event.target.closest('#practice-transport [data-pt]');
@@ -5896,6 +5953,12 @@ document.addEventListener('change', (event) => {
   if (event.target.id === 'pt-seek') ptSeek(Number(event.target.value));
 });
 document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && ptSongPickerOpen) {
+    ptSongPickerOpen = false;
+    ptRender();
+    document.querySelector('#practice-transport [data-pt-songs]')?.focus({ preventScroll: true });
+    return;
+  }
   if (state.view !== 'practice' || event.code !== 'Space' || event.metaKey || event.ctrlKey || event.altKey) return;
   if (event.target.closest?.('input[type="text"], input[type="search"], textarea, select, [contenteditable="true"]')) return;
   event.preventDefault();

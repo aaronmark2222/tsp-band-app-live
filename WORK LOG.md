@@ -170,3 +170,11 @@ Keep this file and the repository copy in sync for every meaningful project step
 - Bumped the app and style cache marker to `20261110-neutral-track-rows`.
 - Updated this WORK LOG locally and on GitHub `main`. JavaScript syntax check passed.
 - GitHub Pages deployment run [42827359212](https://github.com/aaronmark2222/tsp-band-app-live/actions/runs/42827359212) completed successfully; the change is live.
+
+
+### 2026-11-10 — Practice song picker and iPad multitrack loading
+
+- Made the current Practice song title open an upward song menu sourced from the active repertoire or setlist; choosing a song opens it directly in the player.
+- Traced the iPad multitrack loading path. Audio file reads, downloads, and decoding could remain pending without a deadline, leaving the mixer in “loading” indefinitely. Added bounded waits with visible retryable track failures, protected the active song from stale asynchronous loads, prevented duplicate loads for the same song, and reduced the decoded-audio memory budget for older tablets.
+- Bumped the app and style cache marker to `20261110-setlist-picker-ipad-audio`.
+- Updated this WORK LOG locally and on GitHub `main`. JavaScript syntax check passed; deployment is being checked.
