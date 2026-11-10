@@ -4459,7 +4459,7 @@ function practiceTrackRowMarkup(t, i, { loaded, anySolo }) {
 function renderPracticeMultitrack() {
   const box = $('#practice-multitrack');
   const tracks = practiceMultiTracks();
-  if (!tracks.length) { box.innerHTML = ''; return; }
+  if (!tracks.length && !lyricsEditorTrackForMember()) { box.innerHTML = ''; return; }
   const loaded = tracks.every((t) => practice.buffers.has(t.element));
   const loading = tracks.some((t) => practice.loadState.get(t.element) === 'loading');
   const failed = tracks.filter((t) => practice.loadState.get(t.element) === 'error').length;
@@ -5007,21 +5007,159 @@ function saveLyricsPrefs(patch) {
   try { localStorage.setItem(LYRICS_PREFS_KEY, JSON.stringify({ ...lyricsPrefs(), ...patch })); } catch { /* ignore */ }
 }
 
+
+const LYRICS_EDITABLE_TRACKS = ['guitar', 'keyboard', 'drums'];
+let lyricsEditChannel = null;
+let lyricsEditDraft = null;
+function lyricsEditorTrackForMember(shown = lyricsShownSlug()) {
+  if (state.member?.is_admin) return LYRICS_EDITABLE_TRACKS.includes(shown) ? shown : null;
+  const i = String(state.member?.instrument || '').toLowerCase();
+  return /guitar/.test(i) ? 'guitar' : /key/.test(i) ? 'keyboard' : /drum/.test(i) ? 'drums' : null;
+}
+function lyricsTrackLabel(slug) { return LYRICS_STANDARD.find(([key]) => key === slug)?.[1] || slug; }
+function applyLyricsEdits(rows) {
+  const ly = practice.lyrics;
+  if (!ly || ly.error) return;
+  const source = (ly.sourceTracks || ly.tracks || []).map((t) => ({ ...t, lines: [...(t.lines || [])] }));
+  ly.sourceTracks = source;
+  const tracks = source.map((t) => ({ ...t, lines: [...t.lines] }));
+  for (const edit of rows || []) {
+    let t = tracks.find((x) => x.slug === edit.track_slug);
+    if (!t) { t = { slug: edit.track_slug, label: lyricsTrackLabel(edit.track_slug), lines: [] }; tracks.push(t); }
+    t.lines = edit.lines || [];
+  }
+  ly.tracks = tracks;
+  ly.lyricsEdits = rows || [];
+}
+async function readLyricsEdits(songId) {
+  const { data, error } = await db.from('song_lyrics_edits').select('song_id,track_slug,lines,updated_at').eq('song_id', songId);
+  if (error) throw error;
+  return data || [];
+}
+function subscribeLyricsEdits(songId) {
+  if (lyricsEditChannel) db.removeChannel(lyricsEditChannel);
+  lyricsEditChannel = db.channel('practice-lyrics-' + songId)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'song_lyrics_edits', filter: 'song_id=eq.' + songId }, async () => {
+      if (practice.songId !== songId || !practice.lyrics || practice.lyrics.error) return;
+      try {
+        const rows = await readLyricsEdits(songId);
+        await jsonCachePut('lyrics-edits/' + songId, rows);
+        applyLyricsEdits(rows);
+        practiceKeepPlace(renderPracticeLyrics);
+      } catch (error) { console.warn('Could not refresh shared lyrics edits', error); }
+    }).subscribe();
+}
 async function practiceLoadLyrics(songId) {
-  // Keep the old lyrics on screen (dimmed) until the new ones arrive.
   practice.lyrics = null;
   $('#practice-lyrics')?.classList.add('practice-switching');
   let { data, error } = await db.from('song_lyrics').select('tracks, sections, tempo, bars, tone, duration_seconds, updated_at').eq('song_id', songId).maybeSingle();
   if (error && isNetworkError(error)) {
-    const cached = await jsonCacheGet(`lyrics/${songId}`);
+    const cached = await jsonCacheGet('lyrics/' + songId);
     if (cached) { data = cached; error = null; }
-  } else if (!error && data) jsonCachePut(`lyrics/${songId}`, data);
+  } else if (!error && data) jsonCachePut('lyrics/' + songId, data);
   if (practice.songId !== songId) return;
   practice.lyrics = error ? { error: error.message } : (data || { tracks: [], sections: [] });
+  if (!practice.lyrics.error) {
+    practice.lyrics.sourceTracks = (practice.lyrics.tracks || []).map((t) => ({ ...t, lines: [...(t.lines || [])] }));
+    try {
+      const rows = await readLyricsEdits(songId);
+      await jsonCachePut('lyrics-edits/' + songId, rows);
+      applyLyricsEdits(rows);
+    } catch (editError) {
+      const cached = await jsonCacheGet('lyrics-edits/' + songId);
+      if (cached) applyLyricsEdits(cached);
+      else console.warn('Shared lyrics edits unavailable', editError);
+    }
+  }
+  if (practice.songId !== songId) return;
   practice.lyricIndex = -2;
   $('#practice-lyrics')?.classList.remove('practice-switching');
   practiceKeepPlace(renderPracticeLyrics);
   renderTonePanel();
+  if (!practice.lyrics.error) subscribeLyricsEdits(songId);
+}
+function lyricsEditorDialog() {
+  let d = $('#lyrics-edit-dialog');
+  if (d) return d;
+  document.body.insertAdjacentHTML('beforeend', '<dialog id="lyrics-edit-dialog" class="lyrics-edit-dialog"><form id="lyrics-edit-form"><header class="lyrics-edit-header"><div><h2 data-edit-title></h2><p class="muted">Saved changes appear for everyone in Practice immediately. Timing stays unchanged.</p></div><button type="button" class="button quiet" data-edit-close>×</button></header><div class="lyrics-edit-lines" data-edit-lines></div><div class="lyrics-edit-actions"><button type="button" class="button" data-edit-add>Add line at current playback time</button><span class="muted">Bracket notes appear above lyrics; use a backslash for a new line.</span></div><p class="lyrics-edit-message" id="lyrics-edit-message" role="status"></p><footer><button type="button" class="button quiet" data-edit-restore>Restore Ableton version</button><span class="lyrics-edit-spacer"></span><button type="button" class="button quiet" data-edit-close>Cancel</button><button type="submit" class="button primary" data-edit-save>Save to Practice</button></footer></form></dialog>');
+  d = $('#lyrics-edit-dialog');
+  d.addEventListener('click', async (e) => {
+    if (e.target.closest('[data-edit-close]')) { d.close(); return; }
+    if (e.target.closest('[data-edit-add]')) {
+      collectLyricsEditor();
+      const t = Math.max(0, Number(ptPosition()) || 0);
+      const next = lyricsEditDraft.lines.map((x) => Number(x.t)).filter((x) => x > t + .05).sort((a,b) => a-b)[0];
+      lyricsEditDraft.lines.push({ t, e: next ? Math.min(next,t+2) : t+2, text: '' });
+      lyricsEditDraft.lines.sort((a,b) => a.t-b.t); renderLyricsEditor(); return;
+    }
+    const remove = e.target.closest('[data-edit-remove]');
+    if (remove) { collectLyricsEditor(); lyricsEditDraft.lines.splice(Number(remove.closest('[data-edit-row]').dataset.editRow),1); renderLyricsEditor(); return; }
+    if (e.target.closest('[data-edit-restore]')) await restoreLyricsEditor();
+    const jump = e.target.closest('[data-edit-jump]');
+    if (jump) ptSeek(Number(jump.dataset.editJump));
+  });
+  d.addEventListener('submit', async (e) => { e.preventDefault(); await saveLyricsEditor(); });
+  d.addEventListener('close', () => { lyricsEditDraft = null; });
+  return d;
+}
+function collectLyricsEditor() {
+  if (!lyricsEditDraft) return;
+  lyricsEditDraft.lines = [...$('#lyrics-edit-lines').querySelectorAll('[data-edit-row]')].map((r) => ({
+    ...lyricsEditDraft.lines[Number(r.dataset.editRow)], text: r.querySelector('[data-edit-line]').value
+  })).filter((x) => String(x.text || '').trim());
+}
+function renderLyricsEditor() {
+  const d = lyricsEditorDialog();
+  if (!lyricsEditDraft) return;
+  d.querySelector('[data-edit-title]').textContent = lyricsEditDraft.songName + ' · ' + lyricsTrackLabel(lyricsEditDraft.slug) + ' lyrics';
+  d.querySelector('[data-edit-lines]').innerHTML = lyricsEditDraft.lines.map((x,i) =>
+    '<div class="lyrics-edit-row" data-edit-row="' + i + '"><button type="button" class="lyrics-edit-time" data-edit-jump="' + (Number(x.t)||0) + '">' + escapeHtml(ptTime(Number(x.t)||0)) + '</button><textarea data-edit-line rows="2" aria-label="Lyrics line ' + (i+1) + '">' + escapeHtml(x.text||'') + '</textarea><button type="button" class="button quiet lyrics-edit-remove" data-edit-remove aria-label="Remove line">×</button></div>'
+  ).join('') || '<p class="muted">No lines yet. Add a line at the current playback time.</p>';
+  d.querySelector('[data-edit-restore]').disabled = !lyricsEditDraft.hasOverride;
+  d.querySelector('[data-edit-save]').disabled = !!lyricsEditDraft.saving;
+}
+function openLyricsEditor(slug) {
+  if (!practice.lyrics || practice.lyrics.error || !lyricsEditorTrackForMember(slug)) return;
+  const song = state.songs.find((x) => x.id === practice.songId);
+  const track = practice.lyrics.tracks.find((x) => x.slug === slug);
+  const edit = (practice.lyrics.lyricsEdits || []).find((x) => x.track_slug === slug);
+  lyricsEditDraft = { songId: practice.songId, songName: song?.name || practice.songId, slug,
+    lines: (track?.lines || []).map((x) => ({ ...x })), updatedAt: edit?.updated_at || null, hasOverride: !!edit, saving: false };
+  renderLyricsEditor();
+  lyricsEditorDialog().showModal();
+}
+async function saveLyricsEditor() {
+  if (!lyricsEditDraft || lyricsEditDraft.saving) return;
+  collectLyricsEditor();
+  const d = lyricsEditDraft;
+  d.saving = true; renderLyricsEditor();
+  try {
+    const { data: latest, error: readError } = await db.from('song_lyrics_edits').select('updated_at').eq('song_id', d.songId).eq('track_slug', d.slug).maybeSingle();
+    if (readError) throw readError;
+    if ((latest?.updated_at || null) !== d.updatedAt) throw new Error('Another edit was saved while this editor was open. Close and reopen to keep everyone’s changes.');
+    const { error } = await db.from('song_lyrics_edits').upsert({ song_id: d.songId, track_slug: d.slug, lines: d.lines, edited_by_member_id: state.member.id, updated_at: new Date().toISOString() }, { onConflict: 'song_id,track_slug' });
+    if (error) throw error;
+    const rows = await readLyricsEdits(d.songId);
+    await jsonCachePut('lyrics-edits/' + d.songId, rows);
+    applyLyricsEdits(rows); d.updatedAt = rows.find((row) => row.track_slug === d.slug)?.updated_at || null; practiceKeepPlace(renderPracticeLyrics);
+    showNotice(lyricsTrackLabel(d.slug) + ' lyrics saved to the shared Practice page.');
+    $('#lyrics-edit-dialog').close();
+  } catch (error) {
+    d.saving = false;
+    $('#lyrics-edit-message').textContent = error.message || 'Could not save. Check your connection and try again.';
+    renderLyricsEditor();
+  }
+}
+async function restoreLyricsEditor() {
+  if (!lyricsEditDraft?.hasOverride || !confirm('Remove shared edits and restore the Ableton version of this track?')) return;
+  const d = lyricsEditDraft;
+  const { error } = await db.from('song_lyrics_edits').delete().eq('song_id', d.songId).eq('track_slug', d.slug);
+  if (error) { $('#lyrics-edit-message').textContent = error.message; return; }
+  const rows = await readLyricsEdits(d.songId);
+  await jsonCachePut('lyrics-edits/' + d.songId, rows);
+  applyLyricsEdits(rows); practiceKeepPlace(renderPracticeLyrics);
+  showNotice(lyricsTrackLabel(d.slug) + ' lyrics restored from Ableton.');
+  $('#lyrics-edit-dialog').close();
 }
 
 function lyricsTrack() {
@@ -5066,7 +5204,7 @@ function lyricLineHtml(text) {
   const parts = [];
   let last = 0;
   let pendingChord = null;
-  const re = /\[([^\]]*)\]/g;
+    const re = /\[([^\]\s]+)\]/g;
   let m;
   const pushText = (str) => {
     // "\\" in a clip name is a line break (AbleSet).
@@ -5255,6 +5393,8 @@ function renderPracticeLyricsInner() {
   if (!tracks.length) { box.innerHTML = '<header><h2>Lyrics</h2></header><p class="muted">No lyrics saved for this song yet. They come from the admin\'s last Ableton Sync read.</p>'; return; }
   const current = lyricsTrack();
   const shown = lyricsShownSlug();
+  const editSlug = lyricsEditorTrackForMember(shown);
+  const editTools = editSlug ? '<div class="ly-edit-tools"><button type="button" class="button quiet" data-lyrics-edit="' + escapeHtml(editSlug) + '">Edit my ' + escapeHtml(lyricsTrackLabel(editSlug)) + ' lyrics</button><span class="muted">Edits appear for everyone in Practice as soon as you save.</span></div>' : '';
   const chipList = [...LYRICS_STANDARD, ...tracks.filter((t) => !LYRICS_STANDARD.some(([slug]) => slug === t.slug)).map((t) => [t.slug, t.label])];
   const chips = chipList.map(([slug, label]) => {
     const has = tracks.some((t) => t.slug === slug && t.lines?.length);
@@ -5298,7 +5438,7 @@ function renderPracticeLyricsInner() {
   });
   const song = state.songs.find((row) => row.id === practice.songId);
   box.innerHTML = `<header><h2>Lyrics</h2><span class="ly-sizes">${['s', 'm', 'l'].map((size) => `<button type="button" class="ly-size ${prefs.size === size ? 'on' : ''}" data-lyrics-size="${size}">${size === 's' ? 'A' : size === 'm' ? 'A' : 'A'}</button>`).join('')}<button type="button" class="ly-fs-btn" data-lyrics-fs title="${lyricsFs.on ? 'Exit full screen (Esc)' : 'Full screen (F)'}" aria-label="${lyricsFs.on ? 'Exit full screen' : 'Full screen lyrics'}">${lyricsFs.on ? LY_FS_ICONS.exit : LY_FS_ICONS.enter}</button></span></header>
-    <div class="ly-chips">${chips}</div>${missing}
+    <div class="ly-chips">${chips}</div>${editTools}${missing}
     <div class="ly-scroll ly-size-${prefs.size} ly-track-${escapeHtml(current?.slug || 'none')}" id="practice-lyrics-scroll">${song ? `<div class="ly-title">${escapeHtml(song.name)}</div>` : ''}${withDots.map((it) => it.type === 'dots'
       ? `<div class="ly-dots" data-t="${it.t}" data-t1="${it.t1}">${'<span class="ly-dot"></span>'.repeat(it.n)}</div>`
       : it.type === 'section'
@@ -5465,6 +5605,8 @@ window.addEventListener('resize', () => { if (state.view === 'practice') practic
 })();
 
 $('#practice-lyrics').addEventListener('click', (event) => {
+  const edit = event.target.closest('[data-lyrics-edit]');
+  if (edit) { openLyricsEditor(edit.dataset.lyricsEdit); return; }
   const chip = event.target.closest('[data-lyrics-track]');
   if (chip) { saveLyricsPrefs({ track: chip.dataset.lyricsTrack }); renderPracticeLyrics(); return; }
   const size = event.target.closest('[data-lyrics-size]');
