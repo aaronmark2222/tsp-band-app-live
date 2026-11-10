@@ -20,3 +20,7 @@ The Ableton Sync page now offers **Sync Ableton Set**. It writes saved shared Pr
 4. If the app reports a mismatch, keep the Practice edit and resolve the named song/track before retrying.
 
 The test-copy restriction must be deliberately changed before production use.
+
+## If TSPWork does not appear in Live
+
+The Ableton install must be plain text, not Rich Text. If TextEdit saved `tspwork.py` as RTF, open it in TextEdit, choose **Format → Make Plain Text**, confirm conversion, then save while keeping the `.py` extension. The first line should begin with `"""TSPWork`; if it begins with `{\rtf1`, it is still Rich Text. Restart Live or reselect TSPWork after saving.
