@@ -1,8 +1,24 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.52.0';
 
+// Capture recovery callback state before Supabase Auth consumes and cleans the URL fragment.
+const initialAuthCallback = new URLSearchParams(window.location.hash.slice(1));
+const initialAuthQuery = new URLSearchParams(window.location.search);
+const initialRecoveryError = initialAuthCallback.get('error_description') || initialAuthQuery.get('error_description') || '';
+let recoveryCallbackActive = initialAuthCallback.get('type') === 'recovery'
+  || initialAuthQuery.get('type') === 'recovery'
+  || initialAuthCallback.get('error_code') === 'otp_expired'
+  || initialAuthQuery.get('error_code') === 'otp_expired'
+  || /invalid.*expired|expired.*invalid/i.test(initialRecoveryError);
+
 const SUPABASE_URL = 'https://hzvfrvjuqvmkeqbrgmqu.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_bXd0ymwEnYNqQCq1EwH2AA_0HajJecU';
 const db = createClient(SUPABASE_URL, SUPABASE_KEY);
+db.auth.onAuthStateChange((event) => {
+  if (event === 'PASSWORD_RECOVERY') {
+    recoveryCallbackActive = true;
+    showPasswordRecovery();
+  }
+});
 const $ = (selector) => document.querySelector(selector);
 // Task accents use the Ableton colors shown in the user's Live 12 screenshots.
 const ABLETON_TASK_COLORS = {
@@ -113,10 +129,23 @@ function showWorkspace() {
 }
 
 let accessMembersFetch = null;
+async function memberAccessErrorMessage(error) {
+  const response = error?.context;
+  let body = null;
+  if (response && typeof response.clone === 'function') {
+    try { body = await response.clone().json(); } catch { /* keep the SDK message */ }
+  }
+  const detail = body?.error || body?.message || error?.message || '';
+  if (response?.status === 401 || /session not found|please sign in again|invalid jwt|valid bearer token/i.test(detail)) {
+    return 'Your sign-in session has expired. Sign out, sign back in, and try again.';
+  }
+  return detail || 'Could not update member access. Please try again.';
+}
+
 function fetchAccessMembers(force = false) {
   if (!force && accessMembersFetch && Date.now() - accessMembersFetch.at < 120000) return accessMembersFetch.promise;
   const promise = db.functions.invoke('member-access-admin', { body: { action: 'list_members' } })
-    .then(({ data, error }) => { if (error) throw error; return data.members || []; });
+    .then(async ({ data, error }) => { if (error) throw new Error(await memberAccessErrorMessage(error)); return data.members || []; });
   accessMembersFetch = { at: Date.now(), promise };
   promise.catch(() => { accessMembersFetch = null; });
   return promise;
@@ -1828,7 +1857,7 @@ $('#member-access-open').addEventListener('click', async () => {
       : '<option value="">No band members found</option>';
     $('#access-member-select').dispatchEvent(new Event('change'));
     $('#access-message').textContent = '';
-  } catch (error) { $('#access-message').textContent = error.message || 'Could not load member accounts.'; }
+  } catch (error) { $('#access-message').textContent = error.message || await memberAccessErrorMessage(error); }
 });
 function updateAccessMemberControls() {
   const member = state.accessMembers.find((item) => item.id === $('#access-member-select').value);
@@ -1880,7 +1909,7 @@ async function runMemberAccessAction(action) {
       }
       updateAccessMemberControls();
     } else { $('#access-message').textContent = 'Password reset email sent.'; }
-  } catch (error) { $('#access-message').textContent = error.message || 'Could not update member access.'; }
+  } catch (error) { $('#access-message').textContent = await memberAccessErrorMessage(error); }
   finally { buttons.forEach((button) => { button.disabled = false; }); }
 }
 $('#issue-temporary-password').addEventListener('click', () => runMemberAccessAction('temporary_password'));
@@ -2265,6 +2294,13 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
 
 db.auth.getSession().then(async ({ data, error }) => {
   if (error || !data.session) {
+    if (recoveryCallbackActive) {
+      showPasswordRecovery();
+      $('#recovery-error').textContent = initialRecoveryError
+        ? 'This reset link has expired or was already used. Request a new reset email to continue.'
+        : 'The reset link could not be verified. Request a new reset email to continue.';
+      return;
+    }
     // Offline with an expired sign-in: open read-only from the saved copy.
     const cached = dataCacheGet();
     if ((!navigator.onLine || (error && isNetworkError(error))) && cached?.member && cached?.data) {
@@ -2277,9 +2313,10 @@ db.auth.getSession().then(async ({ data, error }) => {
   }
   try {
     await loadMember(data.session.user);
-    if (new URLSearchParams(window.location.hash.slice(1)).get('type') === 'recovery') return showPasswordRecovery();
+    if (recoveryCallbackActive || new URLSearchParams(window.location.hash.slice(1)).get('type') === 'recovery') return showPasswordRecovery();
     if (state.member.must_change_password) return showFirstLoginPasswordSetup();
     await Promise.all([loadData(), loadReadiness()]);
+    if (recoveryCallbackActive) return showPasswordRecovery();
     showWorkspace();
     renderSongs();
   } catch (loadError) {
