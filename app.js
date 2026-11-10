@@ -2654,7 +2654,7 @@ const SYNC_MIXED_STEMS = {
 };
 const SYNC_AUTO_FIELDS = ['duration_seconds', 'tempo', 'keys'];
 const SYNC_FIELD_LABELS = { name: 'Name', duration_seconds: 'Duration', tempo: 'Tempo', keys: 'Key' };
-const sync = { snapshot: null, readAt: null, reading: false, applying: new Set(), snoozes: new Map(), snoozesLoaded: false, showSnoozed: false, dismissed: new Set() };
+const sync = { snapshot: null, readAt: null, reading: false, writebackRows: null, applying: new Set(), snoozes: new Map(), snoozesLoaded: false, showSnoozed: false, dismissed: new Set() };
 
 // Snooze: hide a task update until the clips on that song's track change.
 // The fingerprint is a hash of those clips from the .als (TSPWork 1.9+).
@@ -2733,7 +2733,7 @@ function syncIsSnoozed(item) {
 
 async function snoozeSyncTask(item) {
   const fingerprint = syncFingerprint(item.songId, item.taskKey);
-  if (!fingerprint) { showNotice('Press Read Ableton set again (TSPWork 1.10.1 or later is needed for Snooze).', true); return; }
+  if (!fingerprint) { showNotice('Press Sync Ableton Set again (TSPWork 1.10.1 or later is needed for Snooze).', true); return; }
   const { error } = await db.from('ableton_sync_snoozes').upsert({ song_id: item.songId, task_key: item.taskKey, fingerprint, snoozed_at: new Date().toISOString() });
   if (error) { fail(`Could not snooze: ${error.message}`, error); return; }
   sync.snoozes.set(`${item.songId}:${item.taskKey}`, fingerprint);
@@ -2873,7 +2873,7 @@ function renderSyncStatus() {
   box.innerHTML = parts.join(' ');
   $('#sync-read').disabled = sync.reading || !!elsewhere;
   if (sync.reading || elsewhere) readProgressTick();
-  else { $('#sync-read').textContent = 'Read Ableton set'; $('#sync-read').classList.remove('reading'); }
+  else { $('#sync-read').textContent = 'Sync Ableton Set'; $('#sync-read').classList.remove('reading'); }
   // Check again soon so the button comes back as soon as that read ends.
   clearTimeout(renderSyncStatus.recheck);
   if (elsewhere && state.view === 'sync') renderSyncStatus.recheck = setTimeout(probeAbletonBridge, 2000);
@@ -2889,7 +2889,7 @@ function renderSyncPage() {
     return;
   }
   if (!sync.snapshot) {
-    content.innerHTML = '<div class="empty-state">Press <b>Read Ableton set</b> to compare your saved Ableton set with TSP Work. Reading takes about 20 seconds; avoid doing it during a show.</div>';
+    content.innerHTML = '<div class="empty-state">Press <b>Sync Ableton Set</b> to write saved Practice lyric edits to the Ableton test copy, save it, then read the saved set back. Make sure Ableton has the test copy open.</div>';
     return;
   }
   const { tasks, meta, notices, snoozed } = computeSyncDiff(sync.snapshot);
@@ -2904,7 +2904,7 @@ function renderSyncPage() {
   // Dismissed = fixed in Ableton; hidden until the next read of the set.
   const chordOpen = chordAll.filter((m) => !m.allowed && !sync.dismissed.has(`${m.songId}|${m.taskKey}`));
   const chordAllowed = chordAll.filter((m) => m.allowed);
-  const chordRow = (m) => `<li class="sync-row sync-chord-row${m.allowed ? ' sync-snoozed' : ''}"><button type="button" class="sync-song" data-sync-jump="${escapeHtml(m.songId)}" title="Jump to this song in Ableton"><span class="song-id">${escapeHtml(m.songId)}</span><span>${escapeHtml(m.songName)}</span></button><button type="button" class="sync-task" data-sync-select="${escapeHtml(m.songId)}" data-task="${escapeHtml(m.track)}" data-from-beat="${m.beat}" title="Show this bar on the ${SYNC_CHORD_TRACKS[m.track]} track in Ableton">Bar ${m.song_bar} <span class="muted">(${m.bar})</span></button><span class="sync-change">${syncChordDescription(m)}</span>${m.allowed ? '' : `<span class="sync-actions"><button type="button" class="button quiet sync-apply" data-sync-dismiss="${escapeHtml(`${m.songId}|${m.taskKey}`)}" title="Fixed it in Ableton: hide until the next Read Ableton set">Dismiss</button>`}<button type="button" class="button quiet sync-apply" data-sync-chord="${escapeHtml(`${m.songId}|${m.taskKey}`)}" data-allow="${m.allowed ? '0' : '1'}" title="${m.allowed ? 'Show this again' : 'This difference is intended; stop showing it'}">${m.allowed ? 'Undo' : 'Allow'}</button>${m.allowed ? '' : '</span>'}</li>`;
+  const chordRow = (m) => `<li class="sync-row sync-chord-row${m.allowed ? ' sync-snoozed' : ''}"><button type="button" class="sync-song" data-sync-jump="${escapeHtml(m.songId)}" title="Jump to this song in Ableton"><span class="song-id">${escapeHtml(m.songId)}</span><span>${escapeHtml(m.songName)}</span></button><button type="button" class="sync-task" data-sync-select="${escapeHtml(m.songId)}" data-task="${escapeHtml(m.track)}" data-from-beat="${m.beat}" title="Show this bar on the ${SYNC_CHORD_TRACKS[m.track]} track in Ableton">Bar ${m.song_bar} <span class="muted">(${m.bar})</span></button><span class="sync-change">${syncChordDescription(m)}</span>${m.allowed ? '' : `<span class="sync-actions"><button type="button" class="button quiet sync-apply" data-sync-dismiss="${escapeHtml(`${m.songId}|${m.taskKey}`)}" title="Fixed it in Ableton: hide until the next Sync Ableton Set">Dismiss</button>`}<button type="button" class="button quiet sync-apply" data-sync-chord="${escapeHtml(`${m.songId}|${m.taskKey}`)}" data-allow="${m.allowed ? '0' : '1'}" title="${m.allowed ? 'Show this again' : 'This difference is intended; stop showing it'}">${m.allowed ? 'Undo' : 'Allow'}</button>${m.allowed ? '' : '</span>'}</li>`;
   const metaRows = meta.map((item) => {
     const key = `m:${item.songId}:${item.field}`;
     return `<li class="sync-row"><button type="button" class="sync-song" data-sync-jump="${escapeHtml(item.songId)}" title="Jump to this song in Ableton"><span class="song-id">${escapeHtml(item.songId)}</span><span>${escapeHtml(item.songName)}</span></button><span class="sync-field">${SYNC_FIELD_LABELS[item.field]}</span><span class="sync-change"><s>${escapeHtml(String(syncValueLabel(item.field, item.from)))}</s> → <b>${escapeHtml(String(syncValueLabel(item.field, item.to)))}</b></span><button type="button" class="button sync-apply" data-sync-meta="${escapeHtml(key)}" ${busy(key)}>Apply</button></li>`;
@@ -2916,7 +2916,7 @@ function renderSyncPage() {
       ${snoozed.length ? `<button type="button" class="sync-snoozed-toggle" data-sync-toggle-snoozed aria-expanded="${sync.showSnoozed}">${sync.showSnoozed ? 'Hide' : 'Show'} ${snoozed.length} snoozed</button>${sync.showSnoozed ? `<ul class="sync-list">${snoozedRows}</ul>` : ''}` : ''}</section>
     <section class="sync-card"><header><h2>Chord mismatches <span>${chordOpen.length}</span></h2></header>
       <p class="muted">Chords that differ between the Chords track and the Guitar + or Keyboard + track. Bar is the bar within the song; Ableton's bar is in brackets. Click it to see it in Ableton. Fixed it? Press Dismiss (it stays hidden until the next read). Intended? Press Allow.
-      ${!sync.snapshot.songs || Object.values(sync.snapshot.songs).some((d) => d.chord_mismatches) ? (chordOpen.length ? `<ul class="sync-list">${chordOpen.map(chordRow).join('')}</ul>` : '<p class="sync-empty">Guitar and Keyboard chords match the Chords track.</p>') : '<p class="sync-empty">Press Read Ableton set again (TSPWork 1.10.1 or later is needed to check chords).</p>'}
+      ${!sync.snapshot.songs || Object.values(sync.snapshot.songs).some((d) => d.chord_mismatches) ? (chordOpen.length ? `<ul class="sync-list">${chordOpen.map(chordRow).join('')}</ul>` : '<p class="sync-empty">Guitar and Keyboard chords match the Chords track.</p>') : '<p class="sync-empty">Press Sync Ableton Set again (TSPWork 1.10.1 or later is needed to check chords).</p>'}
       ${chordAllowed.length ? `<button type="button" class="sync-snoozed-toggle" data-sync-toggle-allowed aria-expanded="${!!sync.showAllowed}">${sync.showAllowed ? 'Hide' : 'Show'} ${chordAllowed.length} allowed</button>${sync.showAllowed ? `<ul class="sync-list">${chordAllowed.map(chordRow).join('')}</ul>` : ''}` : ''}</section>
     <section class="sync-card"><header><h2>Song details <span>${meta.length}</span></h2>${meta.length ? '<button type="button" class="button" data-sync-all="meta">Apply all</button>' : ''}</header>
       <p class="muted">Name and starting key read from Ableton. Duration and tempo are updated automatically on every read. Ableton's spelling wins; TSP Work keeps Title Case.</p>
@@ -3095,6 +3095,48 @@ function readProgressTick() {
 
 // Reading the saved set takes ~20 s (separate python) to several minutes (inside Live).
 const SET_READ_TIMEOUT_MS = 15 * 60 * 1000;
+async function pendingAbletonLyricsEdits() {
+  const [{ data: edits, error: editError }, { data: baselines, error: baselineError }] = await Promise.all([
+    db.from('song_lyrics_edits').select('song_id,track_slug,lines,updated_at'),
+    db.from('song_lyrics').select('song_id,tracks')
+  ]);
+  if (editError) throw editError;
+  if (baselineError) throw baselineError;
+  const baselineBySong = new Map((baselines || []).map((row) => [row.song_id, row]));
+  const updates = []; const rowsToClear = [];
+  for (const edit of edits || []) {
+    const baseSong = baselineBySong.get(edit.song_id);
+    const baseTrack = baseSong?.tracks?.find((track) => track.slug === edit.track_slug);
+    if (!baseTrack) throw new Error(`No saved Ableton baseline for ${edit.song_id} · ${edit.track_slug}. Keep the edit in Practice and sync Ableton first.`);
+    const baseLines = [...(baseTrack.lines || [])].sort((x, y) => Number(x.t) - Number(y.t));
+    const lines = [...(edit.lines || [])].sort((x, y) => Number(x.t) - Number(y.t));
+    updates.push({ song_id: edit.song_id, track_slug: edit.track_slug, base_lines: baseLines, lines });
+    rowsToClear.push({ song_id: edit.song_id, track_slug: edit.track_slug, updated_at: edit.updated_at, lines });
+  }
+  return { updates, rowsToClear };
+}
+async function syncLyricsToTestCopy() {
+  const pending = await pendingAbletonLyricsEdits();
+  const result = await abletonRequest('/sync-lyrics', { edits: pending.updates }, SET_READ_TIMEOUT_MS);
+  if (!result?.ok) {
+    if (result?.error === 'wrong_open_set') throw new Error(`Open the Ableton test copy before syncing. TSPWork sees: ${result.open_path || 'no saved set'}`);
+    throw new Error(result?.message || result?.detail || result?.error || 'Could not sync lyric edits to the Ableton test copy.');
+  }
+  sync.writebackRows = pending.rowsToClear;
+  return result;
+}
+async function clearSyncedLyricsOverrides(snapshot) {
+  const rows = sync.writebackRows || [];
+  for (const row of rows) {
+    const saved = snapshot?.songs?.[row.song_id]?.lyrics?.tracks?.find((track) => track.slug === row.track_slug)?.lines || [];
+    const edited = row.lines || [];
+    if (saved.length !== edited.length || saved.some((line, i) => line.text !== edited[i]?.text)) {
+      throw new Error(`Ableton’s saved readback didn’t match ${row.song_id} · ${row.track_slug}; the Practice edit was kept.`);
+    }
+    const { error } = await db.from('song_lyrics_edits').delete().eq('song_id', row.song_id).eq('track_slug', row.track_slug).eq('updated_at', row.updated_at);
+    if (error) throw error;
+  }
+}
 async function readAbletonSet() {
   if (!abletonBridge.connected) { await probeAbletonBridge(); }
   if (!abletonBridge.connected) { renderSyncStatus(); showNotice('Ableton is not connected.', true); return; }
@@ -3103,6 +3145,9 @@ async function readAbletonSet() {
   readProgressStart();
   if (state.view === 'sync') renderSyncPage(); else renderSyncStatus();
   try {
+    // Write shared lyric edits first. TSPWork refuses unless the exact test copy is open.
+    readProgressStep('Syncing lyrics to the Ableton test copy…', 0);
+    await syncLyricsToTestCopy();
     // TSPWork does one thing at a time (a read takes a few minutes). If it's
     // still busy with something else (another window's read, a jump), wait for it.
     let result = null;
@@ -3127,7 +3172,7 @@ async function readAbletonSet() {
     // Lyrics for the Practice page come from this read.
     readProgressStep('Saving lyrics for Practice…', 1);
     if (Object.values(sync.snapshot.songs || {}).some((song) => song.lyrics)) {
-      try { sync.lyricsSaved = await saveSongLyrics(sync.snapshot); } catch (error) { sync.lyricsSaved = null; showNotice(`Lyrics were not saved for Practice: ${error.message}`, true); }
+      try { sync.lyricsSaved = await saveSongLyrics(sync.snapshot); await clearSyncedLyricsOverrides(sync.snapshot); } catch (error) { sync.lyricsSaved = null; showNotice(`Lyrics were not fully saved for Practice: ${error.message}`, true); }
     }
     // Practice audio: the set's current track fingerprints (yellow = changed since upload).
     readProgressStep('Saving audio fingerprints…', 2);
@@ -4978,7 +5023,7 @@ $('#practice-upload').addEventListener('drop', async (event) => {
 // ---------------------------------------------------------------------------
 // Lyrics on the Practice page, the way AbleSet shows them: every clip on a
 // +LYRICS track is a line ([C] chords inline, (notes), [labels]); SECTIONS
-// clips are headings. Saved by the admin's last "Read Ableton set" (song_lyrics),
+// clips are headings. Saved by the admin's last "Sync Ableton Set" (song_lyrics),
 // timed in seconds from the song start, so they follow the practice audio.
 // The chosen lyrics track and text size are kept on this device across songs.
 const LYRICS_PREFS_KEY = 'tsp-practice-lyrics-v2';
@@ -5628,7 +5673,7 @@ $('#practice-lyrics').addEventListener('click', (event) => {
   }
 });
 
-// Saved on each admin "Read Ableton set": one row per song with its lyrics.
+// Saved on each admin "Sync Ableton Set": one row per song with its lyrics.
 async function saveSongLyrics(snapshot) {
   const known = new Set(state.songs.map((song) => song.id));
   const rows = Object.entries(snapshot?.songs || {})
