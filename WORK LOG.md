@@ -143,3 +143,11 @@ Keep this file and the repository copy in sync for every meaningful project step
 - Downloaded `I1 - Part - Bass.mp3` successfully from the local preview.
 - Loaded all 11 I1 multitrack rows successfully. During R2 rule propagation, one track failed once; it remained visible and loaded on retry. This confirmed the retry path and that the section no longer disappears.
 - JavaScript syntax check passed. The fixes and this log update remain in draft PR #62; nothing was merged or deployed.
+
+### 2026-11-10 — App changes live on main
+
+- Aaron asked for future app changes to go directly to `main`; PR #62 was marked ready and merged by squash to `c573f7c4fafb6977366dc7d6d43d2dcd7100f755`.
+- GitHub Pages deployment run [42820991309](https://github.com/aaronmark2222/tsp-band-app-live/actions/runs/42820991309) completed successfully.
+- Opened the deployed site at https://aaronmark2222.github.io/tsp-band-app-live/ and confirmed it serves `app.js?v=20261110-practice-mp3b` and `styles.css?v=20261110-practice-mp3b`, with the sign-in page loading and no browser console errors. I did not enter credentials on the live site.
+- Verified the download and multitrack behaviors in the local preview before merging: an I1 bass stem downloaded as MP3, and all 11 I1 multitrack tracks loaded after retry.
+- Updated the local and GitHub WORK LOG copies after the merge. The production app is now live.
