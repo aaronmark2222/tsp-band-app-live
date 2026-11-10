@@ -1021,7 +1021,6 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .ab-silent .ab-title { filter: saturate(.25) brightness(.7); }
 .ab-silent .ab-controls { opacity: .65; }
 .ab-silent .ab-meter span { background: #969696 !important; box-shadow: none !important; }
-.ab-mine { outline: 2px solid #f39a26; outline-offset: -2px; }
 .practice-drop { display: grid; place-items: center; min-height: 90px; border: 2px dashed #4a4a4a; border-radius: 6px; color: #bdbdbd; cursor: pointer; text-align: center; padding: 12px; }
 .practice-drop.over { border-color: #f39a26; color: #f39a26; }
 .practice-drop input { display: none; }

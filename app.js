@@ -4377,13 +4377,13 @@ function practiceMultiTracks() {
   return practice.tracks.filter((t) => t.element !== 'Mixdown');
 }
 
-function practiceTrackRowMarkup(t, i, { loaded, anySolo, myTaskKeys = new Set() }) {
+function practiceTrackRowMarkup(t, i, { loaded, anySolo }) {
   const st = practiceTrackSetting(t.element);
   const audible = anySolo ? st.solo : st.on; // solo plays a track even if it's switched off
   const ls = practice.loadState.get(t.element);
   const dbLabel = st.vol > 0 ? (20 * Math.log10(st.vol)).toFixed(1) : '-inf';
-  return `<li class="ab-track ${audible ? '' : 'ab-silent'} ${myTaskKeys.has(t.element) ? 'ab-mine' : ''}" data-element="${escapeHtml(t.element)}" style="--track-color:${practiceColor(t.element)};--track-ink:${practiceInk(practiceColor(t.element))}">
-    <div class="ab-title"><span class="ab-name">${escapeHtml(t.element)}${myTaskKeys.has(t.element) ? ' <small>yours</small>' : ''}</span>${ls === 'error' ? '<small class="ab-err">failed</small>' : ls === 'loading' ? '<small>loading…</small>' : ''}</div>
+  return `<li class="ab-track ${audible ? '' : 'ab-silent'}" data-element="${escapeHtml(t.element)}" style="--track-color:${practiceColor(t.element)};--track-ink:${practiceInk(practiceColor(t.element))}">
+    <div class="ab-title"><span class="ab-name">${escapeHtml(t.element)}</span>${ls === 'error' ? '<small class="ab-err">failed</small>' : ls === 'loading' ? '<small>loading…</small>' : ''}</div>
     <div class="ab-controls">
       <button type="button" class="ab-activator ${st.on ? 'on' : ''}" data-practice-on="${escapeHtml(t.element)}" aria-pressed="${st.on}" title="${loaded ? 'Track on/off' : 'Load the multitrack first'}" ${loaded ? '' : 'disabled'}>${i + 1}</button>
       <button type="button" class="ab-solo ${st.solo ? 'on' : ''}" data-practice-solo="${escapeHtml(t.element)}" aria-pressed="${st.solo}" title="${loaded ? 'Solo (Cmd/Ctrl-click to add)' : 'Load the multitrack first'}" ${loaded ? '' : 'disabled'}>S</button>
@@ -4402,9 +4402,8 @@ function renderPracticeMultitrack() {
   const failed = tracks.filter((t) => practice.loadState.get(t.element) === 'error').length;
   const totalMb = tracks.reduce((sum, t) => sum + (t.bytes || 0), 0) / 1048576;
   const anySolo = tracks.some((t) => practiceTrackSetting(t.element).solo);
-  const myTaskKeys = new Set(Object.entries(PRACTICE_TASK).filter(([, key]) => state.taskTypes.find((type) => type.key === key)?.owner_member_id === state.member?.id).map(([element]) => element));
   const lock = loaded ? '' : 'disabled';
-  const rows = tracks.map((t, i) => practiceTrackRowMarkup(t, i, { loaded, anySolo, myTaskKeys })).join('');
+  const rows = tracks.map((t, i) => practiceTrackRowMarkup(t, i, { loaded, anySolo })).join('');
   box.innerHTML = `<header><h2>Multitrack</h2><span class="muted">${tracks.length} tracks · ${totalMb.toFixed(0)} MB</span></header>
     ${loaded ? `<div class="ab-transport">
         <button type="button" class="pt-pick ${ptMode() === 'multi' ? 'on' : ''}" data-pt-mode="multi">${ptMode() === 'multi' ? '● Using the Multitrack' : 'Play the Multitrack'}</button>
@@ -6081,8 +6080,7 @@ function ptMixerRender() {
   const lock = loaded ? '' : 'disabled';
   const usingMulti = ptEngine() === 'multi';
   const failed = tracks.filter((t) => practice.loadState.get(t.element) === 'error').length;
-  const myTaskKeys = new Set(Object.entries(PRACTICE_TASK).filter(([, key]) => state.taskTypes.find((type) => type.key === key)?.owner_member_id === state.member?.id).map(([element]) => element));
-  const rows = tracks.map((t, i) => practiceTrackRowMarkup(t, i, { loaded, anySolo, myTaskKeys })).join('');
+  const rows = tracks.map((t, i) => practiceTrackRowMarkup(t, i, { loaded, anySolo })).join('');
   box.innerHTML = `<header><b>Mixer</b>
       ${loaded ? `<button type="button" class="button quiet" data-practice-reset title="Reset all tracks: on, no solo, 0 dB (stems off)">Reset mix</button>` : ''}
       <button type="button" class="pm-btn pm-x" data-pm-close aria-label="Close mixer">✕</button></header>

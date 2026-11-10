@@ -161,3 +161,11 @@ Keep this file and the repository copy in sync for every meaningful project step
 - Bumped the app and style asset cache marker to `20261110-fullscreen-mixer-sync`.
 - Updated this WORK LOG in the local folder and on GitHub `main`. JavaScript syntax check passed.
 - GitHub Pages deployment run [42823581175](https://github.com/aaronmark2222/tsp-band-app-live/actions/runs/42823581175) completed successfully; the changes are live.
+
+
+### 2026-11-10 — Remove personal labels from multitrack rows
+
+- Removed the “yours” label and yellow outline from bass and all other multitrack rows in the main Practice section and fullscreen lyrics mixer, for every band member.
+- Kept each track’s existing on/off state, title, controls, and audio behavior unchanged.
+- Bumped the app and style cache marker to `20261110-neutral-track-rows`.
+- Updated this WORK LOG locally and on GitHub `main`. JavaScript syntax check passed; deployment is being checked.
