@@ -1697,3 +1697,9 @@ body>.pt-song-menu,body>.pt-work-popover{z-index:300;pointer-events:auto}
 
 /* Top-level glass menus can blur the page beyond the transport backdrop. */
 .pt-song-menu,.pt-work-popover{position:fixed;z-index:300;left:0;right:auto;top:0;bottom:auto}
+
+/* Match Practice popover backdrop blur to the fullscreen playback bar. */
+.pt-song-menu,.pt-work-popover{
+ -webkit-backdrop-filter:blur(22px) saturate(170%)!important;
+ backdrop-filter:blur(22px) saturate(170%)!important
+}
