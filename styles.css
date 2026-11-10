@@ -1103,6 +1103,7 @@ body.view-practice .shell { padding-bottom: 124px; }
 .pt-song b{flex:none;color:#f3a447;font:600 12px var(--mono)}
 .pt-song-arrow{flex:none;color:#8a8a8a;font-size:10px;margin-left:4px}
 .pt-song-menu{position:absolute;left:0;bottom:calc(100% + 10px);z-index:90;width:min(360px,calc(100vw - 20px));max-height:min(55vh,420px);overflow-y:auto;overscroll-behavior:contain;padding:6px;background:#202420;border:1px solid #414941;border-radius:10px;box-shadow:0 12px 34px #0009}
+.pt-song-menu{box-sizing:border-box}
 .pt-song-option{display:grid;grid-template-columns:24px 54px minmax(0,1fr);align-items:center;gap:8px;width:100%;min-height:38px;padding:7px 9px;border:0;border-radius:6px;background:transparent;color:#ddd;text-align:left;font-size:12px}
 .pt-song-option:hover,.pt-song-option.current{background:#344132;color:#fff}
 .pt-song-option.current{box-shadow:inset 3px 0 #c6ee78}
@@ -1163,6 +1164,23 @@ body.view-practice .shell { padding-bottom: 124px; }
 .pt-work.open { color: #f3a447; }
 .pt-ready { color: #bdbdbd; }
 .pt-ready.is-ready { background: #1f4d2a; color: #b8f5c4; }
+.pt-chip.pt-readonly{border:1px dashed rgba(180,195,180,.25);background:rgba(255,255,255,.025);color:#89958b;font-size:10px;letter-spacing:.035em;cursor:default}
+.pt-chip.pt-readonly b{color:#c6d0c6;font-size:12px}
+.pt-work-anchor{position:relative;display:inline-flex;flex:none}
+button.pt-chip.pt-work-toggle{border:1px solid rgba(243,154,38,.5);background:rgba(243,154,38,.12);color:#f1b56a;font:inherit;cursor:pointer}
+button.pt-chip.pt-work-toggle:hover,button.pt-chip.pt-work-toggle.open{border-color:#f39a26;background:rgba(243,154,38,.25);color:#ffd08a}
+.pt-work-popover{position:absolute;right:0;bottom:calc(100% + 10px);z-index:100;width:min(360px,calc(100vw - 20px));max-height:min(55vh,440px);overflow:auto;overscroll-behavior:contain;padding:10px 12px;background:#202420;border:1px solid #414941;border-radius:10px;box-shadow:0 12px 34px #0009;color:#e2e8df;text-align:left;white-space:normal}
+.pt-work-popover>header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:0 0 8px;padding:0 0 8px;border-bottom:1px solid rgba(255,255,255,.1);font-size:12px}
+.pt-work-popover>header b{color:#f39a26;font:600 11px var(--mono)}
+.pt-work-popover>header button{flex:none;width:26px;height:26px;padding:0;border:0;border-radius:50%;background:rgba(255,255,255,.08);color:#ddd;font-size:18px}
+.pt-work-section{margin:8px 0 0}
+.pt-work-section h3{margin:0 0 6px;color:#9ba99b;font:500 10px var(--mono);letter-spacing:.06em;text-transform:uppercase}
+.pt-work-owner{padding:6px 0;border-top:1px solid rgba(255,255,255,.06)}
+.pt-work-owner h4{margin:0 0 4px;color:#f0f3ed;font-size:11px;font-weight:600}
+.pt-work-owner ul{list-style:none;margin:0;padding:0;display:grid;gap:3px}
+.pt-work-owner li{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;color:#b7c0b5;font-size:11px}
+.pt-work-owner li small{flex:none;color:#a5b1a5;font-size:10px}
+.pt-work-empty,.pt-work-waiting{margin:0;padding:5px 0;color:#b4c0b4;font-size:11px}
 body { padding-top: env(safe-area-inset-top); }
 @media (max-width: 760px) {
   .pt-bar { padding-top: 8px; padding-bottom: max(18px, calc(10px + env(safe-area-inset-bottom))); }
@@ -1261,6 +1279,8 @@ body { padding-top: env(safe-area-inset-top); }
 
 /* Offline: read-only notice at the top of the app. */
 #offline-banner { position: sticky; top: 0; z-index: 90; padding: 8px 14px; background: #3a3112; color: #ffe3a1; font-size: 13px; text-align: center; border-bottom: 1px solid #000; }
+#offline-banner.online{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap}
+#offline-banner .button{padding:6px 14px;border-radius:999px;font-size:12px}
 
 /* 2026-11-08 test-pass fixes */
 /* Songs list grows with the page instead of a small inner scroll box. */

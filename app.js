@@ -206,7 +206,14 @@ function enterOfflineMode() {
   banner.textContent = `You're offline — showing what was saved on this device${dataCacheGet()?.at ? ` (${new Date(dataCacheGet().at).toLocaleString()})` : ''}. Changes need a connection.`;
   document.body.prepend(banner);
 }
-window.addEventListener('online', () => { if (appOffline.active) { const b = $('#offline-banner'); if (b) b.textContent = 'Back online — reload to get the latest data.'; } });
+window.addEventListener('online', () => {
+  if (!appOffline.active) return;
+  const banner = $('#offline-banner');
+  if (!banner) return;
+  banner.classList.add('online');
+  banner.innerHTML = '<span>Back online — reload to get the latest data.</span><button type="button" class="button primary" data-offline-reload>Reload</button>';
+  banner.querySelector('[data-offline-reload]')?.addEventListener('click', () => location.reload());
+});
 
 async function loadMember(user) {
   const { data, error } = await db.from('members').select('id,name,slug,instrument,is_admin,must_change_password,role').eq('user_id', user.id).maybeSingle();
@@ -4243,6 +4250,7 @@ async function practiceOpenSong(songId) {
   document.querySelector('.practice-layout')?.classList.add('practice-switching');
   practice.songId = songId;
   ptSongPickerOpen = false;
+  ptWorkOpen = false;
   try { localStorage.setItem('tsp-practice-song', songId); } catch { /* ignore */ }
   practice.tracks = [];
   practice.tracks.songId = songId;
@@ -5478,6 +5486,7 @@ async function saveSongLyrics(snapshot) {
 // player is chosen (Mixdown or Multitrack); both follow its single playhead.
 const PT_MODE_KEY = 'tsp-practice-mode';
 let ptSongPickerOpen = false;
+let ptWorkOpen = false;
 function ptMode() {
   let mode = 'mix';
   try { mode = sessionStorage.getItem(PT_MODE_KEY) || 'mix'; } catch { /* ignore */ }
@@ -5640,7 +5649,20 @@ function ptRender() {
     <div class="pt-lcd pt-dim">${ptTime(dur)}</div>
     <div class="pt-info">${ptInfoHtml(song)}</div>`;
   if (ptMixer.open) requestAnimationFrame(ptMixerPlace);
+  if (ptSongPickerOpen) requestAnimationFrame(ptPlaceSongPicker);
 }
+function ptPlaceSongPicker() {
+  const wrap = document.querySelector('#practice-transport .pt-song-wrap');
+  const menu = wrap?.querySelector('.pt-song-menu');
+  if (!wrap || !menu || !ptSongPickerOpen) return;
+  const wrapRect = wrap.getBoundingClientRect();
+  const width = Math.min(menu.getBoundingClientRect().width, window.innerWidth - 16);
+  const left = Math.max(8, Math.min(wrapRect.left, window.innerWidth - width - 8));
+  menu.style.width = `${width}px`;
+  menu.style.left = `${left - wrapRect.left}px`;
+  menu.style.right = 'auto';
+}
+window.addEventListener('resize', () => { if (ptSongPickerOpen) ptPlaceSongPicker(); });
 function ptTick() {
   const bar = $('#practice-transport');
   if (!bar || bar.classList.contains('hidden')) return;
@@ -5707,15 +5729,43 @@ function ptLive(pos) {
   }
   return { key, bar, bpm: bpm ? `${Math.round(bpm)} BPM` : '— BPM' };
 }
+function ptWorkOwnerGroups(items) {
+  if (!items.length) return '<p class="pt-work-empty">No outstanding required tasks.</p>';
+  const groups = new Map();
+  for (const item of items) {
+    const ownerId = item.owner_member_id || 'unassigned';
+    if (!groups.has(ownerId)) groups.set(ownerId, []);
+    groups.get(ownerId).push(item);
+  }
+  return [...groups.entries()].map(([ownerId, ownerItems]) => {
+    const owner = ownerId === 'unassigned' ? null : state.members.find((member) => member.id === ownerId);
+    return `<section class="pt-work-owner"><h4>${escapeHtml(owner?.name || 'Unassigned')}</h4><ul>${ownerItems.map((item) => `<li><span>${escapeHtml(item.type.label)}</span><small>${escapeHtml(item.status)}</small></li>`).join('')}</ul></section>`;
+  }).join('');
+}
+function ptWorkPopoverHtml(song) {
+  const required = songWorkItems(song.id).filter((item) => !isWorkItemDone(item));
+  const optional = songWorkItems(song.id, true).filter((item) => item.category === 'part' && !isWorkItemDone(item));
+  const waitingForMix = song.backing_track_manual === 'Sent to Mix';
+  return `<div class="pt-work-popover" role="dialog" aria-label="Remaining work for ${escapeHtml(song.id)}">
+    <header><span><b>${escapeHtml(song.id)}</b> · ${escapeHtml(song.name)}</span><button type="button" data-pt-work-close aria-label="Close work remaining">×</button></header>
+    <section class="pt-work-section"><h3>Required work</h3>${ptWorkOwnerGroups(required)}</section>
+    ${optional.length ? `<section class="pt-work-section optional"><h3>Optional parts</h3>${ptWorkOwnerGroups(optional)}</section>` : ''}
+    ${!required.length && waitingForMix ? '<p class="pt-work-waiting">Required work is complete. Waiting on the mix.</p>' : ''}
+  </div>`;
+}
 function ptInfoHtml(song) {
   if (!song) return '';
   const live = ptLive(ptPosition());
   const readiness = (state.readiness || []).find((row) => row.song_id === song.id);
   const ready = !!readiness?.ready;
   const bandLeft = remainingWork(song.id);
-  return `<span class="pt-chip">Key <b id="pt-key">${escapeHtml(live.key)}</b></span>
-    <span class="pt-chip"><b id="pt-bpm">${escapeHtml(live.bpm)}</b></span>
-    <span class="pt-chip pt-ready ${ready ? 'is-ready' : ''}">${ready ? 'Ready' : `Not ready${bandLeft ? ` · ${bandLeft} left` : ''}`}</span>`;
+  const workLabel = ready ? 'Ready' : bandLeft ? `Not ready · ${bandLeft} left` : song.backing_track_manual === 'Sent to Mix' ? 'Waiting on mix' : 'Not ready';
+  const workStatus = ready
+    ? `<span class="pt-chip pt-ready is-ready" aria-label="Song is ready">${workLabel}</span>`
+    : `<span class="pt-work-anchor"><button type="button" class="pt-chip pt-ready pt-work-toggle ${ptWorkOpen ? 'open' : ''}" data-pt-work aria-haspopup="dialog" aria-expanded="${ptWorkOpen}">${workLabel}</button>${ptWorkOpen ? ptWorkPopoverHtml(song) : ''}</span>`;
+  return `<span class="pt-chip pt-readonly" aria-label="Key, read only">Key <b id="pt-key">${escapeHtml(live.key)}</b></span>
+    <span class="pt-chip pt-readonly" aria-label="Tempo, read only"><b id="pt-bpm">${escapeHtml(live.bpm)}</b></span>
+    ${workStatus}`;
 }
 function ptQueueLabel() {
   const list = practice.songList || state.songs;
@@ -5899,8 +5949,25 @@ document.addEventListener('change', (event) => {
   requestAnimationFrame(ptLoop);
 })();
 document.addEventListener('click', (event) => {
+  const workToggle = event.target.closest('#practice-transport [data-pt-work]');
+  if (workToggle) {
+    ptWorkOpen = !ptWorkOpen;
+    ptSongPickerOpen = false;
+    ptRender();
+    return;
+  }
+  if (event.target.closest('#practice-transport [data-pt-work-close]')) {
+    ptWorkOpen = false;
+    ptRender();
+    return;
+  }
+  if (ptWorkOpen && !event.target.closest('#practice-transport .pt-work-anchor')) {
+    ptWorkOpen = false;
+    ptRender();
+  }
   const songToggle = event.target.closest('#practice-transport [data-pt-songs]');
   if (songToggle) {
+    ptWorkOpen = false;
     ptSongPickerOpen = !ptSongPickerOpen;
     ptRender();
     if (ptSongPickerOpen) document.querySelector('#practice-transport [data-pt-song-id][aria-current="true"]')?.focus({ preventScroll: true });
@@ -5990,10 +6057,12 @@ document.addEventListener('change', (event) => {
   if (event.target.id === 'pt-seek') ptSeek(Number(event.target.value));
 });
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && ptSongPickerOpen) {
+  if (event.key === 'Escape' && (ptSongPickerOpen || ptWorkOpen)) {
+    const focusSelector = ptWorkOpen ? '#practice-transport [data-pt-work]' : '#practice-transport [data-pt-songs]';
     ptSongPickerOpen = false;
+    ptWorkOpen = false;
     ptRender();
-    document.querySelector('#practice-transport [data-pt-songs]')?.focus({ preventScroll: true });
+    document.querySelector(focusSelector)?.focus({ preventScroll: true });
     return;
   }
   if (state.view !== 'practice' || event.code !== 'Space' || event.metaKey || event.ctrlKey || event.altKey) return;
