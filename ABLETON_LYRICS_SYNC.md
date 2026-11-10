@@ -24,3 +24,8 @@ The test-copy restriction must be deliberately changed before production use.
 ## If TSPWork does not appear in Live
 
 The Ableton install must be plain text, not Rich Text. If TextEdit saved `tspwork.py` as RTF, open it in TextEdit, choose **Format → Make Plain Text**, confirm conversion, then save while keeping the `.py` extension. The first line should begin with `"""TSPWork`; if it begins with `{\rtf1`, it is still Rich Text. Restart Live or reselect TSPWork after saving.
+
+
+## Lyrics editor save fix — 11 Nov 2026
+
+Fixed the editor markup so the save handler can find and collect the lyric rows. The prior markup omitted the `lyrics-edit-lines` element ID expected by the save code, which caused the click handler to stop before its visible error handling. Reload the app to receive this fix.
