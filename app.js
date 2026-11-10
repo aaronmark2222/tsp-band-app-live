@@ -4377,6 +4377,22 @@ function practiceMultiTracks() {
   return practice.tracks.filter((t) => t.element !== 'Mixdown');
 }
 
+function practiceTrackRowMarkup(t, i, { loaded, anySolo, myTaskKeys = new Set() }) {
+  const st = practiceTrackSetting(t.element);
+  const audible = anySolo ? st.solo : st.on; // solo plays a track even if it's switched off
+  const ls = practice.loadState.get(t.element);
+  const dbLabel = st.vol > 0 ? (20 * Math.log10(st.vol)).toFixed(1) : '-inf';
+  return `<li class="ab-track ${audible ? '' : 'ab-silent'} ${myTaskKeys.has(t.element) ? 'ab-mine' : ''}" data-element="${escapeHtml(t.element)}" style="--track-color:${practiceColor(t.element)};--track-ink:${practiceInk(practiceColor(t.element))}">
+    <div class="ab-title"><span class="ab-name">${escapeHtml(t.element)}${myTaskKeys.has(t.element) ? ' <small>yours</small>' : ''}</span>${ls === 'error' ? '<small class="ab-err">failed</small>' : ls === 'loading' ? '<small>loading…</small>' : ''}</div>
+    <div class="ab-controls">
+      <button type="button" class="ab-activator ${st.on ? 'on' : ''}" data-practice-on="${escapeHtml(t.element)}" aria-pressed="${st.on}" title="${loaded ? 'Track on/off' : 'Load the multitrack first'}" ${loaded ? '' : 'disabled'}>${i + 1}</button>
+      <button type="button" class="ab-solo ${st.solo ? 'on' : ''}" data-practice-solo="${escapeHtml(t.element)}" aria-pressed="${st.solo}" title="${loaded ? 'Solo (Cmd/Ctrl-click to add)' : 'Load the multitrack first'}" ${loaded ? '' : 'disabled'}>S</button>
+      <input type="range" class="ab-fader" min="0" max="1.413" step="0.001" value="${st.vol}" data-practice-vol="${escapeHtml(t.element)}" aria-label="${escapeHtml(t.element)} volume" ${loaded ? '' : 'disabled'}>
+      <span class="ab-db">${dbLabel}</span>
+      <span class="ab-meter"><span data-practice-meter="${escapeHtml(t.element)}"></span></span>
+    </div></li>`;
+}
+
 function renderPracticeMultitrack() {
   const box = $('#practice-multitrack');
   const tracks = practiceMultiTracks();
@@ -4388,22 +4404,7 @@ function renderPracticeMultitrack() {
   const anySolo = tracks.some((t) => practiceTrackSetting(t.element).solo);
   const myTaskKeys = new Set(Object.entries(PRACTICE_TASK).filter(([, key]) => state.taskTypes.find((type) => type.key === key)?.owner_member_id === state.member?.id).map(([element]) => element));
   const lock = loaded ? '' : 'disabled';
-  const rows = tracks.map((t, i) => {
-    const st = practiceTrackSetting(t.element);
-    const audible = anySolo ? st.solo : st.on; // solo plays a track even if it's switched off
-    const ls = practice.loadState.get(t.element);
-    const dbLabel = st.vol > 0 ? (20 * Math.log10(st.vol)).toFixed(1) : '-inf';
-    return `<li class="ab-track ${audible ? '' : 'ab-silent'} ${myTaskKeys.has(t.element) ? 'ab-mine' : ''}" data-element="${escapeHtml(t.element)}" style="--track-color:${practiceColor(t.element)};--track-ink:${practiceInk(practiceColor(t.element))}">
-      <div class="ab-title"><span class="ab-name">${escapeHtml(t.element)}${myTaskKeys.has(t.element) ? ' <small>yours</small>' : ''}</span>${ls === 'error' ? '<small class="ab-err">failed</small>' : ls === 'loading' ? '<small>loading…</small>' : ''}</div>
-      <div class="ab-controls">
-        <button type="button" class="ab-activator ${st.on ? 'on' : ''}" data-practice-on="${escapeHtml(t.element)}" aria-pressed="${st.on}" title="${loaded ? 'Track on/off' : 'Load the multitrack first'}" ${lock}>${i + 1}</button>
-        <button type="button" class="ab-solo ${st.solo ? 'on' : ''}" data-practice-solo="${escapeHtml(t.element)}" aria-pressed="${st.solo}" title="${loaded ? 'Solo (Cmd/Ctrl-click to add)' : 'Load the multitrack first'}" ${lock}>S</button>
-        <input type="range" class="ab-fader" min="0" max="1.413" step="0.001" value="${st.vol}" data-practice-vol="${escapeHtml(t.element)}" aria-label="${escapeHtml(t.element)} volume" ${lock}>
-        <span class="ab-db">${dbLabel}</span>
-        <span class="ab-meter"><span data-practice-meter="${escapeHtml(t.element)}"></span></span>
-        <a class="ab-dl" href="${escapeHtml(t.url)}" target="_blank" rel="noopener" title="Download ${escapeHtml(t.element)}">↓</a>
-      </div></li>`;
-  }).join('');
+  const rows = tracks.map((t, i) => practiceTrackRowMarkup(t, i, { loaded, anySolo, myTaskKeys })).join('');
   box.innerHTML = `<header><h2>Multitrack</h2><span class="muted">${tracks.length} tracks · ${totalMb.toFixed(0)} MB</span></header>
     ${loaded ? `<div class="ab-transport">
         <button type="button" class="pt-pick ${ptMode() === 'multi' ? 'on' : ''}" data-pt-mode="multi">${ptMode() === 'multi' ? '● Using the Multitrack' : 'Play the Multitrack'}</button>
@@ -4767,7 +4768,7 @@ function practiceMixInput(event) {
   // Keep both copies of this fader in step without redrawing the one being dragged.
   document.querySelectorAll(`[data-practice-vol="${CSS.escape(el)}"]`).forEach((input) => {
     if (input !== fader) input.value = vol;
-    const db = input.parentElement.querySelector('.ab-db, .pm-db');
+    const db = input.closest('li')?.querySelector('.ab-db, .pm-db');
     if (db) db.textContent = label;
   });
   return true;
@@ -6079,23 +6080,15 @@ function ptMixerRender() {
   const anySolo = tracks.some((t) => practiceTrackSetting(t.element).solo);
   const lock = loaded ? '' : 'disabled';
   const usingMulti = ptEngine() === 'multi';
-  const rows = tracks.map((t, i) => {
-    const st = practiceTrackSetting(t.element);
-    const audible = anySolo ? st.solo : st.on;
-    const dbLabel = st.vol > 0 ? (20 * Math.log10(st.vol)).toFixed(1) : '-inf';
-    return `<li class="pm-row ${audible ? '' : 'pm-silent'}" style="--track-color:${practiceColor(t.element)};--track-ink:${practiceInk(practiceColor(t.element))}">
-      <button type="button" class="pm-on ${st.on ? 'on' : ''}" data-practice-on="${escapeHtml(t.element)}" aria-pressed="${st.on}" title="Track on/off" ${lock}>${i + 1}</button>
-      <span class="pm-name" title="${escapeHtml(t.element)}">${escapeHtml(t.element.replace(/^(Stem|Part) - /, ''))}</span>
-      <button type="button" class="pm-solo ${st.solo ? 'on' : ''}" data-practice-solo="${escapeHtml(t.element)}" aria-pressed="${st.solo}" title="Solo (Cmd/Ctrl-click to add)" ${lock}>S</button>
-      <span class="pm-fade"><input type="range" class="pm-fader" min="0" max="1.413" step="0.001" value="${st.vol}" data-practice-vol="${escapeHtml(t.element)}" aria-label="${escapeHtml(t.element)} volume" ${lock}><span class="pm-meter"><span data-practice-meter="${escapeHtml(t.element)}"></span></span></span>
-      <span class="pm-db">${dbLabel}</span></li>`;
-  }).join('');
+  const failed = tracks.filter((t) => practice.loadState.get(t.element) === 'error').length;
+  const myTaskKeys = new Set(Object.entries(PRACTICE_TASK).filter(([, key]) => state.taskTypes.find((type) => type.key === key)?.owner_member_id === state.member?.id).map(([element]) => element));
+  const rows = tracks.map((t, i) => practiceTrackRowMarkup(t, i, { loaded, anySolo, myTaskKeys })).join('');
   box.innerHTML = `<header><b>Mixer</b>
-      ${loaded ? `<button type="button" class="pm-btn" data-practice-reset title="All tracks on, no solo, 0 dB (stems off)">Reset</button>` : ''}
+      ${loaded ? `<button type="button" class="button quiet" data-practice-reset title="Reset all tracks: on, no solo, 0 dB (stems off)">Reset mix</button>` : ''}
       <button type="button" class="pm-btn pm-x" data-pm-close aria-label="Close mixer">✕</button></header>
-    ${!loaded ? `<div class="pm-note">${loading ? `Downloading tracks… ${done}/${tracks.length}` : `<button type="button" class="pm-btn pm-primary" data-practice-load>Load multitrack (${totalMb.toFixed(0)} MB)</button>`}</div>`
-      : usingMulti ? '' : `<div class="pm-note">Playing the Mixdown. <button type="button" class="pm-btn pm-primary" data-pm-use>Use the Multitrack</button></div>`}
-    <ul class="pm-tracks ${loaded ? '' : 'pm-locked'}">${rows}</ul>`;
+    ${!loaded ? `<div class="pm-note">${loading ? `Downloading tracks… ${done}/${tracks.length}` : `<button type="button" class="button primary" data-practice-load>Load multitrack (${totalMb.toFixed(0)} MB)</button>${failed ? `<span>${failed} track${failed === 1 ? '' : 's'} failed to load. Select Load multitrack to retry.</span>` : ''}`}</div>`
+      : usingMulti ? '' : `<div class="pm-note">Playing the Mixdown. <button type="button" class="button primary" data-pm-use>Use the Multitrack</button></div>`}
+    <ul class="ab-tracks pt-mixer-tracks ${loaded ? '' : 'ab-locked'}">${rows}</ul>`;
   box.classList.remove('hidden');
   ptMixerPlace();
 }

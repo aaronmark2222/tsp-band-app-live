@@ -151,3 +151,12 @@ Keep this file and the repository copy in sync for every meaningful project step
 - Opened the deployed site at https://aaronmark2222.github.io/tsp-band-app-live/ and confirmed it serves `app.js?v=20261110-practice-mp3b` and `styles.css?v=20261110-practice-mp3b`, with the sign-in page loading and no browser console errors. I did not enter credentials on the live site.
 - Verified the download and multitrack behaviors in the local preview before merging: an I1 bass stem downloaded as MP3, and all 11 I1 multitrack tracks loaded after retry.
 - Updated the local and GitHub WORK LOG copies after the merge. The production app is now live.
+
+
+### 2026-11-10 — Fullscreen mixer matches Practice multitrack
+
+- Reused the same track-row controls in the fullscreen lyrics mixer and the main Practice multitrack, including on/off, solo, volume, dB readout, and peak meter.
+- Off tracks now show grey peak signals in fullscreen; moving a fullscreen fader updates its own dB number and keeps the matching control in the main Practice section synchronized.
+- Removed the redundant per-track download arrow from the main multitrack list; downloads remain in the Download section.
+- Bumped the app and style asset cache marker to `20261110-fullscreen-mixer-sync`.
+- Updated this WORK LOG in the local folder and on GitHub `main`. JavaScript syntax and live deployment are being checked.
