@@ -4368,7 +4368,7 @@ function renderPracticePlayersInner() {
   renderOfflinePanel();
   ptRender();
   const files = practice.tracks.slice().sort((a, b) => (a.element === 'Mixdown' ? -1 : b.element === 'Mixdown' ? 1 : practiceRank(a.element) - practiceRank(b.element)));
-  dlBox.innerHTML = `<header><h2>Download</h2><span class="muted">MP3 files · AAC audio converts in your browser</span><button type="button" class="button quiet" data-practice-dl-all title="Download every file of this song">Download all (${files.length})</button></header>
+  dlBox.innerHTML = `<header><h2>Download</h2><button type="button" class="button quiet" data-practice-dl-all title="Download every file of this song">Download all (${files.length})</button></header>
     <ul class="practice-dl-list">${files.map((t) => `<li><span class="practice-dl-dot" style="background:${t.element === 'Mixdown' ? '#f39a26' : practiceColor(t.element)}"></span><span>${escapeHtml(t.element)}</span><small class="muted">${t.bytes ? `${(t.bytes / 1048576).toFixed(1)} MB` : ''}</small><button type="button" class="button quiet" data-practice-dl-track="${escapeHtml(t.element)}">Download MP3</button></li>`).join('')}</ul>`;
   practiceCheckLyricsLength();
 }
@@ -4383,6 +4383,7 @@ function renderPracticeMultitrack() {
   if (!tracks.length) { box.innerHTML = ''; return; }
   const loaded = tracks.every((t) => practice.buffers.has(t.element));
   const loading = tracks.some((t) => practice.loadState.get(t.element) === 'loading');
+  const failed = tracks.filter((t) => practice.loadState.get(t.element) === 'error').length;
   const totalMb = tracks.reduce((sum, t) => sum + (t.bytes || 0), 0) / 1048576;
   const anySolo = tracks.some((t) => practiceTrackSetting(t.element).solo);
   const myTaskKeys = new Set(Object.entries(PRACTICE_TASK).filter(([, key]) => state.taskTypes.find((type) => type.key === key)?.owner_member_id === state.member?.id).map(([element]) => element));
@@ -4408,7 +4409,7 @@ function renderPracticeMultitrack() {
         <button type="button" class="pt-pick ${ptMode() === 'multi' ? 'on' : ''}" data-pt-mode="multi">${ptMode() === 'multi' ? '● Using the Multitrack' : 'Play the Multitrack'}</button>
         <button type="button" class="button quiet" data-practice-reset title="Reset all tracks: on, no solo, 0 dB (stems off)">Reset mix</button>
       </div>`
-    : `<div class="ab-transport"><button type="button" class="button primary" data-practice-load ${loading ? 'disabled' : ''}>${loading ? 'Loading tracks…' : `Load multitrack (${totalMb.toFixed(0)} MB)`}</button><span class="muted">Downloads every track once so they play in sync.</span></div>`}
+    : `<div class="ab-transport"><button type="button" class="button primary" data-practice-load ${loading ? 'disabled' : ''}>${loading ? 'Loading tracks…' : `Load multitrack (${totalMb.toFixed(0)} MB)`}</button><span class="muted">${loading ? 'Preparing tracks to play in sync.' : failed ? `${failed} track${failed === 1 ? '' : 's'} failed to load. Select Load multitrack to retry.` : 'Downloads every track once so they play in sync.'}</span></div>`}
     <ul class="ab-tracks ${loaded ? '' : 'ab-locked'}">${rows}</ul>`;
   if (ptMixer.open) ptMixerRender();
 }
@@ -4513,8 +4514,7 @@ async function practiceLoadTracks() {
   };
   await Promise.all([worker(), worker()]);
   if (token !== practice.loadToken) return;
-  // Tracks that failed are dropped so the rest can still play.
-  practice.tracks = practice.tracks.filter((t) => t.element === 'Mixdown' || practice.buffers.has(t.element));
+  // Keep failed tracks visible and in the download list so members can retry.
   practice.tracks.songId = practice.songId;
   // Multitrack chosen and the Mixdown was standing in: carry on from the same spot.
   const audio = $('#practice-mix-audio');
