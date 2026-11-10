@@ -799,7 +799,7 @@ return "ok"
             except Exception:
                 pass
             time.sleep(0.25)
-        elif applied.get('changed', 0):
+        if applied.get('changed', 0) and os.path.getmtime(TEST_ALS_PATH) <= before:
             return {'ok': False, 'error': 'save_not_confirmed', 'changed': applied.get('changed', 0),
                     'message': 'Live did not update the test copy save time; Practice edits were kept.'}
         return {'ok': True, 'changed': applied.get('changed', 0), 'saved': True,
