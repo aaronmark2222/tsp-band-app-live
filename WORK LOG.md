@@ -59,13 +59,14 @@ Keep this file and the repository copy in sync for every meaningful project step
 - Songs and Ableton are linked by song ID. Ableton is the source for arrangement regions and derived playback metadata; Supabase is the source for ownership, statuses, readiness, gigs, setlists, and member accounts.
 - The local Ableton sync tool reads the saved `.als` read-only, suggests/apply task evidence, asks before metadata changes by default, and records runs. Never write or save the master `.als`.
 
-### Cloudflare / practice audio — verification pending
+### Cloudflare / practice audio — verified
 
-- Current project documentation identifies Cloudflare R2 bucket **`tsp-practice`**, used by the `practice-audio` Supabase Edge Function. The documented object pattern is `songs/<SONG ID>/<element-slug>.m4a` (some older `.mp3` files).
-- On 2026-11-10, Cloudflare connector calls for identity, accounts, and API search all failed with `Unknown tool`; the bucket and token permissions could not be read.
-- Tried the Cloudflare dashboard in Chrome and reached its GitHub sign-in page, which requires the user to authenticate. The browser is left at that sign-in step for handoff.
-- **Do not treat the documented bucket name as live-verified.** After Aaron completes sign-in/reconnects the Cloudflare connector, verify the authenticated account, list R2 buckets and confirm the exact `tsp-practice` bucket, then inspect current read/list/write permissions. Do not broaden or grant permissions without checking the exact required scope and asking at the action point.
-
+- Signed into Aaron's Cloudflare account and confirmed the correct R2 bucket is **`tsp-practice`**. The Cloudflare dashboard showed 655 objects totaling 3.14 GB; bucket **Public Access is Disabled**.
+- Cloudflare's R2 API Tokens page shows an active token scoped to `tsp-practice` with **Object Read & Write**. Cloudflare documents this S3-compatible API scope as read, write, and list on selected buckets; its S3 write actions include `PutObject` and `DeleteObject`.
+- The deployed Supabase `practice-audio` function (v7) names `tsp-practice` as its bucket and uses S3-compatible R2 signing for object listing/reads and admin uploads/deletes. Its R2 credential values remain in Supabase secrets and were not read or copied.
+- The bucket scope and permission level are sufficient for the documented app operations. No Cloudflare bucket, token, public-access, or permission settings were changed.
+- The Cloudflare API connector itself still fails (`whoami`, account listing, search, and execute return `Unknown tool`). Dashboard access works in the signed-in browser, which remains available for UI checks. The exact token secret configured in Supabase cannot be compared to the dashboard token without exposing secrets; no secret values were inspected.
+- References: [R2 API token permissions](https://developers.cloudflare.com/r2/api/tokens/) and [temporary S3 credential permissions](https://developers.cloudflare.com/r2/api/s3/temporary-credentials/).
 ### Local workspace vs. GitHub source
 
 - This local directory is not a Git checkout and has no Git remote.
@@ -95,5 +96,11 @@ Keep this file and the repository copy in sync for every meaningful project step
 
 - Re-read live Supabase table counts, migration ledger, and function versions. This refreshed several counts from the 2026-11-08 plan snapshot: `member_emails` 5, `task_status_log` 518, `app_meta` 3, and `practice_export_log` 71.
 - Renamed the local log to the requested `WORK LOG.md` filename and added the matching copy to the GitHub repository.
-- Retried Cloudflare's connector; calls still report `Unknown tool`. Opened the dashboard and reached GitHub authentication; waiting for Aaron to complete sign-in before verifying the account, bucket, or permissions.
+- Retried Cloudflare's connector; calls still report `Unknown tool`. Aaron signed into the dashboard, where the target R2 bucket and active bucket-scoped Object Read & Write token were verified.
 - No app, Supabase, Cloudflare, or Ableton data was changed.
+
+### 2026-11-10 — Verified Cloudflare R2 access
+
+- Confirmed the authenticated Cloudflare account contains the app's `tsp-practice` bucket, with 655 objects (3.14 GB) and public access disabled.
+- Confirmed an active R2 API token is scoped to this bucket with Object Read & Write, matching the deployed `practice-audio` function's list/read/upload/delete operations. No token secret was viewed or copied.
+- The Cloudflare API connector still returns `Unknown tool`, but the authenticated dashboard provides the bucket and token verification. No permissions or bucket settings were changed.
