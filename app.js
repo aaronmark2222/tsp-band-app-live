@@ -5611,7 +5611,6 @@ function ptTime(seconds) {
 function ptRender() {
   const bar = $('#practice-transport');
   if (!bar) return;
-  document.querySelectorAll('body > .pt-song-menu, body > .pt-work-popover').forEach((menu) => menu.remove());
   const song = state.songs.find((item) => item.id === practice.songId);
   const engine = ptEngine();
   // Stays on screen while the next song loads (only hidden when nothing is chosen).
@@ -5649,9 +5648,6 @@ function ptRender() {
     <input type="range" id="pt-seek" class="pt-seek" min="0" max="${dur.toFixed(2)}" step="0.05" value="${ptPosition().toFixed(2)}" aria-label="Position" ${off}>
     <div class="pt-lcd pt-dim">${ptTime(dur)}</div>
     <div class="pt-info">${ptInfoHtml(song)}</div>`;
-  // Portal both popovers to the document layer so fixed positioning escapes
-  // transformed fullscreen controls and their stacking context.
-  bar.querySelectorAll('.pt-song-menu, .pt-work-popover').forEach((menu) => document.body.append(menu));
   if (ptMixer.open) requestAnimationFrame(ptMixerPlace);
   if (ptSongPickerOpen) requestAnimationFrame(ptPlaceSongPicker);
   if (ptWorkOpen) requestAnimationFrame(ptPlaceWorkPopover);
@@ -5661,19 +5657,28 @@ function ptPlacePopover(menu, anchor) {
   const margin = 12;
   const viewportWidth = Math.min(window.innerWidth, document.documentElement.clientWidth || window.innerWidth);
   const viewportHeight = window.innerHeight;
+  const parent = menu.parentElement;
+  if (!parent) return;
+  const parentRect = parent.getBoundingClientRect();
+  const anchorRect = anchor.getBoundingClientRect();
   const width = Math.max(180, Math.min(360, viewportWidth - margin * 2));
-  menu.style.position = 'fixed';
-  menu.style.width = `${width}px`;
+  const maxHeight = Math.max(120, Math.min(440, viewportHeight - margin * 2, viewportHeight * .65));
+  menu.style.position = 'absolute';
+  menu.style.width = width + 'px';
+  menu.style.maxWidth = width + 'px';
+  menu.style.maxHeight = maxHeight + 'px';
   menu.style.left = '0px';
   menu.style.right = 'auto';
+  menu.style.top = '0px';
   menu.style.bottom = 'auto';
-  menu.style.maxHeight = `${Math.max(120, Math.min(440, viewportHeight - margin * 2, viewportHeight * .65))}px`;
-  const anchorRect = anchor.getBoundingClientRect();
-  const menuHeight = Math.min(menu.scrollHeight, parseFloat(menu.style.maxHeight));
+  const menuHeight = Math.min(menu.scrollHeight, maxHeight);
+  const above = anchorRect.top - margin;
+  const below = viewportHeight - anchorRect.bottom - margin;
+  const placeAbove = above >= menuHeight + 10 || above >= below;
+  const top = placeAbove ? Math.max(margin, anchorRect.top - menuHeight - 10) : Math.min(viewportHeight - menuHeight - margin, anchorRect.bottom + 10);
   const left = Math.max(margin, Math.min(anchorRect.right - width, viewportWidth - width - margin));
-  const top = Math.max(margin, Math.min(anchorRect.top - menuHeight - 10, viewportHeight - menuHeight - margin));
-  menu.style.left = `${left}px`;
-  menu.style.top = `${top}px`;
+  menu.style.left = (left - parentRect.left) + 'px';
+  menu.style.top = (top - parentRect.top) + 'px';
 }
 function ptPlaceSongPicker() {
   const wrap = document.querySelector('#practice-transport .pt-song-wrap');
@@ -5992,12 +5997,12 @@ document.addEventListener('click', (event) => {
     ptRender();
     return;
   }
-  if (event.target.closest('.pt-work-popover [data-pt-work-close]')) {
+  if (event.target.closest('#practice-transport [data-pt-work-close]')) {
     ptWorkOpen = false;
     ptRender();
     return;
   }
-  if (ptWorkOpen && !event.target.closest('#practice-transport .pt-work-anchor') && !event.target.closest('.pt-work-popover')) {
+  if (ptWorkOpen && !event.target.closest('#practice-transport .pt-work-anchor')) {
     ptWorkOpen = false;
     ptRender();
   }
@@ -6006,10 +6011,10 @@ document.addEventListener('click', (event) => {
     ptWorkOpen = false;
     ptSongPickerOpen = !ptSongPickerOpen;
     ptRender();
-    if (ptSongPickerOpen) document.querySelector('.pt-song-menu [data-pt-song-id][aria-current="true"]')?.focus({ preventScroll: true });
+    if (ptSongPickerOpen) document.querySelector('#practice-transport [data-pt-song-id][aria-current="true"]')?.focus({ preventScroll: true });
     return;
   }
-  const songChoice = event.target.closest('.pt-song-menu [data-pt-song-id]');
+  const songChoice = event.target.closest('#practice-transport [data-pt-song-id]');
   if (songChoice) {
     const songId = songChoice.dataset.ptSongId;
     ptSongPickerOpen = false;
@@ -6020,7 +6025,7 @@ document.addEventListener('click', (event) => {
     } else ptRender();
     return;
   }
-  if (ptSongPickerOpen && !event.target.closest('#practice-transport .pt-song-wrap') && !event.target.closest('.pt-song-menu')) {
+  if (ptSongPickerOpen && !event.target.closest('#practice-transport .pt-song-wrap')) {
     ptSongPickerOpen = false;
     ptRender();
   }
