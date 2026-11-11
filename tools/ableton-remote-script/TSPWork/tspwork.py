@@ -31,7 +31,7 @@ from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
 TLS_PORT = 47711
-VERSION = '1.23'
+VERSION = '1.26'
 DEBUG_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requests.log')
 # https listener for the live site in Safari. Certificate made for 127.0.0.1 /
 # localhost only, trusted once in this Mac's Keychain. Files sit next to this
@@ -708,11 +708,14 @@ class TSPWork(ControlSurface):
         song_track = self._find_track(None, 'SONG ID')
         if song_track is None:
             return {'ok': False, 'error': 'song_id_track_missing'}
+        sections_track = self._find_track(None, 'SECTIONS')
         regions = {}
         for clip in song_track.arrangement_clips:
             if not clip.muted and SONG_ID_RE.match(clip.name or ''):
                 regions.setdefault(clip.name, (clip.start_time, clip.end_time))
         plans = []
+        create_plans = []
+        delete_plans = []
         # Preflight every requested track before changing any clip.
         for item in edits:
             song_id = str(item.get('song_id', ''))
@@ -724,45 +727,146 @@ class TSPWork(ControlSurface):
             track = by_slug.get(slug)
             if track is None:
                 return {'ok': False, 'error': 'lyrics_track_not_found', 'song_id': song_id, 'track_slug': slug}
-            if len(base) != len(desired):
+            additions = [line for line in desired if line.get('is_new_clip') is True]
+            existing_desired = [line for line in desired if line.get('is_new_clip') is not True]
+            if additions and slug not in ('drums', 'percussion'):
+                return {'ok': False, 'error': 'clip_add_not_supported', 'song_id': song_id, 'track_slug': slug}
+            if len(existing_desired) > len(base) or (len(existing_desired) != len(base) and slug not in ('drums', 'percussion')):
                 return {'ok': False, 'error': 'line_count_changed', 'song_id': song_id, 'track_slug': slug,
-                        'message': 'Adding or removing clip rows is not supported by this safe sync yet; edits remain saved in Practice.'}
+                        'message': 'Existing MIDI clips can only be removed from Drums or Percussion; edits remain saved in Practice.'}
             start, end = regions[song_id]
             clips = sorted([c for c in track.arrangement_clips
                             if not c.muted and c.end_time > start and c.start_time < end
                             and (c.name or '').strip()], key=lambda c: c.start_time)
             base = sorted(base, key=lambda x: float(x.get('t', 0)))
-            desired = sorted(desired, key=lambda x: float(x.get('t', 0)))
-            if len(clips) != len(base):
+            existing_desired = sorted(existing_desired, key=lambda x: float(x.get('t', 0)))
+            desired_by_base = {}
+            for new in existing_desired:
+                try:
+                    target_t = float(new.get('t', 0))
+                except (TypeError, ValueError):
+                    target_t = None
+                matches = [(abs(float(old.get('t', 0)) - target_t), i) for i, old in enumerate(base)
+                           if i not in desired_by_base and target_t is not None]
+                if not matches or min(matches)[0] > 0.03:
+                    return {'ok': False, 'error': 'source_changed', 'song_id': song_id, 'track_slug': slug,
+                            'message': 'A Practice clip no longer matches its original Ableton timing.'}
+                desired_by_base[min(matches)[1]] = new
+            removed_indices = [i for i in range(len(base)) if i not in desired_by_base]
+            if removed_indices and slug not in ('drums', 'percussion'):
+                return {'ok': False, 'error': 'clip_remove_not_supported', 'song_id': song_id, 'track_slug': slug}
+            already_created = []
+            if additions:
+                if sections_track is None:
+                    return {'ok': False, 'error': 'sections_track_missing', 'song_id': song_id, 'track_slug': slug}
+                if not callable(getattr(track, 'create_midi_clip', None)) or not callable(getattr(track, 'delete_clip', None)):
+                    return {'ok': False, 'error': 'clip_create_unsupported', 'song_id': song_id, 'track_slug': slug,
+                            'message': 'This Ableton version does not expose safe arrangement MIDI clip creation.'}
+                sections = sorted([c for c in sections_track.arrangement_clips
+                                   if not c.muted and c.end_time > start and c.start_time < end], key=lambda c: c.start_time)
+                all_track_clips = [c for c in track.arrangement_clips
+                                   if not c.muted and c.end_time > start and c.start_time < end]
+                seen_sections = set()
+                for new in additions:
+                    text = str(new.get('text', '')).strip()
+                    try:
+                        section_index = int(new.get('section_index'))
+                    except (TypeError, ValueError):
+                        section_index = -1
+                    if not text or len(text) > 12000:
+                        return {'ok': False, 'error': 'invalid_lyrics_text', 'song_id': song_id, 'track_slug': slug}
+                    if section_index < 0 or section_index >= len(sections) or section_index in seen_sections:
+                        return {'ok': False, 'error': 'invalid_section_clip', 'song_id': song_id, 'track_slug': slug}
+                    seen_sections.add(section_index)
+                    section = sections[section_index]
+                    clip_start = max(start, section.start_time)
+                    clip_end = min(end, section.end_time)
+                    if clip_end <= clip_start:
+                        return {'ok': False, 'error': 'invalid_section_clip', 'song_id': song_id, 'track_slug': slug}
+                    removing_ids = set(id(clips[i]) for i in removed_indices if i < len(clips))
+                    overlapping = [c for c in all_track_clips if id(c) not in removing_ids
+                                   if c.end_time > clip_start + 0.01 and c.start_time < clip_end - 0.01]
+                    exact = [c for c in overlapping
+                             if (c.name or '') == text and abs(c.start_time - clip_start) <= 0.02
+                             and abs(c.end_time - clip_end) <= 0.02]
+                    if len(exact) == 1:
+                        # A previous attempt may have created the clip but failed
+                        # during save/readback. Recognize it and avoid duplication.
+                        already_created.append(exact[0])
+                        continue
+                    if overlapping:
+                        return {'ok': False, 'error': 'section_clip_exists', 'song_id': song_id,
+                                'track_slug': slug, 'section': section_index + 1,
+                                'message': 'That section already has a MIDI clip. The Practice edit was kept.'}
+                    create_plans.append((track, clip_start, clip_end - clip_start, text, song_id, slug))
+            already_created_ids = set(id(c) for c in already_created)
+            clips_for_baseline = [c for c in clips if id(c) not in already_created_ids]
+            if len(clips_for_baseline) != len(base):
                 return {'ok': False, 'error': 'clip_count_mismatch', 'song_id': song_id, 'track_slug': slug}
-            for i, (clip, old, new) in enumerate(zip(clips, base, desired)):
-                if (clip.name or '') not in (str(old.get('text', '')), str(new.get('text', ''))):
+            if removed_indices and not callable(getattr(track, 'delete_clip', None)):
+                return {'ok': False, 'error': 'clip_remove_unsupported', 'song_id': song_id, 'track_slug': slug,
+                        'message': 'This Ableton version does not expose arrangement clip removal.'}
+            for i, (clip, old) in enumerate(zip(clips_for_baseline, base)):
+                new = desired_by_base.get(i)
+                if (clip.name or '') not in (str(old.get('text', '')), str(new.get('text', '')) if new else ''):
                     return {'ok': False, 'error': 'source_changed', 'song_id': song_id, 'track_slug': slug,
                             'line': i + 1, 'message': 'The Ableton clip changed since this Practice edit was based on it.'}
+                if new is None:
+                    delete_plans.append((track, clip, clip.start_time, clip.end_time - clip.start_time,
+                                         clip.name, getattr(clip, 'color', None), song_id, slug))
+                    continue
                 text = str(new.get('text', '')).strip()
                 if not text or len(text) > 12000:
                     return {'ok': False, 'error': 'invalid_lyrics_text', 'song_id': song_id, 'track_slug': slug, 'line': i + 1}
                 if text != clip.name:
                     plans.append((clip, clip.name, text, song_id, slug))
-        return {'ok': True, 'plans': plans, 'count': len(plans)}
+        return {'ok': True, 'plans': plans, 'create_plans': create_plans, 'delete_plans': delete_plans,
+                'count': len(plans) + len(create_plans) + len(delete_plans), 'added': len(create_plans), 'removed': len(delete_plans)}
 
-    def _cmd_apply_lyrics_writeback(self, plans):
+    def _cmd_apply_lyrics_writeback(self, plans, create_plans=None, delete_plans=None):
         opened = os.path.realpath(getattr(self.song(), 'file_path', '') or '')
         if opened != os.path.realpath(MAIN_ALS_PATH):
             return {'ok': False, 'error': 'wrong_open_set', 'open_path': getattr(self.song(), 'file_path', '')}
         changed = []
+        created = []
+        deleted = []
         try:
             for clip, old, new, song_id, slug in plans:
                 clip.name = new
                 changed.append((clip, old))
+            for track, start, length, text, song_id, slug in (create_plans or []):
+                clip = track.create_midi_clip(start, length)
+                created.append((track, clip))
+                # New cue clips use their lyrics track's color (Drums red,
+                # Percussion dark red) so they match the established set.
+                track_color = getattr(track, 'color', None)
+                if track_color is not None:
+                    clip.color = track_color
+                clip.name = text
+            for track, clip, start, length, text, color, song_id, slug in (delete_plans or []):
+                track.delete_clip(clip)
+                deleted.append((track, start, length, text, color, song_id, slug))
         except Exception as err:
+            for track, start, length, text, color, song_id, slug in reversed(deleted):
+                try:
+                    restored = track.create_midi_clip(start, length)
+                    if color is not None:
+                        restored.color = color
+                    restored.name = text
+                except Exception as rollback_err:
+                    self.log_message('TSPWork could not roll back removed %s clip: %r' % (slug, rollback_err))
+            for track, clip in reversed(created):
+                try:
+                    track.delete_clip(clip)
+                except Exception as rollback_err:
+                    self.log_message('TSPWork could not roll back new %s clip: %r' % (slug, rollback_err))
             for clip, old in reversed(changed):
                 try:
                     clip.name = old
                 except Exception:
                     pass
             return {'ok': False, 'error': 'clip_write_failed', 'detail': str(err)[:200]}
-        return {'ok': True, 'changed': len(changed)}
+        return {'ok': True, 'changed': len(changed) + len(created) + len(deleted), 'added': len(created), 'removed': len(deleted)}
 
     def _sync_lyrics(self, edits):
         if not isinstance(edits, list) or len(edits) > 1000:
@@ -771,8 +875,10 @@ class TSPWork(ControlSurface):
         if not pre.get('ok'):
             return pre
         plans = pre.pop('plans', [])
+        create_plans = pre.pop('create_plans', [])
+        delete_plans = pre.pop('delete_plans', [])
         before = os.path.getmtime(MAIN_ALS_PATH)
-        applied = self._run_on_main(self._cmd_apply_lyrics_writeback, plans, timeout=15)
+        applied = self._run_on_main(self._cmd_apply_lyrics_writeback, plans, create_plans, delete_plans, timeout=15)
         if not applied.get('ok'):
             return applied
         # Fixed AppleScript: focus Live and press Command+S. No request text is
