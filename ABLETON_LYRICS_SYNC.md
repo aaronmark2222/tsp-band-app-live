@@ -8,7 +8,7 @@ The active project is:
 
 `/Users/aaron/Desktop/TSP LIVE MASTER PROJECT Project/TSP LIVE MASTER PROJECT.als`
 
-The local TSPWork source is in `TSPWork control surface/TSPWork/`; it declares version **1.26** to support Drum/Percussion clip removal and guarded lyric writeback. The installed Live control surface stays bound to `127.0.0.1`; it is never opened to the Wi-Fi network. The test-copy project is historical and must not be treated as the active write target.
+The local TSPWork source is in `TSPWork control surface/TSPWork/`; it declares version **1.27** to support Drum/Percussion clip removal and guarded lyric writeback. The installed Live control surface stays bound to `127.0.0.1`; it is never opened to the Wi-Fi network. The test-copy project is historical and must not be treated as the active write target.
 
 The bridge binds only to loopback (`127.0.0.1`), restricts browser origins to the published TSP Work site/local testing, and has a hardcoded main-project path guard. It is intended to work only on Aaron’s Mac with Ableton Live open. Other signed-in devices never connect to the Mac’s bridge: lyric edits go to Supabase, then the open TSP Work session on Aaron’s Mac relays them to Live. A short-lived admin-written `app_meta` heartbeat lets signed-in devices show the Ableton chip while the exact master project is open. The signal expires if the Mac app stops reporting; it does not expose the bridge address or file path.
 
@@ -22,7 +22,7 @@ The bridge binds only to loopback (`127.0.0.1`), restricts browser origins to th
 6. If the Mac app or master project is unavailable, the edit stays in Practice and is picked up when the Mac app reconnects to the open master set. If writeback or readback fails, the edit is retained for retry. Further lyric edits and restores are held until the current in-memory change is manually saved and confirmed.
 5. If the Mac app or master project is unavailable, the edit stays in Practice and is picked up when the Mac app reconnects to the open master set. If writeback or readback fails, the edit is retained for retry.
 
-Beside **Sync Ableton Set**, the page shows how many saved Practice lyric-track edits are waiting to sync. The count refreshes when the page opens and when an edit is saved or cleared. The Ableton chip is shared across signed-in devices and is based on the Mac app’s recent heartbeat; it can take a few seconds to appear or disappear.
+Beside **Sync Ableton Set**, the page shows how many saved Practice lyric-track edits are waiting to sync. The count refreshes when the page opens and when an edit is saved or cleared. The Ableton chip is shared across signed-in devices and is based on the Mac app’s recent heartbeat; it can take a few seconds to appear or disappear. The **Save** label appears only in the Mac app whose local bridge confirms that the allowlisted project is open. Other devices show shared Ableton availability without the local manual-save label.
 
 ## What each sync does
 
