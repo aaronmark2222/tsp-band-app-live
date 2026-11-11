@@ -2512,7 +2512,7 @@ function setAbletonConnected(connected) {
   chip.dataset.remote = localMasterOpen ? 'false' : 'true';
   chip.classList.toggle('needs-attention', abletonPresence.available && abletonPresence.needsAttention);
   const localAwaitingSave = localMasterOpen && abletonPresence.awaitingSave;
-  chip.textContent = abletonPresence.needsAttention ? 'Ableton ·' : localAwaitingSave ? 'Ableton · Save' : 'Ableton';
+  chip.textContent = abletonPresence.needsAttention ? 'Ableton ·' : localAwaitingSave ? 'Ableton · Sync' : 'Ableton';
   chip.title = abletonPresence.needsAttention
     ? 'Ableton is open, but a lyric edit needs attention. The edit is still saved in Practice.'
     : localAwaitingSave ? 'Lyrics were applied to the open Live set in memory. Save the set manually in Live, then choose Sync Ableton Set to confirm it.'
