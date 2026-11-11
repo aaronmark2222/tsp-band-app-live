@@ -3414,8 +3414,10 @@ async function readAbletonSet() {
         finally { broadcastPracticeLyricsSync(Object.keys(sync.snapshot.songs || {})); }
         if (lyricsRefreshError) throw lyricsRefreshError;
         abletonPresence.awaitingSave = false;
+        abletonPresence.needsAttention = false;
         abletonPresence.lastSync = new Date().toISOString();
         abletonPresence.lastHeartbeat = 0;
+        setAbletonConnected(true);
         await publishAbletonPresence(true);
       } catch (error) { sync.lyricsSaved = null; showNotice(`Lyrics were not fully saved for Practice: ${error.message}`, true); }
     }
