@@ -3651,6 +3651,10 @@ async function readAbletonSet() {
     sync.reading = false;
     sync.progress = null;
     renderSyncPage();
+    if (autoLyricsSync.rerun) {
+      autoLyricsSync.rerun = false;
+      scheduleAutoLyricsSync(250);
+    }
   }
   // Mixdown lengths (for the "audio length differs" check) load afterwards,
   // without holding up the results.
