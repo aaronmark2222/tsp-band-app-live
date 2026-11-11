@@ -64,14 +64,15 @@ class LyricsSyncSaveTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def test_empty_practice_edits_still_saves_live_before_snapshot(self):
+    def test_empty_practice_edits_never_saves_live(self):
+        before = self.als_path.stat().st_mtime
         result = self.bridge._sync_lyrics([])
         self.assertTrue(result["ok"])
-        self.assertTrue(result["saved"])
+        self.assertFalse(result["saved"])
         self.assertEqual(result["changed"], 0)
-        self.assertEqual(result["als_path"], str(self.als_path))
-        self.assertEqual(len(self.saved_scripts), 1)
-        self.assertIn('keystroke "s" using {command down}', self.saved_scripts[0])
+        self.assertFalse(result["awaiting_manual_save"])
+        self.assertEqual(self.als_path.stat().st_mtime, before)
+        self.assertEqual(self.saved_scripts, [])
 
     def test_wrong_open_set_stops_before_save(self):
         self.bridge._run_on_main = lambda *a, **k: {"ok": False, "error": "wrong_open_set"}

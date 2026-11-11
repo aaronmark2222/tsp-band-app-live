@@ -31,7 +31,7 @@ from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
 TLS_PORT = 47711
-VERSION = '1.26'
+VERSION = '1.27'
 DEBUG_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requests.log')
 # https listener for the live site in Safari. Certificate made for 127.0.0.1 /
 # localhost only, trusted once in this Mac's Keychain. Files sit next to this
@@ -877,37 +877,14 @@ class TSPWork(ControlSurface):
         plans = pre.pop('plans', [])
         create_plans = pre.pop('create_plans', [])
         delete_plans = pre.pop('delete_plans', [])
-        before = os.path.getmtime(MAIN_ALS_PATH)
         applied = self._run_on_main(self._cmd_apply_lyrics_writeback, plans, create_plans, delete_plans, timeout=15)
         if not applied.get('ok'):
             return applied
-        # Fixed AppleScript: focus Live and press Command+S. No request text is
-        # inserted into the script. The open-set path was checked on Live's thread.
-        outcome = self._osascript('''
-tell application "System Events"
-    set liveProc to first application process whose bundle identifier is "com.ableton.live"
-    set frontmost of liveProc to true
-    delay 0.15
-    tell liveProc to keystroke "s" using {command down}
-end tell
-return "ok"
-''')
-        if outcome != 'ok':
-            return {'ok': False, 'error': 'save_shortcut_failed', 'detail': outcome,
-                    'changed': applied.get('changed', 0), 'message': 'Clip names changed in Live but save was not confirmed.'}
-        deadline = time.time() + 20
-        while time.time() < deadline:
-            try:
-                if os.path.getmtime(MAIN_ALS_PATH) > before:
-                    break
-            except Exception:
-                pass
-            time.sleep(0.25)
-        if applied.get('changed', 0) and os.path.getmtime(MAIN_ALS_PATH) <= before:
-            return {'ok': False, 'error': 'save_not_confirmed', 'changed': applied.get('changed', 0),
-                    'message': 'Live did not update the main project save time; Practice edits were kept.'}
-        return {'ok': True, 'changed': applied.get('changed', 0), 'saved': True,
-                'saved_at': os.path.getmtime(MAIN_ALS_PATH), 'als_path': MAIN_ALS_PATH}
+        # Change only the open Live session. The musician chooses when to save;
+        # the app confirms persistence later by reading the saved .als file.
+        return {'ok': True, 'changed': applied.get('changed', 0), 'saved': False,
+                'awaiting_manual_save': applied.get('changed', 0) > 0,
+                'message': 'Clip names changed in Live memory. Save the set manually when ready.'}
 
     # ------------------------------------------------------------ .als reading
     def _snapshot(self):

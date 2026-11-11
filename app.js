@@ -2357,7 +2357,7 @@ const ABLETON_BRIDGE_URLS = ['https://127.0.0.1:47711', 'http://127.0.0.1:47710'
 const ABLETON_PRESENCE_KEY = 'ableton_bridge_presence';
 const ABLETON_PRESENCE_TTL_MS = 45000;
 const abletonBridge = { connected: false, timer: null, busy: false, started: false, base: null };
-const abletonPresence = { available: false, needsAttention: false, timer: null, lastHeartbeat: 0, lastSync: null };
+const abletonPresence = { available: false, awaitingSave: false, needsAttention: false, timer: null, lastHeartbeat: 0, lastSync: null };
 const autoLyricsSync = { channel: null, timer: null, busy: false, started: false, lastErrorAt: 0, retryAfter: 0 };
 
 function abletonMainProjectOpen(status = abletonBridge.status) {
@@ -2429,9 +2429,10 @@ function setAbletonConnected(connected) {
   chip.classList.toggle('hidden', !visible);
   chip.dataset.remote = localMasterOpen ? 'false' : 'true';
   chip.classList.toggle('needs-attention', abletonPresence.available && abletonPresence.needsAttention);
-  chip.textContent = abletonPresence.needsAttention ? 'Ableton ·' : 'Ableton';
+  chip.textContent = abletonPresence.needsAttention ? 'Ableton ·' : abletonPresence.awaitingSave ? 'Ableton · Save' : 'Ableton';
   chip.title = abletonPresence.needsAttention
     ? 'Ableton is open, but a lyric edit needs attention. The edit is still saved in Practice.'
+    : abletonPresence.awaitingSave ? 'Lyrics were applied to the open Live set in memory. Save the set manually in Live, then choose Sync Ableton Set to confirm it.'
     : localMasterOpen ? 'Ableton Master Project is open on this Mac. Click song/work names to control Live.'
       : abletonPresence.available ? 'Ableton Master Project is open on Aaron’s Mac.' : 'Ableton Master Project is not connected.';
   if (!connected) abletonBridge.status = null;
@@ -2445,7 +2446,8 @@ async function publishAbletonPresence(available) {
     available: !!available,
     version: abletonBridge.status?.version || null,
     last_sync_at: abletonPresence.lastSync,
-    needs_attention: abletonPresence.needsAttention
+    needs_attention: abletonPresence.needsAttention,
+    awaiting_manual_save: abletonPresence.awaitingSave
   };
   const { error } = await db.from('app_meta').upsert({ key: ABLETON_PRESENCE_KEY, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
   if (error) console.warn('Ableton availability was not shared', error.message || error);
@@ -2458,9 +2460,11 @@ async function refreshSharedAbletonPresence() {
     if (error) throw error;
     const fresh = data && Date.now() - Date.parse(data.updated_at) < ABLETON_PRESENCE_TTL_MS;
     abletonPresence.available = !!(fresh && data.value?.available === true);
+    abletonPresence.awaitingSave = !!(fresh && data.value?.awaiting_manual_save === true);
     abletonPresence.needsAttention = !!(fresh && data.value?.needs_attention === true);
     abletonPresence.lastSync = fresh ? data.value?.last_sync_at || null : null;
     setAbletonConnected(abletonBridge.connected);
+    if (state.view === 'sync') refreshSyncLyricsPendingBadge();
   } catch (error) { console.warn('Could not refresh shared Ableton availability', error?.message || error); }
 }
 
@@ -2502,15 +2506,14 @@ async function runAutoLyricsSync() {
     if (!pending.updates.length) return;
     const write = await abletonRequest('/sync-lyrics', { edits: pending.updates }, SET_READ_TIMEOUT_MS);
     if (!write?.ok) throw new Error(write?.message || write?.detail || write?.error || 'Ableton could not apply the saved lyric edits.');
-    const read = await abletonRequest('/snapshot', {}, SET_READ_TIMEOUT_MS);
-    if (!read?.ok || !read.snapshot) throw new Error(read?.detail || read?.error || 'Ableton saved the edits, but the saved set could not be read back.');
-    await saveSongLyrics(read.snapshot);
-    await clearSyncedLyricsOverrides(read.snapshot, pending.rowsToClear);
-    abletonPresence.lastSync = new Date().toISOString();
+    // The queued DB row is the durable pending marker. This also restores the
+    // warning after the Mac app or browser restarts.
+    abletonPresence.awaitingSave = true;
     abletonPresence.needsAttention = false;
     abletonPresence.lastHeartbeat = 0;
+    setAbletonConnected(true);
     await publishAbletonPresence(true);
-    broadcastPracticeLyricsSync(Object.keys(read.snapshot.songs || {}));
+    refreshSyncLyricsPendingBadge();
   } catch (error) {
     abletonPresence.needsAttention = true;
     abletonPresence.lastHeartbeat = 0;
@@ -2524,7 +2527,6 @@ async function runAutoLyricsSync() {
     autoLyricsSync.busy = false;
   }
 }
-
 async function probeAbletonBridge() {
   if (!abletonBridgeEligible()) return setAbletonConnected(false);
   try {
@@ -3021,7 +3023,9 @@ async function refreshSyncLyricsPendingBadge() {
     badge.classList.toggle('pending', pending > 0);
     badge.title = pending ? 'Saved Practice lyrics waiting to sync to Ableton' : '';
     badge.textContent = pending === 0 ? 'No Practice lyrics waiting to sync'
-      : `${pending} Practice lyric track${pending === 1 ? '' : 's'} waiting to sync to Ableton`;
+      : abletonPresence.awaitingSave
+        ? `${pending} Practice lyric track${pending === 1 ? '' : 's'} applied in Live memory — save manually, then sync to confirm`
+        : `${pending} Practice lyric track${pending === 1 ? '' : 's'} waiting to sync to Ableton`;
   })().catch((error) => {
     if (!badge.isConnected) return;
     badge.textContent = 'Could not check Practice lyrics';
@@ -3314,12 +3318,21 @@ async function clearSyncedLyricsOverrides(snapshot, rows = sync.writebackRows ||
     const saved = snapshot?.songs?.[row.song_id]?.lyrics?.tracks?.find((track) => track.slug === row.track_slug)?.lines || [];
     const edited = row.lines || [];
     if (saved.length !== edited.length || saved.some((line, i) => line.text !== edited[i]?.text)) {
-      throw new Error(`Ableton’s saved readback didn’t match ${row.song_id} · ${row.track_slug}; the Practice edit was kept.`);
+      throw new Error(`The saved Ableton set does not yet contain ${row.song_id} · ${row.track_slug}. Save the set in Live, then sync again. The Practice edit is still queued.`);
     }
     const { error } = await db.from('song_lyrics_edits').delete().eq('song_id', row.song_id).eq('track_slug', row.track_slug).eq('updated_at', row.updated_at);
     if (error) throw error;
   }
   refreshSyncLyricsPendingBadge();
+}
+function verifyPendingLyricsSnapshot(snapshot, rows = sync.writebackRows || []) {
+  for (const row of rows) {
+    const saved = snapshot?.songs?.[row.song_id]?.lyrics?.tracks?.find((track) => track.slug === row.track_slug)?.lines || [];
+    const edited = row.lines || [];
+    if (saved.length !== edited.length || saved.some((line, i) => line.text !== edited[i]?.text)) {
+      throw new Error(`The saved Ableton set does not yet contain ${row.song_id} · ${row.track_slug}. Save the set in Live, then sync again. The Practice edit is still queued.`);
+    }
+  }
 }
 const PRACTICE_LYRICS_SYNC_KEY = 'tsp-practice-lyrics-sync';
 const practiceLyricsSyncSeen = new Set();
@@ -3381,6 +3394,9 @@ async function readAbletonSet() {
     sync.snapshot = result.snapshot;
     sync.readAt = new Date();
     sync.dismissed.clear();
+    // /snapshot reads the on-disk .als. Keep shared lyrics queued until that
+    // saved file confirms the in-memory Live edits were manually saved.
+    verifyPendingLyricsSnapshot(sync.snapshot);
     // Duration and tempo always follow Ableton: apply them straight away.
     const autoMeta = computeSyncDiff(sync.snapshot).meta.filter((item) => SYNC_AUTO_FIELDS.includes(item.field));
     if (autoMeta.length) sync.autoApply = autoMeta;
@@ -3397,6 +3413,10 @@ async function readAbletonSet() {
         catch (error) { if (!lyricsRefreshError) lyricsRefreshError = error; }
         finally { broadcastPracticeLyricsSync(Object.keys(sync.snapshot.songs || {})); }
         if (lyricsRefreshError) throw lyricsRefreshError;
+        abletonPresence.awaitingSave = false;
+        abletonPresence.lastSync = new Date().toISOString();
+        abletonPresence.lastHeartbeat = 0;
+        await publishAbletonPresence(true);
       } catch (error) { sync.lyricsSaved = null; showNotice(`Lyrics were not fully saved for Practice: ${error.message}`, true); }
     }
     // Practice audio: the set's current track fingerprints (yellow = changed since upload).
@@ -5577,9 +5597,9 @@ function renderLyricsEditor({ focus = false } = {}) {
       ? `<textarea class="lyrics-edit-input" data-edit-line="${item.i}" rows="3" aria-label="${clipLabel} text">${escapeHtml(lyricsClipTextForEditor(line.text))}</textarea><div class="lyrics-edit-cell-tools"><span>${clipLabel} · original MIDI clip text</span><button type="button" class="lyrics-edit-undo" data-edit-undo="${item.i}" ${changed ? '' : 'disabled'}>Undo</button></div>`
       : `<div class="lyrics-edit-cell-preview">${lyricLineHtml(line.text)}</div><div class="lyrics-edit-cell-tools"><span>${clipLabel}</span>${changed ? `<button type="button" class="lyrics-edit-undo" data-edit-undo="${item.i}">Undo</button>` : ''}</div>`}</div>`;
   }).join('') || '<p class="lyrics-edit-empty">No lyric clips on this track.</p>';
-  d.querySelector('[data-edit-message]').textContent = draft.message || (draft.restoreAbleton ? 'Ableton version is selected. Choose Save Lyrics to remove the saved edits.' : '');
-  d.querySelector('[data-edit-restore]').disabled = draft.saving || draft.restoreAbleton || (!draft.hasOverride && lyricsEditorMatchesAbleton());
-  d.querySelector('[data-edit-save]').disabled = draft.saving || !lyricsEditorHasChanges() || draft.lines.some((line) => !String(line.text || '').trim());
+  d.querySelector('[data-edit-message]').textContent = draft.message || (abletonPresence.awaitingSave ? 'A lyric edit is in Live memory. Save the set manually and choose Sync Ableton Set before making another change.' : draft.restoreAbleton ? 'Ableton version is selected. Choose Save Lyrics to remove the saved edits.' : '');
+  d.querySelector('[data-edit-restore]').disabled = draft.saving || draft.restoreAbleton || abletonPresence.awaitingSave || (!draft.hasOverride && lyricsEditorMatchesAbleton());
+  d.querySelector('[data-edit-save]').disabled = draft.saving || abletonPresence.awaitingSave || !lyricsEditorHasChanges() || draft.lines.some((line) => !String(line.text || '').trim());
   canvas.scrollTop = scrollTop;
   if (focus) {
     const input = canvas.querySelector(`[data-edit-line="${draft.activeIndex}"]`);
@@ -5610,6 +5630,10 @@ function openLyricsEditor(slug) {
 async function saveLyricsEditor() {
   if (!lyricsEditDraft || lyricsEditDraft.saving) return;
   const d = lyricsEditDraft;
+  if (abletonPresence.awaitingSave) {
+    d.message = 'A lyric edit is already in Live memory. Save the set manually and choose Sync Ableton Set before making another change.';
+    renderLyricsEditor(); return;
+  }
   const mayAddClips = ['drums', 'percussion'].includes(d.slug);
   const presentKeys = new Set(d.lines.filter((line) => !line._addedThisSession).map((line) => line._editKey));
   if (!d.restoreAbleton && !mayAddClips && d.sessionLines.some((line) => !presentKeys.has(line._editKey))) {
@@ -5641,6 +5665,7 @@ async function saveLyricsEditor() {
     if (readError) throw readError;
     if ((latest?.updated_at || null) !== d.updatedAt) throw new Error('Another edit was saved while this editor was open. Close and reopen to keep everyone’s changes.');
     const restore = d.restoreAbleton || lyricsEditorMatchesAbleton();
+    if (restore && abletonPresence.awaitingSave) throw new Error('Save the pending Ableton change manually and choose Sync Ableton Set before restoring lyrics.');
     const linesToSave = d.lines.map((line) => {
       const { _editKey, _sessionText, _addedThisSession, ...saved } = line;
       return { ...saved, text: lyricsClipTextFromEditor(saved.text) };
