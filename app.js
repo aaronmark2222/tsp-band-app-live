@@ -2358,7 +2358,7 @@ const ABLETON_PRESENCE_KEY = 'ableton_bridge_presence';
 const ABLETON_PRESENCE_TTL_MS = 45000;
 const abletonBridge = { connected: false, timer: null, busy: false, started: false, base: null };
 const abletonPresence = { available: false, needsAttention: false, timer: null, lastHeartbeat: 0, lastSync: null };
-const autoLyricsSync = { channel: null, timer: null, busy: false, started: false, lastErrorAt: 0 };
+const autoLyricsSync = { channel: null, timer: null, busy: false, started: false, lastErrorAt: 0, retryAfter: 0 };
 
 function abletonMainProjectOpen(status = abletonBridge.status) {
   return !!status?.ok && status.open_als_path === status.als_path
@@ -2472,7 +2472,7 @@ function startSharedAbletonPresence() {
 }
 
 function scheduleAutoLyricsSync(delay = 700) {
-  if (!autoLyricsSync.started || !abletonBridgeEligible()) return;
+  if (!autoLyricsSync.started || !abletonBridgeEligible() || Date.now() < autoLyricsSync.retryAfter) return;
   clearTimeout(autoLyricsSync.timer);
   autoLyricsSync.timer = setTimeout(runAutoLyricsSync, delay);
 }
@@ -2496,7 +2496,7 @@ async function runAutoLyricsSync() {
     const masterOpen = abletonMainProjectOpen(status);
     await publishAbletonPresence(masterOpen);
     setAbletonConnected(!!status?.ok);
-    if (!masterOpen) { setAbletonConnected(!!status?.ok); return; }
+    if (!masterOpen) return;
     const pending = await pendingAbletonLyricsEdits();
     if (!pending.updates.length) return;
     const write = await abletonRequest('/sync-lyrics', { edits: pending.updates }, SET_READ_TIMEOUT_MS);
@@ -2513,6 +2513,7 @@ async function runAutoLyricsSync() {
   } catch (error) {
     abletonPresence.needsAttention = true;
     abletonPresence.lastHeartbeat = 0;
+    autoLyricsSync.retryAfter = Date.now() + 60000;
     publishAbletonPresence(abletonMainProjectOpen());
     if (Date.now() - autoLyricsSync.lastErrorAt > 30000) {
       autoLyricsSync.lastErrorAt = Date.now();
