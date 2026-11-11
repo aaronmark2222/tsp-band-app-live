@@ -5570,18 +5570,53 @@ async function readLyricsEdits(songId) {
   if (error) throw error;
   return data || [];
 }
+let practiceLyricsRefreshTimer = null;
+const practiceLyricsRefreshQueued = new Set();
+async function refreshPracticeLyricsFromRealtime(songId) {
+  if (state.view !== 'practice' || practice.songId !== songId || !practice.lyrics || practice.lyrics.error) return;
+  const dialog = $('#lyrics-edit-dialog');
+  if (lyricsEditDraft?.songId === songId && dialog?.open) {
+    practiceLyricsRefreshQueued.add(songId);
+    return;
+  }
+  if (practiceLyricsRefreshTimer) clearTimeout(practiceLyricsRefreshTimer);
+  practiceLyricsRefreshTimer = setTimeout(async () => {
+    practiceLyricsRefreshTimer = null;
+    if (state.view !== 'practice' || practice.songId !== songId || !practice.lyrics || practice.lyrics.error) return;
+    if (lyricsEditDraft?.songId === songId && $('#lyrics-edit-dialog')?.open) {
+      practiceLyricsRefreshQueued.add(songId);
+      return;
+    }
+    try {
+      const [{ data, error }, edits] = await Promise.all([
+        db.from('song_lyrics').select('tracks, sections, tempo, bars, tone, duration_seconds, updated_at').eq('song_id', songId).maybeSingle(),
+        readLyricsEdits(songId)
+      ]);
+      if (error) throw error;
+      if (state.view !== 'practice' || practice.songId !== songId) return;
+      if (lyricsEditDraft?.songId === songId && $('#lyrics-edit-dialog')?.open) {
+        practiceLyricsRefreshQueued.add(songId);
+        return;
+      }
+      const next = data || { tracks: [], sections: [] };
+      next.sourceTracks = (next.tracks || []).map((track) => ({ ...track, lines: [...(track.lines || [])] }));
+      practice.lyrics = next;
+      await Promise.all([jsonCachePut('lyrics/' + songId, data), jsonCachePut('lyrics-edits/' + songId, edits)]);
+      applyLyricsEdits(edits);
+      practiceKeepPlace(renderPracticeLyrics);
+      renderTonePanel();
+      practiceLyricsRefreshQueued.delete(songId);
+    } catch (error) { console.warn('Could not refresh shared Practice lyrics', error); }
+  }, 150);
+}
 function subscribeLyricsEdits(songId) {
   if (lyricsEditChannel) db.removeChannel(lyricsEditChannel);
   lyricsEditChannel = db.channel('practice-lyrics-' + songId)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'song_lyrics_edits', filter: 'song_id=eq.' + songId }, async () => {
-      if (practice.songId !== songId || !practice.lyrics || practice.lyrics.error) return;
-      try {
-        const rows = await readLyricsEdits(songId);
-        await jsonCachePut('lyrics-edits/' + songId, rows);
-        applyLyricsEdits(rows);
-        practiceKeepPlace(renderPracticeLyrics);
-      } catch (error) { console.warn('Could not refresh shared lyrics edits', error); }
-    }).subscribe();
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'song_lyrics', filter: 'song_id=eq.' + songId }, () => refreshPracticeLyricsFromRealtime(songId))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'song_lyrics_edits', filter: 'song_id=eq.' + songId }, () => refreshPracticeLyricsFromRealtime(songId))
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') refreshPracticeLyricsFromRealtime(songId);
+    });
 }
 async function practiceLoadLyrics(songId) {
   practice.lyrics = null;
@@ -5690,7 +5725,11 @@ function lyricsEditorDialog() {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); cell.click(); }
   });
   d.addEventListener('submit', async (e) => { e.preventDefault(); finishLyricsEditorCell(); await saveLyricsEditor(); });
-  d.addEventListener('close', () => { lyricsEditDraft = null; });
+  d.addEventListener('close', () => {
+    const songId = lyricsEditDraft?.songId;
+    lyricsEditDraft = null;
+    if (songId && practiceLyricsRefreshQueued.has(songId)) refreshPracticeLyricsFromRealtime(songId);
+  });
   return d;
 }
 function removeLyricsEditorClip(index) {
