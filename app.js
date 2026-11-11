@@ -328,8 +328,12 @@ function labelAutoBackingOption(select, showAuto) {
 
 function songReadinessStatus(songId) {
   const applicable = songWorkItems(songId);
-  const readinessStatus = songReadinessStatus(songId);
-  const { ready, finishedBacking, sentToMixOnly } = readinessStatus;
+  const readiness = (state.readiness || []).find((row) => row.song_id === songId);
+  const ready = !!readiness?.ready;
+  const allRequiredWorkDone = applicable.every(isWorkItemDone);
+  const hasAbleSetWork = applicable.some((item) => item.category === 'ableset');
+  const finishedBacking = !ready && readiness?.backing_track === 'Finished' && allRequiredWorkDone;
+  const sentToMixOnly = !ready && readiness?.backing_track === 'Sent to Mix' && hasAbleSetWork && allRequiredWorkDone;
   const label = ready ? 'Ready' : finishedBacking ? 'Finished' : sentToMixOnly ? 'Sent to Mix' : '';
   return { ready, finishedBacking, sentToMixOnly, label };
 }
