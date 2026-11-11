@@ -121,6 +121,7 @@ function showWorkspace() {
   $('#new-song-open').onclick = openNewSongDialog;
   $('#member-name').textContent = state.member.name;
   $('#member-badge').textContent = state.member.name.slice(0, 1).toUpperCase();
+  startSharedAbletonPresence();
   startAbletonBridge();
   activityStart();
   setTimeout(() => { if (typeof ptMediaFlush === 'function') ptMediaFlush(); }, 3000);
@@ -2347,13 +2348,23 @@ db.auth.getSession().then(async ({ data, error }) => {
 
 // ---------------------------------------------------------------------------
 // Ableton bridge (admin's Mac only). The TSPWork control surface inside Ableton
-// listens on 127.0.0.1, so this only ever works on the Mac running Ableton.
-// Clicking a song title jumps to its marker; clicking a work title selects the
-// song region in that task's track and zooms. Nothing here edits the Live set.
+// listens on 127.0.0.1 and stays private to this Mac. Other signed-in devices
+// share lyric edits through Supabase; this Mac applies them while the master set
+// is open. Clicking a song/work title still controls only this local Live app.
 // https (47711) is tried first: Safari won't let the live https site talk to
 // plain http. The http port (47710) stays for Chrome and the local test copy.
 const ABLETON_BRIDGE_URLS = ['https://127.0.0.1:47711', 'http://127.0.0.1:47710'];
+const ABLETON_PRESENCE_KEY = 'ableton_bridge_presence';
+const ABLETON_PRESENCE_TTL_MS = 45000;
 const abletonBridge = { connected: false, timer: null, busy: false, started: false, base: null };
+const abletonPresence = { available: false, needsAttention: false, timer: null, lastHeartbeat: 0, lastSync: null };
+const autoLyricsSync = { channel: null, timer: null, busy: false, started: false, lastErrorAt: 0 };
+
+function abletonMainProjectOpen(status = abletonBridge.status) {
+  return !!status?.ok && status.open_als_path === status.als_path
+    && status.open_als_path === '/Users/aaron/Desktop/TSP LIVE MASTER PROJECT Project/TSP LIVE MASTER PROJECT.als'
+    && status.https === true;
+}
 
 function abletonBridgeEligible() {
   const isMac = /Mac/.test(navigator.platform || navigator.userAgent || '') && (navigator.maxTouchPoints || 0) < 2;
@@ -2402,18 +2413,114 @@ async function abletonFetch(base, path, body, timeoutMs) {
 
 function setAbletonConnected(connected) {
   abletonBridge.connected = connected;
-  document.body.classList.toggle('ableton-connected', connected);
+  const localMasterOpen = connected && abletonMainProjectOpen();
+  const visible = localMasterOpen || abletonPresence.available;
+  document.body.classList.toggle('ableton-connected', visible);
   let chip = document.querySelector('#ableton-chip');
   if (!chip) {
     chip = document.createElement('span');
     chip.id = 'ableton-chip';
     chip.className = 'ableton-chip hidden';
-    chip.title = 'Click a song title to jump in Ableton, or a work title to select and zoom';
+    chip.title = 'The Ableton Master Project is open on Aaron’s Mac';
     chip.textContent = 'Ableton';
     $('#sign-out')?.before(chip);
   }
-  chip.classList.toggle('hidden', !connected);
+  chip.classList.toggle('hidden', !visible);
+  chip.dataset.remote = localMasterOpen ? 'false' : 'true';
+  chip.classList.toggle('needs-attention', abletonPresence.available && abletonPresence.needsAttention);
+  chip.textContent = abletonPresence.needsAttention ? 'Ableton ·' : 'Ableton';
+  chip.title = abletonPresence.needsAttention
+    ? 'Ableton is open, but a lyric edit needs attention. The edit is still saved in Practice.'
+    : localMasterOpen ? 'Ableton Master Project is open on this Mac. Click song/work names to control Live.'
+      : abletonPresence.available ? 'Ableton Master Project is open on Aaron’s Mac.' : 'Ableton Master Project is not connected.';
   if (!connected) abletonBridge.status = null;
+}
+
+async function publishAbletonPresence(available) {
+  if (!abletonBridgeEligible() || Date.now() - abletonPresence.lastHeartbeat < 18000) return;
+  abletonPresence.lastHeartbeat = Date.now();
+  abletonPresence.available = !!available;
+  const value = {
+    available: !!available,
+    version: abletonBridge.status?.version || null,
+    last_sync_at: abletonPresence.lastSync,
+    needs_attention: abletonPresence.needsAttention
+  };
+  const { error } = await db.from('app_meta').upsert({ key: ABLETON_PRESENCE_KEY, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+  if (error) console.warn('Ableton availability was not shared', error.message || error);
+}
+
+async function refreshSharedAbletonPresence() {
+  if (!state.member?.id) return;
+  try {
+    const { data, error } = await db.from('app_meta').select('value,updated_at').eq('key', ABLETON_PRESENCE_KEY).maybeSingle();
+    if (error) throw error;
+    const fresh = data && Date.now() - Date.parse(data.updated_at) < ABLETON_PRESENCE_TTL_MS;
+    abletonPresence.available = !!(fresh && data.value?.available === true);
+    abletonPresence.needsAttention = !!(fresh && data.value?.needs_attention === true);
+    abletonPresence.lastSync = fresh ? data.value?.last_sync_at || null : null;
+    setAbletonConnected(abletonBridge.connected);
+  } catch (error) { console.warn('Could not refresh shared Ableton availability', error?.message || error); }
+}
+
+function startSharedAbletonPresence() {
+  if (abletonPresence.timer) return;
+  refreshSharedAbletonPresence();
+  abletonPresence.timer = setInterval(refreshSharedAbletonPresence, 12000);
+  window.addEventListener('focus', refreshSharedAbletonPresence);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshSharedAbletonPresence(); });
+}
+
+function scheduleAutoLyricsSync(delay = 700) {
+  if (!autoLyricsSync.started || !abletonBridgeEligible()) return;
+  clearTimeout(autoLyricsSync.timer);
+  autoLyricsSync.timer = setTimeout(runAutoLyricsSync, delay);
+}
+
+function startAutoLyricsSync() {
+  if (!abletonBridgeEligible() || autoLyricsSync.started) return;
+  autoLyricsSync.started = true;
+  autoLyricsSync.channel = db.channel('mac-auto-ableton-lyrics')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'song_lyrics_edits' }, () => scheduleAutoLyricsSync())
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') scheduleAutoLyricsSync(250);
+    });
+}
+
+async function runAutoLyricsSync() {
+  if (!abletonBridgeEligible() || autoLyricsSync.busy || sync.reading || abletonBridge.busy) return;
+  autoLyricsSync.busy = true;
+  try {
+    const status = await abletonRequest('/status', null, 1500);
+    abletonBridge.status = status?.ok ? status : null;
+    const masterOpen = abletonMainProjectOpen(status);
+    await publishAbletonPresence(masterOpen);
+    setAbletonConnected(!!status?.ok);
+    if (!masterOpen) { setAbletonConnected(!!status?.ok); return; }
+    const pending = await pendingAbletonLyricsEdits();
+    if (!pending.updates.length) return;
+    const write = await abletonRequest('/sync-lyrics', { edits: pending.updates }, SET_READ_TIMEOUT_MS);
+    if (!write?.ok) throw new Error(write?.message || write?.detail || write?.error || 'Ableton could not apply the saved lyric edits.');
+    const read = await abletonRequest('/snapshot', {}, SET_READ_TIMEOUT_MS);
+    if (!read?.ok || !read.snapshot) throw new Error(read?.detail || read?.error || 'Ableton saved the edits, but the saved set could not be read back.');
+    await saveSongLyrics(read.snapshot);
+    await clearSyncedLyricsOverrides(read.snapshot, pending.rowsToClear);
+    abletonPresence.lastSync = new Date().toISOString();
+    abletonPresence.needsAttention = false;
+    abletonPresence.lastHeartbeat = 0;
+    await publishAbletonPresence(true);
+    broadcastPracticeLyricsSync(Object.keys(read.snapshot.songs || {}));
+  } catch (error) {
+    abletonPresence.needsAttention = true;
+    abletonPresence.lastHeartbeat = 0;
+    publishAbletonPresence(abletonMainProjectOpen());
+    if (Date.now() - autoLyricsSync.lastErrorAt > 30000) {
+      autoLyricsSync.lastErrorAt = Date.now();
+      console.warn('Automatic Ableton lyrics sync failed; the shared edit was kept for retry.', error?.message || error);
+    }
+  } finally {
+    autoLyricsSync.busy = false;
+  }
 }
 
 async function probeAbletonBridge() {
@@ -2423,6 +2530,11 @@ async function probeAbletonBridge() {
     abletonBridge.status = status?.ok ? status : null;
     if (status?.version) abletonBridge.version = status.version; // kept even if a later probe misses
     setAbletonConnected(!!status?.ok);
+    const masterOpen = abletonMainProjectOpen(status);
+    abletonPresence.lastHeartbeat = 0;
+    await publishAbletonPresence(masterOpen);
+    setAbletonConnected(!!status?.ok);
+    if (masterOpen) scheduleAutoLyricsSync(250);
     if (status?.exporting && !exportJob.timer) { exportJob.state = status.exporting; exportJob.timer = setInterval(pollExport, 4000); }
     if (state.view === 'sync') {
       const remote = !!status?.reading_since;
@@ -2430,12 +2542,16 @@ async function probeAbletonBridge() {
       else { renderSyncStatus(); renderExportPanel(); }
     }
   } catch {
+    abletonBridge.status = null;
     setAbletonConnected(false);
+    abletonPresence.lastHeartbeat = 0;
+    publishAbletonPresence(false);
   }
 }
 
 function startAbletonBridge() {
   if (!abletonBridgeEligible()) return;
+  startAutoLyricsSync();
   probeAbletonBridge();
   if (abletonBridge.started) return;
   abletonBridge.started = true;
@@ -3191,8 +3307,7 @@ async function syncLyricsToMainProject() {
   sync.writebackRows = pending.rowsToClear;
   return result;
 }
-async function clearSyncedLyricsOverrides(snapshot) {
-  const rows = sync.writebackRows || [];
+async function clearSyncedLyricsOverrides(snapshot, rows = sync.writebackRows || []) {
   for (const row of rows) {
     const saved = snapshot?.songs?.[row.song_id]?.lyrics?.tracks?.find((track) => track.slug === row.track_slug)?.lines || [];
     const edited = row.lines || [];
@@ -5542,7 +5657,9 @@ async function saveLyricsEditor() {
     const rows = await readLyricsEdits(d.songId);
     await jsonCachePut('lyrics-edits/' + d.songId, rows);
     applyLyricsEdits(rows); practiceKeepPlace(renderPracticeLyrics);
-    showNotice(restore ? lyricsTrackLabel(d.slug) + ' lyrics restored from Ableton.' : lyricsTrackLabel(d.slug) + ' lyrics saved to the shared Practice page.');
+    showNotice(restore ? lyricsTrackLabel(d.slug) + ' lyrics restored from Ableton.' : abletonPresence.available
+      ? lyricsTrackLabel(d.slug) + ' lyrics saved. Sending them to the open Ableton Master Project…'
+      : lyricsTrackLabel(d.slug) + ' lyrics saved to shared Practice; they will sync when Ableton is available.');
     $('#lyrics-edit-dialog').close();
   } catch (error) {
     d.saving = false;

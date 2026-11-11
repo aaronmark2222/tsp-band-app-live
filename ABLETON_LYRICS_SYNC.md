@@ -8,19 +8,19 @@ The active project is:
 
 `/Users/aaron/Desktop/TSP LIVE MASTER PROJECT Project/TSP LIVE MASTER PROJECT.als`
 
-The local TSPWork source is in `TSPWork control surface/TSPWork/`; it declares version **1.26** to support Drum/Percussion clip removal. The updated file is installed in Ableton’s Remote Scripts folder. Reselect TSPWork (or restart Live) before syncing so the running process loads it. The test-copy project is historical and must not be treated as the active write target.
+The local TSPWork source is in `TSPWork control surface/TSPWork/`; it declares version **1.26** to support Drum/Percussion clip removal and guarded lyric writeback. The installed Live control surface stays bound to `127.0.0.1`; it is never opened to the Wi-Fi network. The test-copy project is historical and must not be treated as the active write target.
 
-The bridge binds only to loopback (`127.0.0.1`), restricts browser origins to the published TSP Work site/local testing, and has a hardcoded main-project path guard. It is intended to work only on Aaron’s Mac with Ableton Live open. It is not reachable from band members’ devices.
+The bridge binds only to loopback (`127.0.0.1`), restricts browser origins to the published TSP Work site/local testing, and has a hardcoded main-project path guard. It is intended to work only on Aaron’s Mac with Ableton Live open. Other signed-in devices never connect to the Mac’s bridge: lyric edits go to Supabase, then the open TSP Work session on Aaron’s Mac relays them to Live. A short-lived admin-written `app_meta` heartbeat lets signed-in devices show the Ableton chip while the exact master project is open. The signal expires if the Mac app stops reporting; it does not expose the bridge address or file path.
 
 ## Normal workflow
 
 1. Open the main project in Ableton Live and save it (⌘S). Confirm the set is the main path above.
 2. Confirm TSPWork is selected in Live’s **Settings → Link, Tempo & MIDI → Control Surface** and its status/version is current. If the script was updated, reselect it or restart Live.
-3. In the app, open **Practice**, choose a song and selected lyric track, then edit clip text. The editor saves a shared Practice override when **Save Lyrics** is pressed; this alone does not change Live.
-4. Open **Ableton Sync** and choose **Sync Ableton Set**. The app sends pending overrides to TSPWork, asks Live to save, reads the saved `.als` snapshot back, then refreshes Practice lyrics.
-5. Confirm the lyric is correct in both Practice and Live. If the app shows a failure, retain the edit, address the named song/track/precondition, then retry.
+3. In the app, open **Practice**, choose a song and a lyric track you can edit, then edit clip text. **Save Lyrics** saves the shared edit to Supabase.
+4. When the Ableton chip is lit, Aaron’s signed-in Mac app detects the saved edit, verifies that the exact master project is open, sends it to TSPWork, asks Live to save, reads the saved `.als` snapshot back, updates the Practice baseline, and clears only the matching edit. This also works when the edit was saved from another signed-in device.
+5. If the Mac app or master project is unavailable, the edit stays in Practice and is picked up when the Mac app reconnects to the open master set. If writeback or readback fails, the edit is retained for retry.
 
-Beside **Sync Ableton Set**, the page shows how many saved Practice lyric-track edits are waiting to sync. The count refreshes when the page opens and when an edit is saved or cleared in another open app session.
+Beside **Sync Ableton Set**, the page shows how many saved Practice lyric-track edits are waiting to sync. The count refreshes when the page opens and when an edit is saved or cleared. The Ableton chip is shared across signed-in devices and is based on the Mac app’s recent heartbeat; it can take a few seconds to appear or disappear.
 
 ## What each sync does
 
@@ -30,7 +30,7 @@ Beside **Sync Ableton Set**, the page shows how many saved Practice lyric-track 
 4. Live is asked to save. When clips changed, TSPWork checks that the main `.als` modification time advanced.
 5. The app runs `/snapshot`, which parses the saved set and writes the current lyrics/sections/tempo/bars/tone into Supabase `song_lyrics`.
 6. Only after the persisted snapshot matches the requested lyrics does the app clear the corresponding shared override. Failed or mismatched edits remain available in Practice.
-7. The app refreshes its active Practice state and signals other same-origin Practice tabs via `BroadcastChannel`, falling back to a storage event. Realtime also distributes edit changes.
+7. The app refreshes its active Practice state and signals other same-origin Practice tabs via `BroadcastChannel`, falling back to a storage event. Realtime distributes edit changes to the Mac relay; clients also read the shared availability heartbeat.
 
 ## Safeguards and editing rules
 
