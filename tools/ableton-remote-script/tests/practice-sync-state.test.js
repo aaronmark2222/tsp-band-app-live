@@ -51,3 +51,24 @@ test('clearing a synced override keeps the newly read Ableton baseline visible',
   context.applyLyricsEdits([]); // the Realtime event after clearing the override
   assert.equal(practice.lyrics.tracks[0].lines[0].text, 'Hello from Ableton');
 });
+
+test('a sync notification reloads the matching song in another open Practice page', () => {
+  const calls = [];
+  const context = {
+    state: { view: 'practice' },
+    practice: { songId: 'I3' },
+    practiceLyricsSyncSeen: new Set(),
+    practiceLoadLyrics(songId) { calls.push(songId); return Promise.resolve(); },
+  };
+  vm.createContext(context);
+  vm.runInContext(functionSource('refreshPracticeLyricsForSync'), context);
+
+  assert.equal(context.refreshPracticeLyricsForSync({
+    type: 'ableton-lyrics-synced', song_ids: ['I3', 'H3'], id: 'sync-1',
+  }), true);
+  assert.deepEqual(calls, ['I3']);
+  assert.equal(context.refreshPracticeLyricsForSync({
+    type: 'ableton-lyrics-synced', song_ids: ['H3'], id: 'sync-2',
+  }), false);
+  assert.deepEqual(calls, ['I3']);
+});

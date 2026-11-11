@@ -3137,6 +3137,31 @@ async function clearSyncedLyricsOverrides(snapshot) {
     if (error) throw error;
   }
 }
+const PRACTICE_LYRICS_SYNC_KEY = 'tsp-practice-lyrics-sync';
+const practiceLyricsSyncSeen = new Set();
+let practiceLyricsSyncChannel = null;
+try { practiceLyricsSyncChannel = new BroadcastChannel('tsp-practice-lyrics-sync'); } catch { /* storage events below are the fallback */ }
+function refreshPracticeLyricsForSync(message) {
+  if (message?.type !== 'ableton-lyrics-synced' || !Array.isArray(message.song_ids)) return false;
+  if (message.id && practiceLyricsSyncSeen.has(message.id)) return false;
+  if (message.id) {
+    practiceLyricsSyncSeen.add(message.id);
+    if (practiceLyricsSyncSeen.size > 100) practiceLyricsSyncSeen.delete(practiceLyricsSyncSeen.values().next().value);
+  }
+  if (state.view !== 'practice' || !message.song_ids.includes(practice.songId)) return false;
+  practiceLoadLyrics(practice.songId).catch((error) => console.warn('Could not refresh Practice lyrics after Ableton sync', error));
+  return true;
+}
+practiceLyricsSyncChannel?.addEventListener('message', (event) => refreshPracticeLyricsForSync(event.data));
+window.addEventListener('storage', (event) => {
+  if (event.key !== PRACTICE_LYRICS_SYNC_KEY || !event.newValue) return;
+  try { refreshPracticeLyricsForSync(JSON.parse(event.newValue)); } catch { /* ignore malformed local signal */ }
+});
+function broadcastPracticeLyricsSync(songIds) {
+  const message = { type: 'ableton-lyrics-synced', song_ids: songIds, id: `${Date.now()}-${Math.random()}` };
+  try { practiceLyricsSyncChannel?.postMessage(message); } catch { /* storage event fallback below */ }
+  try { localStorage.setItem(PRACTICE_LYRICS_SYNC_KEY, JSON.stringify(message)); } catch { /* private mode: same-tab refresh still works */ }
+}
 function refreshPracticeLyricsFromSnapshot(snapshot) {
   const songId = practice.songId;
   const song = snapshot?.songs?.[songId];
@@ -3191,7 +3216,8 @@ async function readAbletonSet() {
       try {
         sync.lyricsSaved = await saveSongLyrics(sync.snapshot);
         refreshPracticeLyricsFromSnapshot(sync.snapshot);
-        await clearSyncedLyricsOverrides(sync.snapshot);
+        try { await clearSyncedLyricsOverrides(sync.snapshot); }
+        finally { broadcastPracticeLyricsSync(Object.keys(sync.snapshot.songs || {})); }
       } catch (error) { sync.lyricsSaved = null; showNotice(`Lyrics were not fully saved for Practice: ${error.message}`, true); }
     }
     // Practice audio: the set's current track fingerprints (yellow = changed since upload).
