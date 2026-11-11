@@ -2464,6 +2464,7 @@ async function refreshSharedAbletonPresence() {
     abletonPresence.needsAttention = !!(fresh && data.value?.needs_attention === true);
     abletonPresence.lastSync = fresh ? data.value?.last_sync_at || null : null;
     setAbletonConnected(abletonBridge.connected);
+    if (state.view === 'sync') refreshSyncLyricsPendingBadge();
   } catch (error) { console.warn('Could not refresh shared Ableton availability', error?.message || error); }
 }
 
@@ -2512,6 +2513,7 @@ async function runAutoLyricsSync() {
     abletonPresence.lastHeartbeat = 0;
     setAbletonConnected(true);
     await publishAbletonPresence(true);
+    refreshSyncLyricsPendingBadge();
   } catch (error) {
     abletonPresence.needsAttention = true;
     abletonPresence.lastHeartbeat = 0;
