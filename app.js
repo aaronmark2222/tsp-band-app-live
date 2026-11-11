@@ -2883,7 +2883,47 @@ function renderSyncStatus() {
   if (elsewhere && state.view === 'sync') renderSyncStatus.recheck = setTimeout(probeAbletonBridge, 2000);
 }
 
+let syncLyricsPendingChannel = null;
+let syncLyricsPendingRequest = null;
+async function refreshSyncLyricsPendingBadge() {
+  const badge = $('#sync-lyrics-pending');
+  if (!badge || state.view !== 'sync') return;
+  if (syncLyricsPendingRequest) return syncLyricsPendingRequest;
+  syncLyricsPendingRequest = (async () => {
+    const { count, error } = await db.from('song_lyrics_edits').select('song_id,track_slug', { count: 'exact', head: true });
+    if (state.view !== 'sync' || !badge.isConnected) return;
+    if (error) {
+      badge.textContent = 'Could not check Practice lyrics';
+      badge.classList.add('error');
+      badge.title = error.message || 'Could not read pending lyric edits';
+      return;
+    }
+    const pending = Number(count || 0);
+    badge.classList.remove('error');
+    badge.classList.toggle('pending', pending > 0);
+    badge.title = pending ? 'Saved Practice lyrics waiting to sync to Ableton' : '';
+    badge.textContent = pending === 0 ? 'No Practice lyrics waiting to sync'
+      : `${pending} Practice lyric track${pending === 1 ? '' : 's'} waiting to sync to Ableton`;
+  })().catch((error) => {
+    if (!badge.isConnected) return;
+    badge.textContent = 'Could not check Practice lyrics';
+    badge.classList.add('error');
+    badge.title = error.message || 'Could not read pending lyric edits';
+  }).finally(() => { syncLyricsPendingRequest = null; });
+  return syncLyricsPendingRequest;
+}
+function watchSyncLyricsPendingBadge() {
+  if (!syncLyricsPendingChannel) {
+    syncLyricsPendingChannel = db.channel('sync-lyrics-pending-badge')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'song_lyrics_edits' }, () => {
+        if (state.view === 'sync') refreshSyncLyricsPendingBadge();
+      }).subscribe();
+  }
+  refreshSyncLyricsPendingBadge();
+}
+
 function renderSyncPage() {
+  watchSyncLyricsPendingBadge();
   renderSyncStatus();
   renderExportPanel();
   const content = $('#sync-content');
@@ -3162,6 +3202,7 @@ async function clearSyncedLyricsOverrides(snapshot) {
     const { error } = await db.from('song_lyrics_edits').delete().eq('song_id', row.song_id).eq('track_slug', row.track_slug).eq('updated_at', row.updated_at);
     if (error) throw error;
   }
+  refreshSyncLyricsPendingBadge();
 }
 async function refreshPracticeLyricsAfterSync(snapshot) {
   const songId = practice.songId;
