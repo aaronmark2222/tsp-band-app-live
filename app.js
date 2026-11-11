@@ -5974,8 +5974,20 @@ async function saveLyricsEditor() {
       if (error) throw error;
       if (!deleted?.length) throw new Error('Another edit was saved while this editor was open. Close and reopen to keep everyone’s changes.');
     } else if (!restore || restoreToLive) {
-      const { error } = await db.from('song_lyrics_edits').upsert({ song_id: d.songId, track_slug: d.slug, lines: linesToSave, edited_by_member_id: state.member.id, updated_at: new Date().toISOString() }, { onConflict: 'song_id,track_slug' });
-      if (error) throw error;
+      const updatedAt = new Date(Math.max(Date.now(), Date.parse(latest?.updated_at || '') + 1 || 0)).toISOString();
+      const lyricEdit = { lines: linesToSave, edited_by_member_id: state.member.id, updated_at: updatedAt };
+      if (latest) {
+        const { data: updated, error } = await db.from('song_lyrics_edits').update(lyricEdit)
+          .eq('song_id', d.songId).eq('track_slug', d.slug).eq('updated_at', d.updatedAt).select('updated_at');
+        if (error) throw error;
+        if (!updated?.length) throw new Error('Another edit was saved while this editor was open. Close and reopen to keep everyone’s changes.');
+      } else {
+        const { error } = await db.from('song_lyrics_edits').insert({ ...lyricEdit, song_id: d.songId, track_slug: d.slug });
+        if (error) {
+          if (error.code === '23505') throw new Error('Another edit was saved while this editor was open. Close and reopen to keep everyone’s changes.');
+          throw error;
+        }
+      }
     }
     const rows = await readLyricsEdits(d.songId);
     await jsonCachePut('lyrics-edits/' + d.songId, rows);
