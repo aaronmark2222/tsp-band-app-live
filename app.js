@@ -4387,7 +4387,14 @@ async function practiceOpenSong(songId) {
   try {
     let tracks;
     try {
-      const { data, error } = await db.functions.invoke('practice-audio', { body: { action: 'urls', song_id: songId } });
+      // Edge requests can stall without rejecting (especially from an installed
+      // web app). Bound the wait so this song can fall back to its local audio
+      // instead of leaving the Practice cards and transport dimmed forever.
+      const { data, error } = await practiceWithTimeout(
+        db.functions.invoke('practice-audio', { body: { action: 'urls', song_id: songId } }),
+        `Getting audio links for ${songId}`,
+        15000
+      );
       if (error || !data?.ok) throw new Error(data?.error || error?.message || 'could not get the audio links');
       tracks = data.tracks;
     } catch (error) {
