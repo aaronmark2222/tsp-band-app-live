@@ -3308,7 +3308,7 @@ async function pendingAbletonLyricsEdits() {
       });
     }
     updates.push({ song_id: edit.song_id, track_slug: edit.track_slug, base_lines: baseLines, lines });
-    rowsToClear.push({ song_id: edit.song_id, track_slug: edit.track_slug, updated_at: edit.updated_at, lines });
+    rowsToClear.push({ song_id: edit.song_id, track_slug: edit.track_slug, updated_at: edit.updated_at, base_lines: baseLines, lines });
   }
   return { updates, rowsToClear };
 }
