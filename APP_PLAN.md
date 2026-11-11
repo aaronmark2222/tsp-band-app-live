@@ -148,9 +148,9 @@ Aaron is the owner and the only person who runs Ableton Sync and exports. He mos
 | `practice_audio_state_backup_20261109` | 655 | dated backup; not the canonical state table |
 | `song_lyrics_edits` | 0 | shared musician/admin lyric overrides by song and track |
 | `practice_export_log` | 71 | one row per exported song: export_seconds, files, song_seconds, per-file seconds; feeds the export time-left estimate |
-| `app_sessions` | 263 | one row per app session per member: started_at, last_seen_at (heartbeat every 30 s while visible; >5 min away = new session), device phone/computer, standalone, app_version |
-| `page_visits` | 745 | session_id, member, view (songs/setlists/gigs/dashboard/practice/sync), started_at, ended_at |
-| `practice_plays` | 80 | one row per song played on Practice (kept across pauses <5 min; ends on song/mode change or leaving Practice): song_id (text), mode mix/multi, seconds_played (real playing time), start/end position, song_seconds, reached_end, fullscreen, solo (multitrack on/solo/off snapshot) |
+| `app_sessions` | 308 | one row per app session per member: started_at, last_seen_at (heartbeat every 30 s while visible; >5 min away = new session), device phone/computer, standalone, app_version |
+| `page_visits` | 832 | session_id, member, view (songs/setlists/gigs/dashboard/practice/sync), started_at, ended_at |
+| `practice_plays` | 84 | one row per song played on Practice (kept across pauses <5 min; ends on song/mode change or leaving Practice): song_id (text), mode mix/multi, seconds_played (real playing time), start/end position, song_seconds, reached_end, fullscreen, solo (multitrack on/solo/off snapshot) |
 
 Song ID families now: E 15, EM 11, I 9, HM 9, H 7, EHM 5, K 3, KM 2, EHKM 1.
 
@@ -401,7 +401,7 @@ The live ledger currently has **32 applied entries** through `20261110191303_adm
 
 ## 13. Roadmap and open items
 
-**Verified 2026-11-11:** live Supabase is healthy; all 26 listed public tables have RLS enabled; Edge Functions are active at `practice-audio` v7 and `member-access-admin` v8 and match repository source. The private R2 bucket `tsp-practice` contains 655 objects totaling 3,137,519,522 bytes, matching the 655 rows in `practice_audio_state`; browser access is mediated by signed URLs. No live app records or R2 objects were changed in this audit.
+**Verified 2026-11-11:** live Supabase is healthy; all 27 listed public tables have RLS enabled; Edge Functions are active at `practice-audio` v7 and `member-access-admin` v8 and match repository source. The private R2 bucket `tsp-practice` contains 655 objects totaling 3,137,519,522 bytes, matching the 655 rows in `practice_audio_state`; browser access is mediated by signed URLs. No live app records or R2 objects were changed in this audit.
 
 
 **Built (Oct–Nov 2026):** core tracker; member logins; gigs/setlists/dashboard; Ableton Sync with auto-metadata, evidence, snooze, chord mismatches and review mode; overnight practice export to R2 (all 62 songs uploaded 2026-11-08, 3.14 GB; timing log, stop-after-song, auto-retry, freshness fingerprints); Practice page with multitrack, transport, AbleSet lyrics, live key/BPM, guitar-tone MIDI, offline audio and a fully offline (read-only) app.
