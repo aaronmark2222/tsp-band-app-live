@@ -1,5 +1,7 @@
 # Current implementation context
 
+> **Historical snapshot.** This guide predates the current Practice lyrics editor and guarded Ableton writeback. Use [APP_PLAN.md](../APP_PLAN.md) and live service state for current behavior; this file is retained for background only.
+
 This note summarizes information already documented in the public repository. It does not record private account details, live database contents, credentials, or security scan results. Check the connected Supabase project directly before relying on assumptions about its current state.
 
 ## Architecture
