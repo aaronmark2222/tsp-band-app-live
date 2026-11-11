@@ -2503,7 +2503,16 @@ async function runAutoLyricsSync() {
     setAbletonConnected(!!status?.ok);
     if (!masterOpen) return;
     const pending = await pendingAbletonLyricsEdits();
-    if (!pending.updates.length) return;
+    if (!pending.updates.length) {
+      if (abletonPresence.needsAttention || abletonPresence.awaitingSave) {
+        abletonPresence.needsAttention = false;
+        abletonPresence.awaitingSave = false;
+        abletonPresence.lastHeartbeat = 0;
+        await publishAbletonPresence(true);
+        setAbletonConnected(true);
+      }
+      return;
+    }
     const write = await abletonRequest('/sync-lyrics', { edits: pending.updates }, SET_READ_TIMEOUT_MS);
     if (!write?.ok) throw new Error(write?.message || write?.detail || write?.error || 'Ableton could not apply the saved lyric edits.');
     // The queued DB row is the durable pending marker. This also restores the
@@ -3313,11 +3322,37 @@ async function syncLyricsToMainProject() {
   sync.writebackRows = pending.rowsToClear;
   return result;
 }
+function pendingLyricsRowMatchesSnapshot(snapshot, row) {
+  const saved = [...(snapshot?.songs?.[row.song_id]?.lyrics?.tracks?.find((track) => track.slug === row.track_slug)?.lines || [])]
+    .sort((a, b) => Number(a.t) - Number(b.t));
+  const edited = [...(row.lines || [])].sort((a, b) => Number(a.t) - Number(b.t));
+  const base = [...(row.base_lines || [])].sort((a, b) => Number(a.t) - Number(b.t));
+  // Drum/Percussion clip creation or removal changes the track shape. Keep its
+  // exact structural check; ordinary edits can safely rebase untouched clips.
+  if (edited.length !== base.length || edited.some((line) => line.is_new_clip)
+    || saved.length !== edited.length) {
+    return saved.length === edited.length && saved.every((line, i) => line.text === edited[i]?.text);
+  }
+  const used = new Set();
+  for (const line of edited) {
+    const t = Number(line.t);
+    const baseMatches = base.map((candidate, i) => ({ i, gap: Math.abs(Number(candidate.t) - t) }))
+      .filter((match) => !used.has(match.i)).sort((a, b) => a.gap - b.gap);
+    const match = baseMatches[0];
+    if (!match || match.gap > 0.03) return false;
+    used.add(match.i);
+    const original = base[match.i];
+    // Practice left this clip alone. Its current Live text may be a separate
+    // edit, which saveSongLyrics will adopt into the refreshed baseline.
+    if (String(line.text || '').trim() === String(original.text || '').trim()) continue;
+    const savedLine = saved.find((candidate) => Math.abs(Number(candidate.t) - t) <= 0.03);
+    if (!savedLine || String(savedLine.text || '').trim() !== String(line.text || '').trim()) return false;
+  }
+  return true;
+}
 async function clearSyncedLyricsOverrides(snapshot, rows = sync.writebackRows || []) {
   for (const row of rows) {
-    const saved = snapshot?.songs?.[row.song_id]?.lyrics?.tracks?.find((track) => track.slug === row.track_slug)?.lines || [];
-    const edited = row.lines || [];
-    if (saved.length !== edited.length || saved.some((line, i) => line.text !== edited[i]?.text)) {
+    if (!pendingLyricsRowMatchesSnapshot(snapshot, row)) {
       throw new Error(`The saved Ableton set does not yet contain ${row.song_id} · ${row.track_slug}. Save the set in Live, then sync again. The Practice edit is still queued.`);
     }
     const { error } = await db.from('song_lyrics_edits').delete().eq('song_id', row.song_id).eq('track_slug', row.track_slug).eq('updated_at', row.updated_at);
@@ -3327,9 +3362,7 @@ async function clearSyncedLyricsOverrides(snapshot, rows = sync.writebackRows ||
 }
 function verifyPendingLyricsSnapshot(snapshot, rows = sync.writebackRows || []) {
   for (const row of rows) {
-    const saved = snapshot?.songs?.[row.song_id]?.lyrics?.tracks?.find((track) => track.slug === row.track_slug)?.lines || [];
-    const edited = row.lines || [];
-    if (saved.length !== edited.length || saved.some((line, i) => line.text !== edited[i]?.text)) {
+    if (!pendingLyricsRowMatchesSnapshot(snapshot, row)) {
       throw new Error(`The saved Ableton set does not yet contain ${row.song_id} · ${row.track_slug}. Save the set in Live, then sync again. The Practice edit is still queued.`);
     }
   }
@@ -3374,9 +3407,12 @@ async function readAbletonSet() {
   readProgressStart();
   if (state.view === 'sync') renderSyncPage(); else renderSyncStatus();
   try {
-    // Write shared lyric edits first. TSPWork refuses unless the exact main project is open.
-    readProgressStep('Syncing lyrics to the main Ableton project…', 0);
-    await syncLyricsToMainProject();
+    // This button confirms what the musician already saved in Live. The Mac
+    // relay applies pending Practice edits to Live memory separately; never
+    // write clips here while reading the saved .als.
+    readProgressStep('Checking queued Practice lyrics…', 0);
+    const pending = await pendingAbletonLyricsEdits();
+    sync.writebackRows = pending.rowsToClear;
     // TSPWork does one thing at a time (a read takes a few minutes). If it's
     // still busy with something else (another window's read, a jump), wait for it.
     let result = null;
@@ -3384,7 +3420,7 @@ async function readAbletonSet() {
     for (;;) {
       result = await abletonRequest('/snapshot', {}, SET_READ_TIMEOUT_MS);
       if (result?.error !== 'busy' || Date.now() > waitUntil) break;
-      showNotice('TSPWork is busy with another request; reading as soon as it is free…');
+      showNotice('TSPWork is busy with another request; checking the saved set as soon as it is free…');
       await new Promise((resolve) => setTimeout(resolve, 4000));
       if (sync.progress) sync.progress.started = Date.now(); // time only the read itself
     }
