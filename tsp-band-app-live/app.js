@@ -121,6 +121,7 @@ function showWorkspace() {
   $('#new-song-open').onclick = openNewSongDialog;
   $('#member-name').textContent = state.member.name;
   $('#member-badge').textContent = state.member.name.slice(0, 1).toUpperCase();
+  startSharedAbletonPresence();
   startAbletonBridge();
   activityStart();
   setTimeout(() => { if (typeof ptMediaFlush === 'function') ptMediaFlush(); }, 3000);
@@ -328,8 +329,12 @@ function labelAutoBackingOption(select, showAuto) {
 
 function songReadinessStatus(songId) {
   const applicable = songWorkItems(songId);
-  const readinessStatus = songReadinessStatus(songId);
-  const { ready, finishedBacking, sentToMixOnly } = readinessStatus;
+  const readiness = (state.readiness || []).find((row) => row.song_id === songId);
+  const ready = !!readiness?.ready;
+  const allRequiredWorkDone = applicable.every(isWorkItemDone);
+  const hasAbleSetWork = applicable.some((item) => item.category === 'ableset');
+  const finishedBacking = !ready && readiness?.backing_track === 'Finished' && allRequiredWorkDone;
+  const sentToMixOnly = !ready && readiness?.backing_track === 'Sent to Mix' && hasAbleSetWork && allRequiredWorkDone;
   const label = ready ? 'Ready' : finishedBacking ? 'Finished' : sentToMixOnly ? 'Sent to Mix' : '';
   return { ready, finishedBacking, sentToMixOnly, label };
 }
@@ -2343,13 +2348,23 @@ db.auth.getSession().then(async ({ data, error }) => {
 
 // ---------------------------------------------------------------------------
 // Ableton bridge (admin's Mac only). The TSPWork control surface inside Ableton
-// listens on 127.0.0.1, so this only ever works on the Mac running Ableton.
-// Clicking a song title jumps to its marker; clicking a work title selects the
-// song region in that task's track and zooms. Nothing here edits the Live set.
+// listens on 127.0.0.1 and stays private to this Mac. Other signed-in devices
+// share lyric edits through Supabase; this Mac applies them while the master set
+// is open. Clicking a song/work title still controls only this local Live app.
 // https (47711) is tried first: Safari won't let the live https site talk to
 // plain http. The http port (47710) stays for Chrome and the local test copy.
 const ABLETON_BRIDGE_URLS = ['https://127.0.0.1:47711', 'http://127.0.0.1:47710'];
+const ABLETON_PRESENCE_KEY = 'ableton_bridge_presence';
+const ABLETON_PRESENCE_TTL_MS = 45000;
 const abletonBridge = { connected: false, timer: null, busy: false, started: false, base: null };
+const abletonPresence = { available: false, timer: null, lastHeartbeat: 0, lastSync: null };
+const autoLyricsSync = { channel: null, timer: null, busy: false, started: false, lastErrorAt: 0 };
+
+function abletonMainProjectOpen(status = abletonBridge.status) {
+  return !!status?.ok && status.open_als_path === status.als_path
+    && status.open_als_path === '/Users/aaron/Desktop/TSP LIVE MASTER PROJECT Project/TSP LIVE MASTER PROJECT.als'
+    && status.https === true;
+}
 
 function abletonBridgeEligible() {
   const isMac = /Mac/.test(navigator.platform || navigator.userAgent || '') && (navigator.maxTouchPoints || 0) < 2;
@@ -2398,18 +2413,105 @@ async function abletonFetch(base, path, body, timeoutMs) {
 
 function setAbletonConnected(connected) {
   abletonBridge.connected = connected;
-  document.body.classList.toggle('ableton-connected', connected);
+  const localMasterOpen = connected && abletonMainProjectOpen();
+  const visible = localMasterOpen || abletonPresence.available;
+  document.body.classList.toggle('ableton-connected', visible);
   let chip = document.querySelector('#ableton-chip');
   if (!chip) {
     chip = document.createElement('span');
     chip.id = 'ableton-chip';
     chip.className = 'ableton-chip hidden';
-    chip.title = 'Click a song title to jump in Ableton, or a work title to select and zoom';
+    chip.title = 'The Ableton Master Project is open on Aaron’s Mac';
     chip.textContent = 'Ableton';
     $('#sign-out')?.before(chip);
   }
-  chip.classList.toggle('hidden', !connected);
+  chip.classList.toggle('hidden', !visible);
+  chip.dataset.remote = localMasterOpen ? 'false' : 'true';
+  chip.title = localMasterOpen
+    ? 'Ableton Master Project is open on this Mac. Click song/work names to control Live.'
+    : abletonPresence.available ? 'Ableton Master Project is open on Aaron’s Mac.' : 'Ableton Master Project is not connected.';
   if (!connected) abletonBridge.status = null;
+}
+
+async function publishAbletonPresence(available) {
+  if (!abletonBridgeEligible() || Date.now() - abletonPresence.lastHeartbeat < 18000) return;
+  abletonPresence.lastHeartbeat = Date.now();
+  abletonPresence.available = !!available;
+  const value = {
+    available: !!available,
+    version: abletonBridge.status?.version || null,
+    last_sync_at: abletonPresence.lastSync,
+    updated_by: state.member?.id || null
+  };
+  const { error } = await db.from('app_meta').upsert({ key: ABLETON_PRESENCE_KEY, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+  if (error) console.warn('Ableton availability was not shared', error.message || error);
+}
+
+async function refreshSharedAbletonPresence() {
+  if (!state.member?.id) return;
+  try {
+    const { data, error } = await db.from('app_meta').select('value,updated_at').eq('key', ABLETON_PRESENCE_KEY).maybeSingle();
+    if (error) throw error;
+    const fresh = data && Date.now() - Date.parse(data.updated_at) < ABLETON_PRESENCE_TTL_MS;
+    abletonPresence.available = !!(fresh && data.value?.available === true);
+    setAbletonConnected(abletonBridge.connected);
+  } catch (error) { console.warn('Could not refresh shared Ableton availability', error?.message || error); }
+}
+
+function startSharedAbletonPresence() {
+  if (abletonPresence.timer) return;
+  refreshSharedAbletonPresence();
+  abletonPresence.timer = setInterval(refreshSharedAbletonPresence, 12000);
+  window.addEventListener('focus', refreshSharedAbletonPresence);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshSharedAbletonPresence(); });
+}
+
+function scheduleAutoLyricsSync(delay = 700) {
+  if (!autoLyricsSync.started || !abletonBridgeEligible()) return;
+  clearTimeout(autoLyricsSync.timer);
+  autoLyricsSync.timer = setTimeout(runAutoLyricsSync, delay);
+}
+
+function startAutoLyricsSync() {
+  if (!abletonBridgeEligible() || autoLyricsSync.started) return;
+  autoLyricsSync.started = true;
+  autoLyricsSync.channel = db.channel('mac-auto-ableton-lyrics')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'song_lyrics_edits' }, () => scheduleAutoLyricsSync())
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') scheduleAutoLyricsSync(250);
+    });
+}
+
+async function runAutoLyricsSync() {
+  if (!abletonBridgeEligible() || autoLyricsSync.busy || sync.reading || abletonBridge.busy) return;
+  autoLyricsSync.busy = true;
+  try {
+    const status = await abletonRequest('/status', null, 1500);
+    abletonBridge.status = status?.ok ? status : null;
+    const masterOpen = abletonMainProjectOpen(status);
+    await publishAbletonPresence(masterOpen);
+    setAbletonConnected(!!status?.ok);
+    if (!masterOpen) { setAbletonConnected(!!status?.ok); return; }
+    const pending = await pendingAbletonLyricsEdits();
+    if (!pending.updates.length) return;
+    const write = await abletonRequest('/sync-lyrics', { edits: pending.updates }, SET_READ_TIMEOUT_MS);
+    if (!write?.ok) throw new Error(write?.message || write?.detail || write?.error || 'Ableton could not apply the saved lyric edits.');
+    const read = await abletonRequest('/snapshot', {}, SET_READ_TIMEOUT_MS);
+    if (!read?.ok || !read.snapshot) throw new Error(read?.detail || read?.error || 'Ableton saved the edits, but the saved set could not be read back.');
+    await saveSongLyrics(read.snapshot);
+    await clearSyncedLyricsOverrides(read.snapshot, pending.rowsToClear);
+    abletonPresence.lastSync = new Date().toISOString();
+    abletonPresence.lastHeartbeat = 0;
+    await publishAbletonPresence(true);
+    broadcastPracticeLyricsSync(Object.keys(read.snapshot.songs || {}));
+  } catch (error) {
+    if (Date.now() - autoLyricsSync.lastErrorAt > 30000) {
+      autoLyricsSync.lastErrorAt = Date.now();
+      console.warn('Automatic Ableton lyrics sync failed; the shared edit was kept for retry.', error?.message || error);
+    }
+  } finally {
+    autoLyricsSync.busy = false;
+  }
 }
 
 async function probeAbletonBridge() {
@@ -2419,6 +2521,11 @@ async function probeAbletonBridge() {
     abletonBridge.status = status?.ok ? status : null;
     if (status?.version) abletonBridge.version = status.version; // kept even if a later probe misses
     setAbletonConnected(!!status?.ok);
+    const masterOpen = abletonMainProjectOpen(status);
+    abletonPresence.lastHeartbeat = 0;
+    await publishAbletonPresence(masterOpen);
+    setAbletonConnected(!!status?.ok);
+    if (masterOpen) scheduleAutoLyricsSync(250);
     if (status?.exporting && !exportJob.timer) { exportJob.state = status.exporting; exportJob.timer = setInterval(pollExport, 4000); }
     if (state.view === 'sync') {
       const remote = !!status?.reading_since;
@@ -2426,12 +2533,16 @@ async function probeAbletonBridge() {
       else { renderSyncStatus(); renderExportPanel(); }
     }
   } catch {
+    abletonBridge.status = null;
     setAbletonConnected(false);
+    abletonPresence.lastHeartbeat = 0;
+    publishAbletonPresence(false);
   }
 }
 
 function startAbletonBridge() {
   if (!abletonBridgeEligible()) return;
+  startAutoLyricsSync();
   probeAbletonBridge();
   if (abletonBridge.started) return;
   abletonBridge.started = true;
@@ -2879,7 +2990,47 @@ function renderSyncStatus() {
   if (elsewhere && state.view === 'sync') renderSyncStatus.recheck = setTimeout(probeAbletonBridge, 2000);
 }
 
+let syncLyricsPendingChannel = null;
+let syncLyricsPendingRequest = null;
+async function refreshSyncLyricsPendingBadge() {
+  const badge = $('#sync-lyrics-pending');
+  if (!badge || state.view !== 'sync') return;
+  if (syncLyricsPendingRequest) return syncLyricsPendingRequest;
+  syncLyricsPendingRequest = (async () => {
+    const { count, error } = await db.from('song_lyrics_edits').select('song_id,track_slug', { count: 'exact', head: true });
+    if (state.view !== 'sync' || !badge.isConnected) return;
+    if (error) {
+      badge.textContent = 'Could not check Practice lyrics';
+      badge.classList.add('error');
+      badge.title = error.message || 'Could not read pending lyric edits';
+      return;
+    }
+    const pending = Number(count || 0);
+    badge.classList.remove('error');
+    badge.classList.toggle('pending', pending > 0);
+    badge.title = pending ? 'Saved Practice lyrics waiting to sync to Ableton' : '';
+    badge.textContent = pending === 0 ? 'No Practice lyrics waiting to sync'
+      : `${pending} Practice lyric track${pending === 1 ? '' : 's'} waiting to sync to Ableton`;
+  })().catch((error) => {
+    if (!badge.isConnected) return;
+    badge.textContent = 'Could not check Practice lyrics';
+    badge.classList.add('error');
+    badge.title = error.message || 'Could not read pending lyric edits';
+  }).finally(() => { syncLyricsPendingRequest = null; });
+  return syncLyricsPendingRequest;
+}
+function watchSyncLyricsPendingBadge() {
+  if (!syncLyricsPendingChannel) {
+    syncLyricsPendingChannel = db.channel('sync-lyrics-pending-badge')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'song_lyrics_edits' }, () => {
+        if (state.view === 'sync') refreshSyncLyricsPendingBadge();
+      }).subscribe();
+  }
+  refreshSyncLyricsPendingBadge();
+}
+
 function renderSyncPage() {
+  watchSyncLyricsPendingBadge();
   renderSyncStatus();
   renderExportPanel();
   const content = $('#sync-content');
@@ -3098,7 +3249,7 @@ const SET_READ_TIMEOUT_MS = 15 * 60 * 1000;
 async function pendingAbletonLyricsEdits() {
   const [{ data: edits, error: editError }, { data: baselines, error: baselineError }] = await Promise.all([
     db.from('song_lyrics_edits').select('song_id,track_slug,lines,updated_at'),
-    db.from('song_lyrics').select('song_id,tracks')
+    db.from('song_lyrics').select('song_id,tracks,sections')
   ]);
   if (editError) throw editError;
   if (baselineError) throw baselineError;
@@ -3106,10 +3257,32 @@ async function pendingAbletonLyricsEdits() {
   const updates = []; const rowsToClear = [];
   for (const edit of edits || []) {
     const baseSong = baselineBySong.get(edit.song_id);
-    const baseTrack = baseSong?.tracks?.find((track) => track.slug === edit.track_slug);
+    let baseTrack = baseSong?.tracks?.find((track) => track.slug === edit.track_slug);
+    if (!baseTrack && ['drums', 'percussion'].includes(edit.track_slug) && baseSong?.sections?.length
+      && (edit.lines || []).length > 0 && (edit.lines || []).every((line) => line.is_new_clip === true)) {
+      // Ableton omits tracks with no named clips from its lyrics snapshot.
+      // An all-new Drum/Percussion edit therefore has a valid empty baseline.
+      baseTrack = { lines: [] };
+    }
     if (!baseTrack) throw new Error(`No saved Ableton baseline for ${edit.song_id} · ${edit.track_slug}. Keep the edit in Practice and sync Ableton first.`);
     const baseLines = [...(baseTrack.lines || [])].sort((x, y) => Number(x.t) - Number(y.t));
     const lines = [...(edit.lines || [])].sort((x, y) => Number(x.t) - Number(y.t));
+    // If Ableton already contains a newly-added section clip but the previous
+    // sync stopped before clearing the override, treat that row as part of the
+    // new baseline on retry instead of asking Live to create it twice.
+    if (['drums', 'percussion'].includes(edit.track_slug) && baseSong.sections?.length) {
+      const matched = new Set();
+      lines.forEach((line, i) => {
+        if (!line.is_new_clip) return;
+        const baseIndex = baseLines.findIndex((base, j) => !matched.has(j)
+          && base.text === line.text
+          && lyricsEditorSectionIndex(base, baseSong.sections) === Number(line.section_index));
+        if (baseIndex < 0) return;
+        matched.add(baseIndex);
+        const { is_new_clip, section_index, ...alreadySaved } = line;
+        lines[i] = alreadySaved;
+      });
+    }
     updates.push({ song_id: edit.song_id, track_slug: edit.track_slug, base_lines: baseLines, lines });
     rowsToClear.push({ song_id: edit.song_id, track_slug: edit.track_slug, updated_at: edit.updated_at, lines });
   }
@@ -3125,8 +3298,7 @@ async function syncLyricsToMainProject() {
   sync.writebackRows = pending.rowsToClear;
   return result;
 }
-async function clearSyncedLyricsOverrides(snapshot) {
-  const rows = sync.writebackRows || [];
+async function clearSyncedLyricsOverrides(snapshot, rows = sync.writebackRows || []) {
   for (const row of rows) {
     const saved = snapshot?.songs?.[row.song_id]?.lyrics?.tracks?.find((track) => track.slug === row.track_slug)?.lines || [];
     const edited = row.lines || [];
@@ -3136,6 +3308,7 @@ async function clearSyncedLyricsOverrides(snapshot) {
     const { error } = await db.from('song_lyrics_edits').delete().eq('song_id', row.song_id).eq('track_slug', row.track_slug).eq('updated_at', row.updated_at);
     if (error) throw error;
   }
+  refreshSyncLyricsPendingBadge();
 }
 const PRACTICE_LYRICS_SYNC_KEY = 'tsp-practice-lyrics-sync';
 const practiceLyricsSyncSeen = new Set();
@@ -3162,21 +3335,12 @@ function broadcastPracticeLyricsSync(songIds) {
   try { practiceLyricsSyncChannel?.postMessage(message); } catch { /* storage event fallback below */ }
   try { localStorage.setItem(PRACTICE_LYRICS_SYNC_KEY, JSON.stringify(message)); } catch { /* private mode: same-tab refresh still works */ }
 }
-function refreshPracticeLyricsFromSnapshot(snapshot) {
+async function refreshPracticeLyricsAfterSync(snapshot) {
   const songId = practice.songId;
-  const song = snapshot?.songs?.[songId];
-  if (!song?.lyrics || !practice.lyrics || practice.lyrics.error) return;
-  const edits = practice.lyrics.lyricsEdits || [];
-  const lyrics = song.lyrics;
-  practice.lyrics = {
-    ...practice.lyrics,
-    tracks: lyrics.tracks || [], sections: lyrics.sections || [], tempo: lyrics.tempo || [],
-    bars: song.bars || [], tone: song.tone || [], duration_seconds: song.duration_seconds,
-    updated_at: new Date().toISOString(),
-  };
-  practice.lyrics.sourceTracks = practice.lyrics.tracks.map((track) => ({ ...track, lines: [...(track.lines || [])] }));
-  applyLyricsEdits(edits);
-  practiceKeepPlace(renderPracticeLyrics);
+  if (!snapshot?.songs?.[songId]?.lyrics) return;
+  // Re-read the persisted baseline after writeback cleanup so this view cannot
+  // retain the override that was just removed in Supabase.
+  await practiceLoadLyrics(songId);
 }
 async function readAbletonSet() {
   if (!abletonBridge.connected) { await probeAbletonBridge(); }
@@ -3215,9 +3379,13 @@ async function readAbletonSet() {
     if (Object.values(sync.snapshot.songs || {}).some((song) => song.lyrics)) {
       try {
         sync.lyricsSaved = await saveSongLyrics(sync.snapshot);
-        refreshPracticeLyricsFromSnapshot(sync.snapshot);
+        let lyricsRefreshError = null;
         try { await clearSyncedLyricsOverrides(sync.snapshot); }
+        catch (error) { lyricsRefreshError = error; }
+        try { await refreshPracticeLyricsAfterSync(sync.snapshot); }
+        catch (error) { if (!lyricsRefreshError) lyricsRefreshError = error; }
         finally { broadcastPracticeLyricsSync(Object.keys(sync.snapshot.songs || {})); }
+        if (lyricsRefreshError) throw lyricsRefreshError;
       } catch (error) { sync.lyricsSaved = null; showNotice(`Lyrics were not fully saved for Practice: ${error.message}`, true); }
     }
     // Practice audio: the set's current track fingerprints (yellow = changed since upload).
@@ -4356,6 +4524,9 @@ async function practiceOpenSong(songId) {
   try { localStorage.setItem('tsp-practice-song', songId); } catch { /* ignore */ }
   practice.tracks = [];
   practice.tracks.songId = songId;
+  // A superseded song load can leave this true if the next song has no audio
+  // and returns before starting a new request. Clear it before that early path.
+  practice.loadingSong = false;
   practice.buffers = new Map();
   practice.loadState = new Map();
   practice.duration = 0;
@@ -4374,11 +4545,27 @@ async function practiceOpenSong(songId) {
   practiceLoadLyrics(songId);
   if (!practice.available?.has(songId) && !offline.manifest[songId]) { renderPracticePlayers(); return; }
   practice.loadingSong = true;
+  // Keep a separate UI watchdog as well as the request timeout below. The
+  // installed app can retain a pending load across a view switch; never let
+  // that leave Practice dimmed with an empty transport indefinitely.
+  const loadingWatchdog = setTimeout(() => {
+    if (practice.songId !== songId || practice.loadToken !== songToken || !practice.loadingSong) return;
+    practice.loadingSong = false;
+    practice.error = `Audio is taking too long to load for ${songId}. You can retry by selecting the song again.`;
+    renderPracticePlayers();
+  }, 20000);
   renderPracticePlayers();
   try {
     let tracks;
     try {
-      const { data, error } = await db.functions.invoke('practice-audio', { body: { action: 'urls', song_id: songId } });
+      // Edge requests can stall without rejecting (especially from an installed
+      // web app). Bound the wait so this song can fall back to its local audio
+      // instead of leaving the Practice cards and transport dimmed forever.
+      const { data, error } = await practiceWithTimeout(
+        db.functions.invoke('practice-audio', { body: { action: 'urls', song_id: songId } }),
+        `Getting audio links for ${songId}`,
+        15000
+      );
       if (error || !data?.ok) throw new Error(data?.error || error?.message || 'could not get the audio links');
       tracks = data.tracks;
     } catch (error) {
@@ -4395,6 +4582,7 @@ async function practiceOpenSong(songId) {
       practice.error = error.message === 'r2_not_configured' ? 'Audio storage is not set up yet.' : `Could not load this song's audio: ${error.message}`;
     }
   } finally {
+    clearTimeout(loadingWatchdog);
     if (practice.songId === songId && practice.loadToken === songToken) {
       practice.loadingSong = false;
       renderPracticePlayers();
@@ -4456,7 +4644,8 @@ function renderPracticePlayers() {
   practiceKeepPlace(() => { try { renderPracticePlayersInner(); } finally { ptRender(); } });
 }
 function renderPracticePlayersInner() {
-  const song = state.songs.find((item) => item.id === practice.songId);
+  const song = state.songs.find((item) => item.id === practice.songId)
+    || practice.songList?.find((item) => item.id === practice.songId);
   const mixBox = $('#practice-mixdown');
   const multiBox = $('#practice-multitrack');
   const dlBox = $('#practice-downloads');
@@ -5091,6 +5280,7 @@ function lyricsDefaultTrack() {
   if (slug === 'dale' || slug === 'anston') return 'lyrics';
   if (/guitar/.test(instrument)) return 'guitar';
   if (/key/.test(instrument)) return 'keyboard';
+  if (/percussion/.test(instrument)) return 'percussion';
   if (/drum/.test(instrument)) return 'drums';
   return 'chords';
 }
@@ -5099,9 +5289,15 @@ function saveLyricsPrefs(patch) {
 }
 
 
-const LYRICS_EDITABLE_TRACKS = ['guitar', 'keyboard', 'drums'];
+const LYRICS_EDITABLE_TRACKS = ['guitar', 'keyboard', 'drums', 'percussion'];
 let lyricsEditChannel = null;
 let lyricsEditDraft = null;
+function lyricsClipTextForEditor(text) {
+  return String(text || '').replace(/\s*\\{1,2}\s*/g, '\n');
+}
+function lyricsClipTextFromEditor(text) {
+  return String(text || '').replace(/\r\n?/g, '\n').split('\n').filter((line) => line.trim()).join(' \\ ');
+}
 function lyricsEditorTrackForMember(shown = lyricsShownSlug()) {
   if (state.member?.is_admin) {
     const standard = LYRICS_STANDARD.some(([key]) => key === shown);
@@ -5109,7 +5305,7 @@ function lyricsEditorTrackForMember(shown = lyricsShownSlug()) {
     return shown && (standard || custom) ? shown : null;
   }
   const i = String(state.member?.instrument || '').toLowerCase();
-  return /guitar/.test(i) ? 'guitar' : /key/.test(i) ? 'keyboard' : /drum/.test(i) ? 'drums' : null;
+  return /guitar/.test(i) ? 'guitar' : /key/.test(i) ? 'keyboard' : /percussion/.test(i) ? 'percussion' : /drum/.test(i) ? 'drums' : null;
 }
 function lyricsTrackLabel(slug) {
   return LYRICS_STANDARD.find(([key]) => key === slug)?.[1]
@@ -5180,85 +5376,299 @@ async function practiceLoadLyrics(songId) {
 function lyricsEditorDialog() {
   let d = $('#lyrics-edit-dialog');
   if (d) return d;
-  document.body.insertAdjacentHTML('beforeend', '<dialog id="lyrics-edit-dialog" class="lyrics-edit-dialog"><form id="lyrics-edit-form"><header class="lyrics-edit-header"><div><h2 data-edit-title></h2><p class="muted">Saved changes appear for everyone in Practice immediately. Timing stays unchanged.</p></div><button type="button" class="button quiet" data-edit-close>×</button></header><div id="lyrics-edit-lines" class="lyrics-edit-lines" data-edit-lines></div><div class="lyrics-edit-actions"><button type="button" class="button" data-edit-add>Add line at current playback time</button><span class="muted">Bracket notes appear above lyrics; use a backslash for a new line.</span></div><p class="lyrics-edit-message" id="lyrics-edit-message" role="status"></p><footer><button type="button" class="button quiet" data-edit-restore>Restore Ableton version</button><span class="lyrics-edit-spacer"></span><button type="button" class="button quiet" data-edit-close>Cancel</button><button type="submit" class="button primary" data-edit-save>Save to Practice</button></footer></form></dialog>');
+  document.body.insertAdjacentHTML('beforeend', '<dialog id="lyrics-edit-dialog" class="lyrics-edit-dialog"><form id="lyrics-edit-form"><header class="lyrics-edit-header"><div><h2 data-edit-title></h2><p class="muted">Click a clip to edit its original text. Drums and Percussion clips can also be added or removed by section.</p></div><button type="button" class="button quiet lyrics-edit-close" data-edit-close aria-label="Cancel editing">×</button></header><div id="lyrics-edit-lines" class="lyrics-edit-canvas" data-edit-lines></div><p class="lyrics-edit-message" id="lyrics-edit-message" data-edit-message role="status"></p><footer><button type="button" class="button quiet" data-edit-restore>Restore Ableton Version</button><span class="lyrics-edit-spacer"></span><button type="button" class="button quiet" data-edit-close>Cancel</button><button type="submit" class="button primary" data-edit-save>Save Lyrics</button></footer></form></dialog>');
   d = $('#lyrics-edit-dialog');
   d.addEventListener('click', async (e) => {
     if (e.target.closest('[data-edit-close]')) { d.close(); return; }
-    if (e.target.closest('[data-edit-add]')) {
-      collectLyricsEditor();
-      const t = Math.max(0, Number(ptPosition()) || 0);
-      const next = lyricsEditDraft.lines.map((x) => Number(x.t)).filter((x) => x > t + .05).sort((a,b) => a-b)[0];
-      lyricsEditDraft.lines.push({ t, e: next ? Math.min(next,t+2) : t+2, text: '' });
-      lyricsEditDraft.lines.sort((a,b) => a.t-b.t); renderLyricsEditor(); return;
-    }
-    const remove = e.target.closest('[data-edit-remove]');
-    if (remove) { collectLyricsEditor(); lyricsEditDraft.lines.splice(Number(remove.closest('[data-edit-row]').dataset.editRow),1); renderLyricsEditor(); return; }
+    const addSection = e.target.closest('[data-edit-add-section]');
+    if (addSection) { finishLyricsEditorCell(); addLyricsEditorClip(Number(addSection.dataset.editAddSection)); return; }
+    const remove = e.target.closest('[data-edit-remove-clip]');
+    if (remove) { removeLyricsEditorClip(Number(remove.dataset.editRemoveClip)); return; }
     if (e.target.closest('[data-edit-restore]')) await restoreLyricsEditor();
-    const jump = e.target.closest('[data-edit-jump]');
-    if (jump) ptSeek(Number(jump.dataset.editJump));
+    const undo = e.target.closest('[data-edit-undo]');
+    if (undo) {
+      const i = Number(undo.dataset.editUndo);
+      const line = lyricsEditDraft?.lines[i];
+      if (line?._addedThisSession) {
+        lyricsEditDraft.lines.splice(i, 1);
+        lyricsEditDraft.activeIndex = null;
+        lyricsEditDraft.message = '';
+        renderLyricsEditor();
+      } else if (line) {
+        line.text = line._sessionText;
+        lyricsEditDraft.activeIndex = null;
+        lyricsEditDraft.message = '';
+        renderLyricsEditor();
+      }
+      return;
+    }
+    const cell = e.target.closest('[data-edit-cell]');
+    if (cell && !e.target.closest('[data-edit-line]')) {
+      const targetLine = lyricsEditDraft.lines[Number(cell.dataset.editCell)];
+      const targetKey = targetLine?._editKey;
+      if (lyricsEditDraft.activeIndex != null && lyricsEditDraft.activeIndex !== Number(cell.dataset.editCell)) finishLyricsEditorCell();
+      const targetIndex = lyricsEditDraft.lines.findIndex((line) => line._editKey === targetKey);
+      if (targetIndex < 0) return;
+      lyricsEditDraft.activeIndex = targetIndex;
+      renderLyricsEditor({ focus: true });
+    }
   });
-  d.addEventListener('submit', async (e) => { e.preventDefault(); await saveLyricsEditor(); });
+  d.addEventListener('click', (e) => {
+    const clickedCell = e.target.closest('[data-edit-cell]')?.dataset.editCell ?? null;
+    const activatesCell = !!e.target.closest('[data-edit-cell], [data-edit-add-section]');
+    setTimeout(() => {
+      if (!lyricsEditDraft || !d.open || lyricsEditDraft.activeIndex == null || activatesCell) return;
+      if (String(lyricsEditDraft.activeIndex) === clickedCell) return;
+      finishLyricsEditorCell();
+    }, 0);
+  });
+  d.addEventListener('input', (e) => {
+    const field = e.target.closest('[data-edit-line]');
+    if (!field || !lyricsEditDraft) return;
+    const i = Number(field.dataset.editLine);
+    const value = field.value.replace(/\r\n?/g, '\n').replace(/^\n+/, '').replace(/\n{2,}/g, '\n');
+    if (value !== field.value) {
+      const caret = Math.min(field.selectionStart, value.length);
+      field.value = value;
+      field.setSelectionRange(caret, caret);
+    }
+    if (lyricsEditDraft.lines[i]) lyricsEditDraft.lines[i].text = lyricsClipTextFromEditor(value);
+    const undo = field.closest('[data-edit-cell]')?.querySelector('[data-edit-undo]');
+    if (undo) undo.disabled = lyricsEditDraft.lines[i]?._addedThisSession ? false : lyricsEditDraft.lines[i]?.text === lyricsEditDraft.lines[i]?._sessionText;
+    const save = d.querySelector('[data-edit-save]');
+    if (save) save.disabled = lyricsEditDraft.saving || !lyricsEditorHasChanges();
+    const restore = d.querySelector('[data-edit-restore]');
+    if (restore) restore.disabled = lyricsEditDraft.saving || lyricsEditDraft.restoreAbleton || (!lyricsEditDraft.hasOverride && lyricsEditorMatchesAbleton());
+  });
+  d.addEventListener('keydown', (e) => {
+    const textField = e.target.closest('[data-edit-line]');
+    if (textField && e.key === 'Enter') {
+      const currentLine = textField.value.slice(0, textField.selectionStart).split('\n').pop() || '';
+      if (!currentLine.trim()) { e.preventDefault(); return; }
+    }
+    const cell = e.target.closest('[data-edit-cell][tabindex="0"]');
+    if (!cell || e.target.matches('textarea')) return;
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); cell.click(); }
+  });
+  d.addEventListener('submit', async (e) => { e.preventDefault(); finishLyricsEditorCell(); await saveLyricsEditor(); });
   d.addEventListener('close', () => { lyricsEditDraft = null; });
   return d;
 }
-function collectLyricsEditor() {
-  if (!lyricsEditDraft) return;
-  lyricsEditDraft.lines = [...$('#lyrics-edit-lines').querySelectorAll('[data-edit-row]')].map((r) => ({
-    ...lyricsEditDraft.lines[Number(r.dataset.editRow)], text: r.querySelector('[data-edit-line]').value
-  })).filter((x) => String(x.text || '').trim());
+function removeLyricsEditorClip(index) {
+  const d = lyricsEditDraft;
+  if (!d || d.saving || !['drums', 'percussion'].includes(d.slug)) return;
+  if (!d.lines[index]) return;
+  d.lines.splice(index, 1);
+  d.activeIndex = null;
+  d.message = '';
+  renderLyricsEditor();
 }
-function renderLyricsEditor() {
+function finishLyricsEditorCell() {
+  const d = lyricsEditDraft;
+  if (!d || d.activeIndex == null) return;
+  const index = d.activeIndex;
+  const line = d.lines[index];
+  d.activeIndex = null;
+  if (line && ['drums', 'percussion'].includes(d.slug) && !String(line.text || '').trim()) {
+    d.lines.splice(index, 1);
+    d.message = '';
+  }
+  renderLyricsEditor();
+}
+function lyricsEditorHasChanges() {
+  const d = lyricsEditDraft;
+  if (!d) return false;
+  if (d.restoreAbleton || d.lines.some((line) => line._addedThisSession)) return true;
+  const current = new Map(d.lines.map((line) => [line._editKey, line]));
+  return d.sessionLines.some((line) => current.get(line._editKey)?.text !== line.text);
+}
+function lyricsEditorMatchesAbleton() {
+  const d = lyricsEditDraft;
+  if (d?.lines.some((line) => line.is_new_clip)) return false;
+  const current = d?.lines.filter((line) => !line.is_new_clip) || [];
+  return !!d && current.length === d.abletonLines.length && current.every((line, i) => line.text === d.abletonLines[i]?.text);
+}
+function lyricsEditorSectionIndex(line, sections) {
+  const mid = (Number(line.t) + Number(line.e ?? line.t)) / 2;
+  let index = -1;
+  sections.forEach((section, i) => { if (Number(section.t) <= mid) index = i; });
+  return index;
+}
+function lyricsEditorItems() {
+  const d = lyricsEditDraft;
+  const sections = (practice.lyrics?.sections || []).slice().sort((a, b) => a.t - b.t);
+  const items = sections.map((sec, sectionIndex) => ({ type: 'section', t: sec.t, at: sec.t, rank: 1, name: sec.name, c: sec.c, sectionIndex }));
+  (d?.lines || []).forEach((line, i) => {
+    const text = String(line.text || '');
+    if (line.is_new_clip) {
+      const sectionIndex = Number(line.section_index);
+      items.push({ type: 'line', t: line.t, at: sections[sectionIndex]?.t ?? line.t, rank: 2, line, i, sectionIndex });
+      return;
+    }
+    const end = Number.isFinite(line.e) ? line.e : line.t;
+    const boundary = sections.find((sec) => sec.t >= line.t - 0.01 && sec.t < end - 0.01);
+    let at = line.t; let rank = 2; let sectionIndex = lyricsEditorSectionIndex(line, sections);
+    if (boundary) {
+      const inNext = /\[\s*>\s*\]/.test(text) ? true : /\[\s*<\s*\]/.test(text) ? false : (end - boundary.t) > (boundary.t - line.t);
+      at = boundary.t; rank = inNext ? 2 : 0;
+      if (inNext) sectionIndex = sections.indexOf(boundary);
+      else sectionIndex = sections.indexOf(boundary) - 1;
+    }
+    items.push({ type: 'line', t: line.t, at, rank, line, i, sectionIndex });
+  });
+  return items.sort((a, b) => a.at - b.at || a.rank - b.rank || a.t - b.t);
+}
+function addLyricsEditorClip(sectionIndex) {
+  const d = lyricsEditDraft;
+  if (!d || d.saving || !['drums', 'percussion'].includes(d.slug)) return;
+  const sections = (practice.lyrics?.sections || []).slice().sort((a, b) => a.t - b.t);
+  const section = sections[sectionIndex];
+  const end = sections[sectionIndex + 1]?.t ?? (Number(practice.lyrics?.duration_seconds) || ptDuration());
+  if (!section || !Number.isFinite(end) || end <= Number(section.t)) {
+    d.message = 'Could not find this section’s end time. Sync Ableton and try again.';
+    renderLyricsEditor(); return;
+  }
+  if (d.lines.some((line) => line.is_new_clip && Number(line.section_index) === sectionIndex)) return;
+  const line = { t: Number(section.t), e: end, text: '', is_new_clip: true, section_index: sectionIndex,
+    _editKey: `new-${Date.now()}-${Math.random()}`, _sessionText: '', _addedThisSession: true };
+  d.lines.push(line);
+  d.lines.sort((a, b) => Number(a.t) - Number(b.t));
+  d.restoreAbleton = false;
+  d.activeIndex = d.lines.indexOf(line);
+  d.message = '';
+  renderLyricsEditor({ focus: true });
+}
+function renderLyricsEditor({ focus = false } = {}) {
   const d = lyricsEditorDialog();
   if (!lyricsEditDraft) return;
-  d.querySelector('[data-edit-title]').textContent = lyricsEditDraft.songName + ' · ' + lyricsTrackLabel(lyricsEditDraft.slug) + ' lyrics';
-  d.querySelector('[data-edit-lines]').innerHTML = lyricsEditDraft.lines.map((x,i) =>
-    '<div class="lyrics-edit-row" data-edit-row="' + i + '"><button type="button" class="lyrics-edit-time" data-edit-jump="' + (Number(x.t)||0) + '">' + escapeHtml(ptTime(Number(x.t)||0)) + '</button><textarea data-edit-line rows="2" aria-label="Lyrics line ' + (i+1) + '">' + escapeHtml(x.text||'') + '</textarea><button type="button" class="button quiet lyrics-edit-remove" data-edit-remove aria-label="Remove line">×</button></div>'
-  ).join('') || '<p class="muted">No lines yet. Add a line at the current playback time.</p>';
-  d.querySelector('[data-edit-restore]').disabled = !lyricsEditDraft.hasOverride;
-  d.querySelector('[data-edit-save]').disabled = !!lyricsEditDraft.saving;
+  const draft = lyricsEditDraft;
+  const canvas = d.querySelector('[data-edit-lines]');
+  const scrollTop = canvas.scrollTop;
+  canvas.className = `lyrics-edit-canvas ly-size-${lyricsPrefs().size}`;
+  d.querySelector('[data-edit-title]').textContent = draft.songName + ' · ' + lyricsTrackLabel(draft.slug);
+  const items = lyricsEditorItems();
+  const occupiedSections = new Set(items.filter((item) => item.type === 'line' && item.sectionIndex >= 0).map((item) => item.sectionIndex));
+  const canAddSectionClips = ['drums', 'percussion'].includes(draft.slug);
+  canvas.innerHTML = items.map((item) => {
+    if (item.type === 'section') {
+      const color = /^#[0-9a-f]{6}$/i.test(item.c || '') ? `--sec-color:${item.c}` : '';
+      const add = canAddSectionClips && !occupiedSections.has(item.sectionIndex)
+        ? `<button type="button" class="lyrics-edit-add-clip" data-edit-add-section="${item.sectionIndex}" aria-label="Add a ${escapeHtml(lyricsTrackLabel(draft.slug))} MIDI clip to ${escapeHtml(item.name)}" title="Add MIDI clip">＋</button>` : '';
+      return `<div class="lyrics-edit-section-block"><div class="lyrics-edit-section"${color ? ` style="${color}"` : ''}>${escapeHtml(item.name)}</div>${add}</div>`;
+    }
+    const line = item.line;
+    const ink = lyricInk(line.c);
+    const changed = !!line._addedThisSession || line.text !== line._sessionText;
+    const editing = draft.activeIndex === item.i;
+    const clipLabel = line.is_new_clip ? 'New MIDI clip' : `Clip ${item.i + 1}`;
+    const removeButton = canAddSectionClips ? `<button type="button" class="lyrics-edit-remove-clip" data-edit-remove-clip="${item.i}" aria-label="Remove ${escapeHtml(lyricsTrackLabel(draft.slug))} MIDI clip" title="Remove MIDI clip">×</button>` : '';
+    return `<div class="lyrics-edit-cell ${editing ? 'editing' : ''}" data-edit-cell="${item.i}" role="group" tabindex="0" aria-label="Lyric clip ${item.i + 1}"${ink ? ` style="--edit-clip-ink:${ink}"` : ''}>${removeButton}${editing
+      ? `<textarea class="lyrics-edit-input" data-edit-line="${item.i}" rows="3" aria-label="${clipLabel} text">${escapeHtml(lyricsClipTextForEditor(line.text))}</textarea><div class="lyrics-edit-cell-tools"><span>${clipLabel} · original MIDI clip text</span><button type="button" class="lyrics-edit-undo" data-edit-undo="${item.i}" ${changed ? '' : 'disabled'}>Undo</button></div>`
+      : `<div class="lyrics-edit-cell-preview">${lyricLineHtml(line.text)}</div><div class="lyrics-edit-cell-tools"><span>${clipLabel}</span>${changed ? `<button type="button" class="lyrics-edit-undo" data-edit-undo="${item.i}">Undo</button>` : ''}</div>`}</div>`;
+  }).join('') || '<p class="lyrics-edit-empty">No lyric clips on this track.</p>';
+  d.querySelector('[data-edit-message]').textContent = draft.message || (draft.restoreAbleton ? 'Ableton version is selected. Choose Save Lyrics to remove the saved edits.' : '');
+  d.querySelector('[data-edit-restore]').disabled = draft.saving || draft.restoreAbleton || (!draft.hasOverride && lyricsEditorMatchesAbleton());
+  d.querySelector('[data-edit-save]').disabled = draft.saving || !lyricsEditorHasChanges() || draft.lines.some((line) => !String(line.text || '').trim());
+  canvas.scrollTop = scrollTop;
+  if (focus) {
+    const input = canvas.querySelector(`[data-edit-line="${draft.activeIndex}"]`);
+    input?.focus();
+    input?.setSelectionRange(input.value.length, input.value.length);
+  }
 }
 function openLyricsEditor(slug) {
   if (!practice.lyrics || practice.lyrics.error || !lyricsEditorTrackForMember(slug)) return;
   const song = state.songs.find((x) => x.id === practice.songId);
   const track = practice.lyrics.tracks.find((x) => x.slug === slug);
+  const abletonTrack = practice.lyrics.sourceTracks?.find((x) => x.slug === slug);
+  const abletonLines = (abletonTrack?.lines || []).map((x) => ({ ...x }));
+  const lines = (track?.lines || []).map((x, i) => ({ ...x, _editKey: `opening-${i}`, _sessionText: x.text, _addedThisSession: false }));
+  const fixedLines = lines.filter((line) => !line.is_new_clip);
+  const mayChangeClipCount = ['drums', 'percussion'].includes(slug);
+  if ((!mayChangeClipCount && fixedLines.length !== abletonLines.length) || (lines.some((line) => line.is_new_clip) && !mayChangeClipCount)) {
+    showNotice('This track’s saved edit has a different number of clips from Ableton. Restore the Ableton version before editing.', true);
+    return;
+  }
   const edit = (practice.lyrics.lyricsEdits || []).find((x) => x.track_slug === slug);
   lyricsEditDraft = { songId: practice.songId, songName: song?.name || practice.songId, slug,
-    lines: (track?.lines || []).map((x) => ({ ...x })), updatedAt: edit?.updated_at || null, hasOverride: !!edit, saving: false };
+    lines, sessionLines: lines.map((x) => ({ _editKey: x._editKey, text: x.text })), abletonLines,
+    updatedAt: edit?.updated_at || null, hasOverride: !!edit, restoreAbleton: false, activeIndex: null, message: '', saving: false };
   renderLyricsEditor();
   lyricsEditorDialog().showModal();
 }
 async function saveLyricsEditor() {
   if (!lyricsEditDraft || lyricsEditDraft.saving) return;
-  collectLyricsEditor();
   const d = lyricsEditDraft;
+  const mayAddClips = ['drums', 'percussion'].includes(d.slug);
+  const presentKeys = new Set(d.lines.filter((line) => !line._addedThisSession).map((line) => line._editKey));
+  if (!d.restoreAbleton && !mayAddClips && d.sessionLines.some((line) => !presentKeys.has(line._editKey))) {
+    d.message = 'Existing MIDI clips cannot be removed from this track.';
+    renderLyricsEditor(); return;
+  }
+  const additions = d.lines.filter((line) => line.is_new_clip);
+  if (!d.restoreAbleton && additions.length && !mayAddClips) {
+    d.message = 'Only Drums and Percussion tracks can add MIDI clips.';
+    renderLyricsEditor(); return;
+  }
+  const additionSections = new Set();
+  for (const line of additions) {
+    const index = Number(line.section_index);
+    if (!Number.isInteger(index) || index < 0 || additionSections.has(index)) {
+      d.message = 'A section can have only one Drums or Percussion MIDI clip.';
+      renderLyricsEditor(); return;
+    }
+    additionSections.add(index);
+  }
+  if (d.lines.some((line) => !String(line.text || '').trim())) {
+    d.message = 'Each MIDI clip needs text. Use chord text such as [G] for a chord-only clip.';
+    renderLyricsEditor(); return;
+  }
+  if (!lyricsEditorHasChanges()) { $('#lyrics-edit-dialog').close(); return; }
   d.saving = true; renderLyricsEditor();
   try {
     const { data: latest, error: readError } = await db.from('song_lyrics_edits').select('updated_at').eq('song_id', d.songId).eq('track_slug', d.slug).maybeSingle();
     if (readError) throw readError;
     if ((latest?.updated_at || null) !== d.updatedAt) throw new Error('Another edit was saved while this editor was open. Close and reopen to keep everyone’s changes.');
-    const { error } = await db.from('song_lyrics_edits').upsert({ song_id: d.songId, track_slug: d.slug, lines: d.lines, edited_by_member_id: state.member.id, updated_at: new Date().toISOString() }, { onConflict: 'song_id,track_slug' });
-    if (error) throw error;
+    const restore = d.restoreAbleton || lyricsEditorMatchesAbleton();
+    const linesToSave = d.lines.map((line) => {
+      const { _editKey, _sessionText, _addedThisSession, ...saved } = line;
+      return { ...saved, text: lyricsClipTextFromEditor(saved.text) };
+    });
+    if (restore) {
+      if (latest) {
+        let deletion = db.from('song_lyrics_edits').delete().eq('song_id', d.songId).eq('track_slug', d.slug).eq('updated_at', d.updatedAt);
+        const { data: deleted, error } = await deletion.select('updated_at');
+        if (error) throw error;
+        if (!deleted?.length) throw new Error('Another edit was saved while this editor was open. Close and reopen to keep everyone’s changes.');
+      }
+    } else {
+      const { error } = await db.from('song_lyrics_edits').upsert({ song_id: d.songId, track_slug: d.slug, lines: linesToSave, edited_by_member_id: state.member.id, updated_at: new Date().toISOString() }, { onConflict: 'song_id,track_slug' });
+      if (error) throw error;
+    }
     const rows = await readLyricsEdits(d.songId);
     await jsonCachePut('lyrics-edits/' + d.songId, rows);
-    applyLyricsEdits(rows); d.updatedAt = rows.find((row) => row.track_slug === d.slug)?.updated_at || null; practiceKeepPlace(renderPracticeLyrics);
-    showNotice(lyricsTrackLabel(d.slug) + ' lyrics saved to the shared Practice page.');
+    applyLyricsEdits(rows); practiceKeepPlace(renderPracticeLyrics);
+    showNotice(restore ? lyricsTrackLabel(d.slug) + ' lyrics restored from Ableton.' : abletonPresence.available
+      ? lyricsTrackLabel(d.slug) + ' lyrics saved. Sending them to the open Ableton Master Project…'
+      : lyricsTrackLabel(d.slug) + ' lyrics saved to shared Practice; they will sync when Ableton is available.');
     $('#lyrics-edit-dialog').close();
   } catch (error) {
     d.saving = false;
-    $('#lyrics-edit-message').textContent = error.message || 'Could not save. Check your connection and try again.';
+    d.message = error.message || 'Could not save. Check your connection and try again.';
     renderLyricsEditor();
   }
 }
 async function restoreLyricsEditor() {
-  if (!lyricsEditDraft?.hasOverride || !confirm('Remove shared edits and restore the Ableton version of this track?')) return;
   const d = lyricsEditDraft;
-  const { error } = await db.from('song_lyrics_edits').delete().eq('song_id', d.songId).eq('track_slug', d.slug);
-  if (error) { $('#lyrics-edit-message').textContent = error.message; return; }
-  const rows = await readLyricsEdits(d.songId);
-  await jsonCachePut('lyrics-edits/' + d.songId, rows);
-  applyLyricsEdits(rows); practiceKeepPlace(renderPracticeLyrics);
-  showNotice(lyricsTrackLabel(d.slug) + ' lyrics restored from Ableton.');
-  $('#lyrics-edit-dialog').close();
+  if (!d || d.saving || (lyricsEditorMatchesAbleton() && !d.hasOverride)) return;
+  d.lines = d.abletonLines.map((x, i) => {
+    const original = d.lines.find((line) => !line.is_new_clip && Math.abs(Number(line.t) - Number(x.t)) < 0.01);
+    return { ...x, _editKey: original?._editKey || `ableton-${i}`, _sessionText: original?._sessionText ?? x.text, _addedThisSession: false };
+  });
+  d.restoreAbleton = true;
+  d.activeIndex = null;
+  d.message = 'Ableton version is selected. Choose Save Lyrics to remove the saved edits.';
+  renderLyricsEditor();
 }
 
 function lyricsTrack() {
@@ -5286,7 +5696,7 @@ function lyricInk(hex) {
   return `rgb(${r}, ${g}, ${b})`;
 }
 // Always offered (in this order), plus any other +LYRICS track a song has.
-const LYRICS_STANDARD = [['chords', 'Chords'], ['guitar', 'Guitar'], ['keyboard', 'Keyboard'], ['lyrics', 'Lyrics'], ['drums', 'Drums']];
+const LYRICS_STANDARD = [['chords', 'Chords'], ['guitar', 'Guitar'], ['keyboard', 'Keyboard'], ['lyrics', 'Lyrics'], ['drums', 'Drums'], ['percussion', 'Percussion']];
 
 function lyricLineHtml(text) {
   let raw = String(text || '').replace(/\[\s*[<>]\s*\]/g, '');
@@ -5493,12 +5903,13 @@ function renderPracticeLyricsInner() {
   const current = lyricsTrack();
   const shown = lyricsShownSlug();
   const editSlug = lyricsEditorTrackForMember(shown);
-  const editActionLabel = state.member?.is_admin ? 'Edit ' + lyricsTrackLabel(editSlug) + ' lyrics' : 'Edit my ' + lyricsTrackLabel(editSlug) + ' lyrics';
-  const editTools = editSlug ? '<div class="ly-edit-tools"><button type="button" class="button quiet" data-lyrics-edit="' + escapeHtml(editSlug) + '">' + escapeHtml(editActionLabel) + '</button><span class="muted">Edits appear for everyone in Practice as soon as you save.</span></div>' : '';
   const chipList = [...LYRICS_STANDARD, ...tracks.filter((t) => !LYRICS_STANDARD.some(([slug]) => slug === t.slug)).map((t) => [t.slug, t.label])];
   const chips = chipList.map(([slug, label]) => {
     const has = tracks.some((t) => t.slug === slug && t.lines?.length);
-    return `<button type="button" class="ly-chip ${slug === shown ? 'on' : ''} ${has ? '' : 'empty'}" data-lyrics-track="${escapeHtml(slug)}" title="${has ? '' : 'Nothing on this track for this song'}">${escapeHtml(label)}</button>`;
+    const selected = slug === shown;
+    const edit = selected && editSlug === slug
+      ? `<button type="button" class="ly-chip-edit" data-lyrics-edit="${escapeHtml(slug)}" title="Edit ${escapeHtml(label)} lyrics" aria-label="Edit ${escapeHtml(label)} lyrics"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 16.5V20h3.5L18 9.5 14.5 6 4 16.5Zm16.7-9.8a.93.93 0 0 0 0-1.3l-2.1-2.1a.93.93 0 0 0-1.3 0l-1.7 1.7 3.4 3.4 1.7-1.7Z"/></svg></button>` : '';
+    return `<span class="ly-chip-wrap ${selected ? 'on' : ''}"><button type="button" class="ly-chip ${selected ? 'on' : ''} ${has ? '' : 'empty'}" data-lyrics-track="${escapeHtml(slug)}" title="${has ? '' : 'Nothing on this track for this song'}">${escapeHtml(label)}</button>${edit}</span>`;
   }).join('');
   const chosenLabel = chipList.find(([slug]) => slug === shown)?.[1] || shown;
   const missing = !current ? `<p class="muted ly-missing">No ${escapeHtml(chosenLabel)} notes in this song; showing its sections.</p>` : '';
@@ -5538,7 +5949,7 @@ function renderPracticeLyricsInner() {
   });
   const song = state.songs.find((row) => row.id === practice.songId);
   box.innerHTML = `<header><h2>Lyrics</h2><span class="ly-sizes">${['s', 'm', 'l'].map((size) => `<button type="button" class="ly-size ${prefs.size === size ? 'on' : ''}" data-lyrics-size="${size}">${size === 's' ? 'A' : size === 'm' ? 'A' : 'A'}</button>`).join('')}<button type="button" class="ly-fs-btn" data-lyrics-fs title="${lyricsFs.on ? 'Exit full screen (Esc)' : 'Full screen (F)'}" aria-label="${lyricsFs.on ? 'Exit full screen' : 'Full screen lyrics'}">${lyricsFs.on ? LY_FS_ICONS.exit : LY_FS_ICONS.enter}</button></span></header>
-    <div class="ly-chips">${chips}</div>${editTools}${missing}
+    <div class="ly-chips">${chips}</div>${missing}
     <div class="ly-scroll ly-size-${prefs.size} ly-track-${escapeHtml(current?.slug || 'none')}" id="practice-lyrics-scroll">${song ? `<div class="ly-title">${escapeHtml(song.name)}</div>` : ''}${withDots.map((it) => it.type === 'dots'
       ? `<div class="ly-dots" data-t="${it.t}" data-t1="${it.t1}">${'<span class="ly-dot"></span>'.repeat(it.n)}</div>`
       : it.type === 'section'
@@ -5865,7 +6276,8 @@ function ptRender() {
   const bar = $('#practice-transport');
   if (!bar) return;
   document.querySelectorAll('body > .pt-song-menu, body > .pt-work-popover').forEach((menu) => menu.remove());
-  const song = state.songs.find((item) => item.id === practice.songId);
+  const song = state.songs.find((item) => item.id === practice.songId)
+    || practice.songList?.find((item) => item.id === practice.songId);
   const engine = ptEngine();
   // Stays on screen while the next song loads (only hidden when nothing is chosen).
   if (!song) { bar.classList.add('hidden'); ptMeasure(); return; }
