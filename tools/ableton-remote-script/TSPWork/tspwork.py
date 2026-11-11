@@ -808,17 +808,27 @@ class TSPWork(ControlSurface):
                         'message': 'This Ableton version does not expose arrangement clip removal.'}
             for i, (clip, old) in enumerate(zip(clips_for_baseline, base)):
                 new = desired_by_base.get(i)
-                if (clip.name or '') not in (str(old.get('text', '')), str(new.get('text', '')) if new else ''):
-                    return {'ok': False, 'error': 'source_changed', 'song_id': song_id, 'track_slug': slug,
-                            'line': i + 1, 'message': 'The Ableton clip changed since this Practice edit was based on it.'}
+                current_text = str(clip.name or '').strip()
+                old_text = str(old.get('text', '')).strip()
                 if new is None:
+                    if current_text != old_text:
+                        return {'ok': False, 'error': 'source_changed', 'song_id': song_id, 'track_slug': slug,
+                                'line': i + 1, 'message': 'The Ableton clip changed since this Practice edit was based on it.'}
                     delete_plans.append((track, clip, clip.start_time, clip.end_time - clip.start_time,
                                          clip.name, getattr(clip, 'color', None), song_id, slug))
                     continue
                 text = str(new.get('text', '')).strip()
                 if not text or len(text) > 12000:
                     return {'ok': False, 'error': 'invalid_lyrics_text', 'song_id': song_id, 'track_slug': slug, 'line': i + 1}
-                if text != clip.name:
+                # Preserve manual Ableton edits on clips Practice left alone.
+                # A clip Practice changed is still guarded: it must match either
+                # the original baseline or the requested target text.
+                if current_text != text and current_text != old_text:
+                    if text == old_text:
+                        continue
+                    return {'ok': False, 'error': 'source_changed', 'song_id': song_id, 'track_slug': slug,
+                            'line': i + 1, 'message': 'The Ableton clip changed since this Practice edit was based on it.'}
+                if text != current_text:
                     plans.append((clip, clip.name, text, song_id, slug))
         return {'ok': True, 'plans': plans, 'create_plans': create_plans, 'delete_plans': delete_plans,
                 'count': len(plans) + len(create_plans) + len(delete_plans), 'added': len(create_plans), 'removed': len(delete_plans)}
