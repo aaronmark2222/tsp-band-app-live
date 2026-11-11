@@ -2616,6 +2616,7 @@ async function runAutoLyricsSync() {
       refused.push({ song_id: write.song_id, track_slug: write.track_slug, error: write.error });
     }
     if (updates.length && !write?.ok) throw new Error(write?.message || write?.detail || write?.error || 'Ableton could not apply the saved lyric edits.');
+    if (updates.length && write?.ok) await persistAppliedLyricsRelayState(updates);
     if (refused.length) {
       autoLyricsSync.refused = refused;
       if (!updates.length) throw new Error(`Lyric edits need attention: ${refused.map((row) => `${row.song_id} · ${row.track_slug} (${row.error})`).join(', ')}`);
@@ -3379,9 +3380,34 @@ function readProgressTick() {
 
 // Reading the saved set takes ~20 s (separate python) to several minutes (inside Live).
 const SET_READ_TIMEOUT_MS = 15 * 60 * 1000;
+function lyricsRelayStateLines(lines) {
+  return [...(lines || [])].sort((a, b) => Number(a.t) - Number(b.t)).map((line) => {
+    const { is_new_clip, section_index, ...saved } = line;
+    return saved;
+  });
+}
+function lyricsRelayStateMatches(a, b) {
+  const left = lyricsRelayStateLines(a).map((line) => [Number(line.t), Number(line.e), String(line.text || '')]);
+  const right = lyricsRelayStateLines(b).map((line) => [Number(line.t), Number(line.e), String(line.text || '')]);
+  return left.length === right.length && left.every((line, i) =>
+    Math.abs(line[0] - right[i][0]) <= 0.03
+    && Math.abs(line[1] - right[i][1]) <= 0.03
+    && line[2] === right[i][2]);
+}
+async function persistAppliedLyricsRelayState(rows) {
+  for (const row of rows || []) {
+    const applied = lyricsRelayStateLines(row.lines);
+    if (lyricsRelayStateMatches(row.applied_lines, applied)) continue;
+    const { error } = await db.from('song_lyrics_edits')
+      .update({ applied_lines: applied })
+      .eq('song_id', row.song_id)
+      .eq('track_slug', row.track_slug);
+    if (error) throw error;
+  }
+}
 async function pendingAbletonLyricsEdits() {
   const [{ data: edits, error: editError }, { data: baselines, error: baselineError }] = await Promise.all([
-    db.from('song_lyrics_edits').select('song_id,track_slug,lines,updated_at'),
+    db.from('song_lyrics_edits').select('song_id,track_slug,lines,updated_at,applied_lines'),
     db.from('song_lyrics').select('song_id,tracks,sections')
   ]);
   if (editError) throw editError;
@@ -3398,30 +3424,44 @@ async function pendingAbletonLyricsEdits() {
       baseTrack = { lines: [] };
     }
     if (!baseTrack) {
-      // Kept queued and reported; one row without a baseline must not block the others.
       problems.push({ song_id: edit.song_id, track_slug: edit.track_slug, error: 'no_baseline', message: 'No saved Ableton baseline yet. The edit is kept in Practice.' });
       continue;
     }
-    const baseLines = [...(baseTrack.lines || [])].sort((x, y) => Number(x.t) - Number(y.t));
-    const lines = [...(edit.lines || [])].sort((x, y) => Number(x.t) - Number(y.t));
-    // If Ableton already contains a newly-added section clip but the previous
-    // sync stopped before clearing the override, treat that row as part of the
-    // new baseline on retry instead of asking Live to create it twice.
+    const savedBaseLines = [...(baseTrack.lines || [])].sort((x, y) => Number(x.t) - Number(y.t));
+    const relayBaseLines = [...(Array.isArray(edit.applied_lines) ? edit.applied_lines : savedBaseLines)].sort((x, y) => Number(x.t) - Number(y.t));
+    const sourceLines = [...(edit.lines || [])].sort((x, y) => Number(x.t) - Number(y.t));
+    const lines = sourceLines.map((line) => ({ ...line }));
+    // A clip added by a previous relay is now part of the Live-memory base for
+    // follow-up edits, even though it is still marked as new relative to the
+    // saved .als baseline. Match it by section only when that section was empty
+    // in the saved baseline; this leaves genuine occupied-section conflicts guarded.
     if (['drums', 'percussion'].includes(edit.track_slug) && baseSong.sections?.length) {
       const matched = new Set();
       lines.forEach((line, i) => {
         if (!line.is_new_clip) return;
-        const baseIndex = baseLines.findIndex((base, j) => !matched.has(j)
-          && base.text === line.text
-          && lyricsEditorSectionIndex(base, baseSong.sections) === Number(line.section_index));
+        const sectionIndex = Number(line.section_index);
+        const sectionWasEmpty = !savedBaseLines.some((base) =>
+          lyricsEditorSectionIndex(base, baseSong.sections) === sectionIndex);
+        const baseIndex = relayBaseLines.findIndex((base, j) => !matched.has(j)
+          && (base.text === line.text || sectionWasEmpty)
+          && lyricsEditorSectionIndex(base, baseSong.sections) === sectionIndex);
         if (baseIndex < 0) return;
         matched.add(baseIndex);
-        const { is_new_clip, section_index, ...alreadySaved } = line;
-        lines[i] = alreadySaved;
+        const { is_new_clip, section_index, ...alreadyApplied } = line;
+        lines[i] = alreadyApplied;
       });
     }
-    updates.push({ song_id: edit.song_id, track_slug: edit.track_slug, base_lines: baseLines, lines });
-    rowsToClear.push({ song_id: edit.song_id, track_slug: edit.track_slug, updated_at: edit.updated_at, base_lines: baseLines, lines });
+    updates.push({
+      song_id: edit.song_id, track_slug: edit.track_slug,
+      base_lines: relayBaseLines, lines,
+      applied_lines: edit.applied_lines || null
+    });
+    // Confirmation against the saved .als must always use the original saved
+    // baseline and full intended override, not the most recent memory relay.
+    rowsToClear.push({
+      song_id: edit.song_id, track_slug: edit.track_slug, updated_at: edit.updated_at,
+      base_lines: savedBaseLines, lines: sourceLines
+    });
   }
   return { updates, rowsToClear, problems, baselineBySong };
 }
@@ -5922,7 +5962,6 @@ async function saveLyricsEditor() {
     const { data: latest, error: readError } = await db.from('song_lyrics_edits').select('updated_at').eq('song_id', d.songId).eq('track_slug', d.slug).maybeSingle();
     if (readError) throw readError;
     if ((latest?.updated_at || null) !== d.updatedAt) throw new Error('Another edit was saved while this editor was open. Close and reopen to keep everyone’s changes.');
-    if (latest) throw new Error('This track already has a queued lyric change. Save the set manually and choose Sync Ableton Set before changing this track again. You can still edit a different track.');
     const restore = d.restoreAbleton || lyricsEditorMatchesAbleton();
     if (restore && abletonPresence.awaitingSave) throw new Error('Save the pending Ableton change manually and choose Sync Ableton Set before restoring lyrics.');
     const linesToSave = d.lines.map((line) => {
