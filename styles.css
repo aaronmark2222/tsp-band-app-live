@@ -1109,7 +1109,7 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .lyrics-edit-undo { padding:2px 7px; border:1px solid rgba(255,255,255,.17); border-radius:5px; background:rgba(255,255,255,.06); color:#eee; font:11px var(--sans); cursor:pointer; }
 .lyrics-edit-undo:hover:not(:disabled) { background:rgba(255,255,255,.14); }
 .lyrics-edit-undo:disabled { opacity:.35; cursor:default; }
-.lyrics-edit-input { display:block; width:100%; min-height:3.2em; resize:vertical; padding:.28em .38em; border:1px solid rgba(255,255,255,.22); border-radius:5px; outline:none; background:#080808; color:#f4f4f4; font:inherit; line-height:1.25; }
+.lyrics-edit-input { display:block; width:100%; min-height:3.2em; resize:vertical; padding:.28em 2em .28em .38em; border:1px solid rgba(255,255,255,.22); border-radius:5px; outline:none; background:#080808; color:#f4f4f4; font:inherit; line-height:1.25; }
 .lyrics-edit-input:focus { border-color:#f3b04d; box-shadow:0 0 0 2px rgba(243,176,77,.12); }
 .lyrics-edit-message { min-height:18px; margin:7px 0; color:#ffb2aa; font-size:12px; }
 .lyrics-edit-dialog footer { display:flex; align-items:center; gap:9px; border-top:1px solid rgba(255,255,255,.14); padding-top:12px; }

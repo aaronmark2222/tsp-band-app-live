@@ -1,5 +1,7 @@
 # Ableton song metadata sync
 
+> **Historical audit (26 October 2026).** This records the original metadata import, not current drift. Use [APP_PLAN.md](../APP_PLAN.md) and a fresh live read for current state.
+
 **Source:** `TSP LIVE MASTER PROJECT.als`, inspected 2026-10-26. **Destination:** `public.songs` in Supabase project `hzvfrvjuqvmkeqbrgmqu`.
 
 ## What was synchronized

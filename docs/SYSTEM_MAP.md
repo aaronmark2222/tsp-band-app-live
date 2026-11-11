@@ -1,5 +1,7 @@
 # TSP Work: system map
 
+> **Historical snapshot.** This guide predates the current Practice lyrics editor and guarded Ableton writeback. Use [APP_PLAN.md](../APP_PLAN.md) and live service state for current behavior; this file is retained for background only.
+
 _Last consolidated: 2026-10-31. This note connects the deployed band app, its live Supabase database, the Ableton master project, and the planned local export workflow. It records confirmed implementation separately from future work._
 
 ## Start here

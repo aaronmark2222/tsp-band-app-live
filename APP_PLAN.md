@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last updated: **2026-11-09** · App version marker `?v=20261109-media5` · TSPWork remote script **1.20** (alsreader md5 `322dd933…`, exporter md5 `639f2b48…`, tspwork md5 `205bb454…`) · Supabase ledger head `20261108210451_member_roles_guest` · Edge Functions `practice-audio` v7, `member-access-admin` v8._
+_Last reconciled: **2026-11-11** · App cache marker `?v=20261111-lyrics-sync-status1` · TSPWork Remote Script **1.26** · Supabase live ledger: **32 migrations**, latest `20261110191303_admin_edit_all_lyrics_tracks` · Edge Functions `practice-audio` v7 and `member-access-admin` v8 (deployed source matches this repository)._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -125,30 +125,32 @@ Aaron is the owner and the only person who runs Ableton Sync and exports. He mos
 
 ### 5.1 Tables (public, all with RLS on)
 
-| Table | Rows (2026-11-08) | Purpose |
+| Table | Rows (verified 2026-11-11) | Purpose |
 |---|---|---|
 | `members` | 8 (7 band + 1 guest) | id, name, slug, instrument, is_admin, user_id (Auth link), must_change_password, sort_order, **role** (`member` / `guest`) |
-| `member_emails` | 4 | admin-only email mapping for onboarding |
+| `member_emails` | 5 | admin-only email mapping for onboarding |
 | `languages` / `song_languages` | 6 / 71 | language catalogue (E, H, K, T, Kn, Ml) and song links |
 | `songs` | 62 | id (`E5`, `EM7`, …), name, type, is_medley, **keys text[]**, **key_segments jsonb**, tempo_start/end/change, **tempo_segments jsonb**, duration_seconds, backing_track_manual (`null`=Auto / `Sent to Mix` / `Mixed`), sort_order |
 | `medley_parts` | 0 | medley constituents (no UI yet) |
 | `task_types` | 23 | key, label, category (`ableset` `utility` `backing` `part`), owner_member_id, allowed_statuses, done_statuses, sort_order |
 | `song_tasks` | 1426 | status per song × task (created by trigger for every song) |
-| `task_status_log` | 513 | trigger-written history |
+| `task_status_log` | 518 | trigger-written history |
 | `percussion_instruments` / `song_percussion` | 12 / 0 | Gautham's per-song instruments (no UI yet) |
 | `setlists` / `setlist_items` | 3 / 70 | ordered songs (break/note item types exist but are unused) |
 | `gigs` | 3 | name, event_date, start_time, location, notes, setlist_id, completed |
 | `deadlines` | 0 | planned; no UI |
-| `ableton_sync_runs` | 23 | log of each applied Ableton Sync (als path, mtime, size, applied items) |
+| `ableton_sync_runs` | 24 | log of each applied Ableton Sync (als path, mtime, size, applied items) |
 | `ableton_sync_snoozes` | 22 | "Snooze" plus "Allow" (chord mismatches): song, task, clip fingerprint; admin only |
 | `practice_tracks` | 10 | **legacy**: early manual-upload index. The bucket listing is now the truth; kept for history |
 | `song_lyrics` | 62 | per song from the last Read set: `tracks` (+LYRICS lines `{t,e,text,c}`), `sections` (`{t,name,c}`), `tempo` (`[[sec,bpm]]`), `bars` (`[[sec,num,den]]`), `tone` (`{t,bar,n,v,d}`), duration_seconds, als_modified_at |
-| `app_meta` | 2 | key/value; `practice_track_colors` (element → hex from the set), `audio_fingerprints` |
-| `practice_audio_state` | 655 (all 62 songs) | per uploaded file (song × element): fingerprint of its Ableton tracks when exported; compared with app_meta `audio_fingerprints` (the set as last read) → yellow "changed since upload" in the export checklist |
-| `practice_export_log` | 60 | one row per exported song: export_seconds, files, song_seconds, per-file seconds; feeds the export time-left estimate |
-| `app_sessions` | new | one row per app session per member: started_at, last_seen_at (heartbeat every 30 s while visible; >5 min away = new session), device phone/computer, standalone, app_version |
-| `page_visits` | new | session_id, member, view (songs/setlists/gigs/dashboard/practice/sync), started_at, ended_at |
-| `practice_plays` | new | one row per song played on Practice (kept across pauses <5 min; ends on song/mode change or leaving Practice): song_id (text), mode mix/multi, seconds_played (real playing time), start/end position, song_seconds, reached_end, fullscreen, solo (multitrack on/solo/off snapshot) |
+| `app_meta` | 3 | key/value; `practice_track_colors` (element → hex from the set), `audio_fingerprints` |
+| `practice_audio_state` | 655 | per uploaded file fingerprint; compared with the latest Ableton read → yellow "changed since upload" |
+| `practice_audio_state_backup_20261109` | 655 | dated backup; not the canonical state table |
+| `song_lyrics_edits` | 0 | shared musician/admin lyric overrides by song and track |
+| `practice_export_log` | 71 | one row per exported song: export_seconds, files, song_seconds, per-file seconds; feeds the export time-left estimate |
+| `app_sessions` | 263 | one row per app session per member: started_at, last_seen_at (heartbeat every 30 s while visible; >5 min away = new session), device phone/computer, standalone, app_version |
+| `page_visits` | 745 | session_id, member, view (songs/setlists/gigs/dashboard/practice/sync), started_at, ended_at |
+| `practice_plays` | 80 | one row per song played on Practice (kept across pauses <5 min; ends on song/mode change or leaving Practice): song_id (text), mode mix/multi, seconds_played (real playing time), start/end position, song_seconds, reached_end, fullscreen, solo (multitrack on/solo/off snapshot) |
 
 Song ID families now: E 15, EM 11, I 9, HM 9, H 7, EHM 5, K 3, KM 2, EHKM 1.
 
@@ -173,7 +175,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 `ready` = backing_track_manual is **Mixed** AND every backing task is Completed/No AND every AbleSet task is Completed/No. **Parts and utility tasks do not gate readiness.** Backing label: manual value, else Finished when all backing tasks are done, else Not Finished. The frontend shows a "Finished" badge only when the backing is Finished and all required work is done.
 
 ### 5.5 Migrations
-`supabase/migrations/README.md` maps files to the live ledger. Since 2026-10-31 there is one file per ledger entry named `<live version>_<name>.sql`. To add a migration: `apply_migration`, then save the same SQL under the version `list_migrations` reports. Never replay `0001`–`0005` or `20261026130000_sync_song_metadata_from_ableton` against production.
+The live ledger currently has **32 applied entries** through `20261110191303_admin_edit_all_lyrics_tracks`. `supabase/migrations/` contains the repository history (38 SQL files, including bootstrap/legacy files); those files do not all map one-to-one to live ledger entries. `supabase/migrations/README.md` explains the mapping. Before schema work, compare the live ledger, repository files, and live schema. Apply only a new forward migration and save its exact SQL under the version reported by Supabase. Never replay bootstrap or historical import files against production.
 
 ### 5.6 JSON shapes
 - `tempo_segments`: `[{bpm, transition_to_next: 'gradual'|'instant'|null, change_start_bar, change_end_bar, change_start_beat, change_end_beat}, …]` (bars and beats relative to the song start; bar 1 = first bar).
@@ -184,7 +186,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 
 ## 6. Frontend architecture
 
-- **No build step.** `index.html` + `app.js` (~4.5k lines, ES module, imports supabase-js from esm.sh) + `styles.css`. All state lives in one big `state` object plus per-feature objects (`sync`, `exportJob`, `practice`, `tone`).
+- **No build step.** `index.html` + `app.js` (~7k lines, ES module, imports supabase-js from esm.sh) + `styles.css`. All state lives in one big `state` object plus per-feature objects (`sync`, `exportJob`, `practice`, `tone`).
 - **Cache-busting:** `index.html` loads `styles.css?v=…` and `app.js?v=…`. Bump both on every change.
 - **Look: Liquid Glass theme** (end of `styles.css`): softly lit dark backdrop (`body::after` colour glows), translucent panels with light edges, pill buttons (orange-tinted when selected), real blur only on the floating bars (top bar, pinned on computers; transport; review bar; dialogs). Avoid nesting `backdrop-filter` (iOS draws it black).
 - **Check before every push:** `cp app.js /tmp/a.mjs && node --check /tmp/a.mjs` (a stray `});` once took the whole app down at "Opening your workspace…").
@@ -201,7 +203,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 
 ### 6.2 Ableton Sync page (admin; works only on Aaron's Mac with Live open and TSPWork selected)
 - **Status card:** TSPWork reachable? (tries `https://127.0.0.1:47711` then `http://127.0.0.1:47710`), version, `.als` path and mtime.
-- **Read set** → `POST /snapshot`, which returns the alsreader snapshot (section 8; ~20 s). While it runs, the button and a panel show the stage and percentage (TSPWork 1.20 `/status` `reading_progress`; timed fallback from `localStorage tsp-read-seconds`) and a checklist of the saving steps; reads started in another window show too. The status line says whether the last read is up to date with the saved set. Mixdown length checks run afterwards in the background. Then:
+- **Read set** → `POST /snapshot`, which returns the alsreader snapshot (section 8; ~20 s). While it runs, the button and a panel show the stage and percentage (TSPWork 1.26 `/status` `reading_progress`; timed fallback from `localStorage tsp-read-seconds`) and a checklist of the saving steps; reads started in another window show too. The status line says whether the last read is up to date with the saved set. Mixdown length checks run afterwards in the background. Then:
   - **Applied automatically:** duration, tempo (`tempo_segments` and summary columns) and keys (`keys` + `key_segments`, only when the set has `[Key:]` markers and they differ).
   - **Saved for Practice:** lyrics, sections, tempo map, bars and tone into `song_lyrics`; track colours into `app_meta`.
   - **Proposed task updates from clip evidence:** sections/chords/lyrics/guitar/keyboard/drums/prompts/song_cue/backup_que → Completed; guitar_tone_midi → Finished; Backing → Mixed when every non-"No" backing task has its stem in MIXED BACKING. Each card has **Complete**, **Snooze** ("ignore until that track's clips change": sha1 fingerprint per song+track; Guitar/Keyboard snoozes also wake when Chords changes) and a review click.
@@ -269,7 +271,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 ## 7. TSPWork (Ableton remote script) — `tools/ableton-remote-script/TSPWork/`
 
 - A `_Framework.ControlSurface` for **Live 12**, chosen as a Control Surface named "TSPWork" in Live's MIDI settings. It runs HTTP/HTTPS servers on a thread; Live API work is marshalled to the main thread with `schedule_message` ticks (`_run_on_main`).
-- **Version 1.20** (1.20: `/status` during a read also returns `reading_progress` {stage open/tracks/songs/done, done, total} from `alsreader.PROGRESS`; the separate-python child reports it on stderr; 1.19: `/status` answers at once with `reading_since` while a set read is running, so every window shows it; 1.18: the review bar after a song jump reports the section at the jump target). `alsreader` and `exporter` are `importlib.reload`ed on every use, so updating those two files needs **no Live restart**. Changing `tspwork.py` needs TSPWork reselected in Live's Control Surface menu (None → TSPWork).
+- **Version 1.26** adds guarded lyrics writeback to the allowlisted main set plus Drum/Percussion clip creation/removal. It retains the saved-set read and export workflow. Version 1.20 added live read progress; earlier version notes below describe historical changes. `alsreader` and `exporter` are `importlib.reload`ed on every use, so updating those two files needs **no Live restart**. Changing `tspwork.py` needs TSPWork reselected in Live's Control Surface menu (None → TSPWork).
 - **Deploy to the Mac:** copy files into a fresh `/mnt/user-data/outputs/deploy_vXXX/`, `device_commit_files` to `~/Music/Ableton/User Library/Remote Scripts/TSPWork/…` (force), then verify the md5 with `device_bash` (`$HOME/mnt/Remote Scripts/TSPWork`). Don't swap the exporter mid-export: check `ls -t` of the export folder or `/export/state` first.
 - **Endpoints** (POST JSON, CORS-restricted):
 
@@ -310,7 +312,7 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 ## 8. alsreader (reads the saved `.als`)
 
 - **How it reads (since 2026-11-08):** unzips the set once, cuts it into the top-level tracks by Ableton's tab indentation and parses each with the C XML parser in 1 MB pieces (falls back to the old streaming parser if the layout differs). Clip sound hashes use `_xml_bytes`, which gives the same bytes as `ET.tostring` (own copies of ElementTree's escaping, identical in Python 3.9–3.13 incl. Live's 3.11). Verified: snapshot identical to the old reader.
-- **Where it runs:** inside Live, reads took 160–420 s (Live slows Python threads). `build_snapshot` therefore runs itself in a separate `python3` when one exists (Homebrew, /usr/local, Command Line Tools or Xcode; never the `/usr/bin` stub, which can pop up an install dialog): ~19 s on Aaron's Mac with the Command Line Tools Python. Each snapshot records `reader` (path, or `in Live (reason)`). Progress (`PROGRESS`: stage open/tracks/songs/done, done, total) is reported by the child on stderr and served by TSPWork 1.20's `/status` during a read.
+- **Where it runs:** inside Live, reads took 160–420 s (Live slows Python threads). `build_snapshot` therefore runs itself in a separate `python3` when one exists (Homebrew, /usr/local, Command Line Tools or Xcode; never the `/usr/bin` stub, which can pop up an install dialog): ~19 s on Aaron's Mac with the Command Line Tools Python. Each snapshot records `reader` (path, or `in Live (reason)`). Progress (`PROGRESS`: stage open/tracks/songs/done, done, total) is reported by the child on stderr and served by TSPWork 1.26's `/status` during a read.
 - It parses the gzip XML into tracks (name, group, colour, arrangement clips with name, start/end, disabled, notes and short-clip MIDI notes following loop and start marker), locators, tempo automation and time-signature automation.
 - **Track map (`TRACKS`):**
 
@@ -399,6 +401,9 @@ Done = `Completed`; `No` = not applicable; `Corrections` and `Recorded` are unfi
 
 ## 13. Roadmap and open items
 
+**Verified 2026-11-11:** live Supabase is healthy; all 26 listed public tables have RLS enabled; Edge Functions are active at `practice-audio` v7 and `member-access-admin` v8 and match repository source. The private R2 bucket `tsp-practice` contains 655 objects; browser access is mediated by signed URLs. No live app records or R2 objects were changed in this audit.
+
+
 **Built (Oct–Nov 2026):** core tracker; member logins; gigs/setlists/dashboard; Ableton Sync with auto-metadata, evidence, snooze, chord mismatches and review mode; overnight practice export to R2 (all 62 songs uploaded 2026-11-08, 3.14 GB; timing log, stop-after-song, auto-retry, freshness fingerprints); Practice page with multitrack, transport, AbleSet lyrics, live key/BPM, guitar-tone MIDI, offline audio and a fully offline (read-only) app.
 
 **Next / ideas (not started unless Aaron asks):**
@@ -422,8 +427,21 @@ Aaron is testing whether the export checklist's yellow "changed since upload" fl
 
 ---
 
+### 13.2 Lyrics editing and guarded Ableton writeback (built 2026-11-11)
+
+- Practice edits are shared per song and instrument in `song_lyrics_edits`; `song_lyrics` remains the Ableton baseline. Members edit their own instrument track; admins can edit any supported track.
+- The editor preserves clip timing/order for ordinary tracks. Drums and Percussion may add or remove clips only in the app’s supported empty-section workflow.
+- Sync writes only to the allowlisted main Ableton set, preflights source text/timing, asks Live to save, reads the saved set back, and clears matching overrides only after verification. Failed or mismatched writeback keeps the shared edit.
+- Practice refreshes lyrics after sync in the active page and other open tabs. The loaded Live session must reload TSPWork 1.26 before using the newest bridge behavior.
+
+---
+
 ## 14. Decision log (newest first)
 
+- **2026-11-11**
+  - Main-project lyrics writeback is the active target; the test copy is historical. Preserve the allowlisted path, preflight, save/readback verification, and retain-on-error behavior.
+  - Drum/Percussion clip creation/removal is supported only in the Practice lyrics editor workflow.
+  - Keep the live Supabase migration ledger and deployed function metadata as the authority when the documentation snapshot differs.
 - **2026-11-09**
   - New user type **Guest** (Practice page only); Kenneth Shalom added as the first guest.
   - Fingerprints ignore file locations, dates and Live's internal IDs; everything was forced green to start a testing phase (section 13.1).
@@ -502,6 +520,7 @@ Aaron is testing whether the export checklist's yellow "changed since upload" fl
 ---
 
 ## 17. Changelog of this plan
+- **2026-11-11:** Reconciled the current app marker, TSPWork 1.26 behavior, Supabase ledger and row counts, R2 object count, and lyrics editor/writeback workflow against live services and the working app snapshot.
 - **2026-11-08:** Activity logging for statistics (`?v=20261108-act1`): `app_sessions`, `page_visits`, `practice_plays` (+ summary views). Members write/read their own rows; admin reads all. Code: `activity*` functions at the end of `app.js`.
 - **2026-11-08:** Liquid Glass theme across the whole app (`?v=20261108-glass4`).
 - **2026-11-08:** App always opens at the top (`history.scrollRestoration = 'manual'`); glass full-screen controls; the iPhone status-bar experiment was reverted (the top fade is Safari's own Home Screen app effect; Aaron parked it) (`?v=20261108-fs4`).
