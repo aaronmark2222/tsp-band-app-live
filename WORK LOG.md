@@ -12,6 +12,6 @@ _Last reconciled: 11 November 2026._ This public status page summarizes the proj
 
 ## Reconciliation note — 11 November 2026
 
-The local handover folder now includes the repository's SQL migration source set and copies of the deployed Edge Function source. The local app snapshot contains newer lyrics-sync behavior than `main`; the proposed source reconciliation is on a review branch and has not been deployed. No Supabase rows, R2 objects, or Ableton set contents were changed during this review.
+The local frontend copies now match GitHub `main` commit `9ab342c5e4a8760f30619626325d21098e7f6d35`, including the service worker and deployed assets. TSPWork 1.27 is in the repository, including guarded handling that preserves independent Live edits on clips Practice did not change. Supabase has 32 applied migrations, 26 public tables with RLS, and the deployed `practice-audio` v7 / `member-access-admin` v8 functions match repository source. The private R2 bucket has 655 objects (3,137,519,522 bytes), matching `practice_audio_state`. The Save suffix is local to the Mac app connected to the master project. No Supabase data or R2 objects were rewritten.
 
 Use `APP_PLAN.md` and live service state for future work. Review historical documents before relying on dates, counts, roadmap items, or implementation status recorded there.
