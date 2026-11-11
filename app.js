@@ -3106,7 +3106,13 @@ async function pendingAbletonLyricsEdits() {
   const updates = []; const rowsToClear = [];
   for (const edit of edits || []) {
     const baseSong = baselineBySong.get(edit.song_id);
-    const baseTrack = baseSong?.tracks?.find((track) => track.slug === edit.track_slug);
+    let baseTrack = baseSong?.tracks?.find((track) => track.slug === edit.track_slug);
+    if (!baseTrack && ['drums', 'percussion'].includes(edit.track_slug) && baseSong?.sections?.length
+      && (edit.lines || []).length > 0 && (edit.lines || []).every((line) => line.is_new_clip === true)) {
+      // Ableton omits tracks with no named clips from its lyrics snapshot.
+      // An all-new Drum/Percussion edit therefore has a valid empty baseline.
+      baseTrack = { lines: [] };
+    }
     if (!baseTrack) throw new Error(`No saved Ableton baseline for ${edit.song_id} · ${edit.track_slug}. Keep the edit in Practice and sync Ableton first.`);
     const baseLines = [...(baseTrack.lines || [])].sort((x, y) => Number(x.t) - Number(y.t));
     const lines = [...(edit.lines || [])].sort((x, y) => Number(x.t) - Number(y.t));
@@ -4356,6 +4362,9 @@ async function practiceOpenSong(songId) {
   try { localStorage.setItem('tsp-practice-song', songId); } catch { /* ignore */ }
   practice.tracks = [];
   practice.tracks.songId = songId;
+  // A superseded song load can leave this true if the next song has no audio
+  // and returns before starting a new request. Clear it before that early path.
+  practice.loadingSong = false;
   practice.buffers = new Map();
   practice.loadState = new Map();
   practice.duration = 0;
@@ -5364,7 +5373,7 @@ function openLyricsEditor(slug) {
   const song = state.songs.find((x) => x.id === practice.songId);
   const track = practice.lyrics.tracks.find((x) => x.slug === slug);
   const abletonTrack = practice.lyrics.sourceTracks?.find((x) => x.slug === slug);
-  const abletonLines = (abletonTrack?.lines || track?.lines || []).map((x) => ({ ...x }));
+  const abletonLines = (abletonTrack?.lines || []).map((x) => ({ ...x }));
   const lines = (track?.lines || []).map((x, i) => ({ ...x, _editKey: `opening-${i}`, _sessionText: x.text, _addedThisSession: false }));
   const fixedLines = lines.filter((line) => !line.is_new_clip);
   if (fixedLines.length !== abletonLines.length || (lines.some((line) => line.is_new_clip) && !['drums', 'percussion'].includes(slug))) {
