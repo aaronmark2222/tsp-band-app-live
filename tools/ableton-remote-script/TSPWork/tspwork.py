@@ -3,7 +3,7 @@
 Safety rules (agreed with Aaron, 6 Nov 2026):
   * Listens on 127.0.0.1 only: nothing outside this Mac can reach it.
   * Accepts requests only from the TSP Work site (and localhost for testing).
-  * Lyrics writeback is enabled only for the explicitly guarded main-project
+  * Lyrics writeback is enabled only for the explicitly guarded master-project
     path; every other set is refused. Other commands only move the playhead,
     select a track or time region and zoom. The loop brace is restored.
   * Zooming uses Live's own menu commands, clicked by name through macOS
@@ -50,8 +50,8 @@ CONFIG_FILE = os.path.expanduser('~/.tspwork.json')  # optional {"als_path": "..
 
 
 def als_path():
-    # Temporary hard safety boundary: Sync is only allowed to read/write this
-    # exact main project until the feature has been accepted for production.
+    # Hard safety boundary: Sync reads/writes only the explicitly selected
+    # master project; every other open set is refused.
     return MAIN_ALS_PATH
 
 # task key -> (parent group name or None, track name prefix)
@@ -690,7 +690,7 @@ class TSPWork(ControlSurface):
             result['error'] = outcome
         return result
 
-    # ------------------------------------------------------------ musician lyric writeback (main project only)
+    # ------------------------------------------------------------ musician lyric writeback (master project only)
     def _cmd_prepare_lyrics_writeback(self, edits):
         expected = os.path.realpath(MAIN_ALS_PATH)
         opened = os.path.realpath(getattr(self.song(), 'file_path', '') or '')
@@ -771,8 +771,6 @@ class TSPWork(ControlSurface):
         if not pre.get('ok'):
             return pre
         plans = pre.pop('plans', [])
-        if not plans and not edits:
-            return {'ok': True, 'changed': 0, 'saved': False}
         before = os.path.getmtime(MAIN_ALS_PATH)
         applied = self._run_on_main(self._cmd_apply_lyrics_writeback, plans, timeout=15)
         if not applied.get('ok'):
