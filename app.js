@@ -2429,10 +2429,11 @@ function setAbletonConnected(connected) {
   chip.classList.toggle('hidden', !visible);
   chip.dataset.remote = localMasterOpen ? 'false' : 'true';
   chip.classList.toggle('needs-attention', abletonPresence.available && abletonPresence.needsAttention);
-  chip.textContent = abletonPresence.needsAttention ? 'Ableton ·' : abletonPresence.awaitingSave ? 'Ableton · Save' : 'Ableton';
+  const localAwaitingSave = localMasterOpen && abletonPresence.awaitingSave;
+  chip.textContent = abletonPresence.needsAttention ? 'Ableton ·' : localAwaitingSave ? 'Ableton · Save' : 'Ableton';
   chip.title = abletonPresence.needsAttention
     ? 'Ableton is open, but a lyric edit needs attention. The edit is still saved in Practice.'
-    : abletonPresence.awaitingSave ? 'Lyrics were applied to the open Live set in memory. Save the set manually in Live, then choose Sync Ableton Set to confirm it.'
+    : localAwaitingSave ? 'Lyrics were applied to the open Live set in memory. Save the set manually in Live, then choose Sync Ableton Set to confirm it.'
     : localMasterOpen ? 'Ableton Master Project is open on this Mac. Click song/work names to control Live.'
       : abletonPresence.available ? 'Ableton Master Project is open on Aaron’s Mac.' : 'Ableton Master Project is not connected.';
   if (!connected) abletonBridge.status = null;
