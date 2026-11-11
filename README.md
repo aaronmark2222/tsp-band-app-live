@@ -1,44 +1,26 @@
 # TSP Work — The String Project
 
-A band workspace for tracking song work and performance setlists, integrated with the band's Ableton Live master project (sync, review, practice audio, AbleSet-style lyrics). **The GitHub repository is public; the deployed app requires a linked Supabase Auth account.** The repository contains the static frontend, project summary, product plan, Supabase setup notes, app guide, and SQL migrations.
+TSP Work is the band's private web workspace for song tasks, gigs, setlists, practice audio, lyrics, and Ableton review. The GitHub repository is public; signing in to the app requires a linked Supabase Auth account.
 
-## Start here
+## Current source of truth
 
-- **[App Plan](APP_PLAN.md) — the current master document (systems, data, Ableton/TSPWork, Practice, runbooks, decisions). Start here.**
-- [Cross-system map](docs/SYSTEM_MAP.md) — current app, Supabase schema/security, Ableton workflow, metadata relationship, and planned local MP3 exports.
-- [Current implementation context](docs/CURRENT_STATE.md) — app architecture, deployment, data-model references, and a checklist for future changes.
-- [Project summary](TSP%20Band%20App%20Summary.md) — product behavior, confirmed decisions, and change log.
-- [App guide](docs/APP_GUIDE.md) — screens, data flow, permissions, and maintenance notes.
-- [Product plan](PLAN.md) — goals, roadmap, data-model decisions, and original requirements.
-- [Supabase setup guide](SETUP_SUPABASE.md) — historical initial project bootstrap guidance; reconcile with live migration history before production database work.
-- [Database migrations](supabase/migrations/) — schema, security policies, reference data, and imports. These files do not all correspond one-for-one with the live project's migration ledger.
+- **[App Plan](APP_PLAN.md)** is the current architecture and operating reference. Its live-state header was checked against Supabase and Cloudflare on 11 November 2026.
+- **[Ableton lyrics sync runbook](ABLETON_LYRICS_SYNC.md)** covers the guarded Practice-to-Ableton writeback workflow.
+- **[Supabase migrations](supabase/migrations/README.md)** describe repository SQL history. The live migration ledger decides what has actually been applied; do not replay bootstrap or historical files against production.
+- `docs/APP_GUIDE.md`, `docs/CURRENT_STATE.md`, `docs/SYSTEM_MAP.md`, and the older planning/setup documents are historical background. Follow `APP_PLAN.md` for current behavior and recheck live services before changes.
 
-## Run locally
+## Application
 
-Serve the repository root with a static web server. For example:
+The app is a static site (`index.html`, `app.js`, `styles.css`, `sw.js`, and assets) with no build step. GitHub Actions deploys the root app files to GitHub Pages from `main`. Pushing frontend changes to `main` deploys them to the band; use a review branch for proposed changes.
 
-```sh
-python3 -m http.server 8000
-```
+The browser uses a public Supabase client key. Service-role credentials and R2 signing credentials belong only in Supabase function secrets. The `practice-audio` function mediates access to the private R2 bucket using signed links.
 
-Open `http://localhost:8000`. The frontend reads the Supabase project URL and public publishable/anon key from `app.js`. These are client-side public values; **never put a `service_role` key in this repository**.
+## Repository layout
 
-## Deploy
+- `app.js`, `index.html`, `styles.css`, `sw.js`, `assets/`: deployed frontend.
+- `supabase/functions/`: Edge Function source.
+- `supabase/migrations/`: bootstrap and forward migration source files; some are historical and do not correspond one-to-one with the current ledger.
+- `tools/ableton-remote-script/`: TSPWork control surface and its tests.
+- `APP_PLAN.md`: current engineering reference.
 
-GitHub Actions deploys the static app to GitHub Pages when code is pushed to `main` or by manual workflow dispatch. The workflow publishes only the app files and required images. The app expects the Supabase schema and data to exist already; it does not run migrations or change database security settings.
-
-## Current app behavior
-
-- Band members sign in with email and password. The signed-in Supabase Auth user is matched to a row in `members`.
-- New members use their email as the username and must replace their temporary password at first sign-in before app data loads.
-- The Songs screen shows progress first. Click a song name to reveal its type, languages, duration, and task statuses.
-- The Dashboard shows a selected member's Playback, Backing, and Other work for the next gig (Oct 30th) or the full repertoire, with a picker to view any band member. Parts remain optional, songs waiting on a mix stay at the end, and Corrections is unfinished work.
-- Combine text search with language, single/medley, and key filters; sort by name, performance type, key, duration, remaining band work, or readiness.
-- Song progress shows unfinished work for the current member and for the band. `No` means not applicable; completion rules come from each task type's `done_statuses` in Supabase.
-- Task owners are stored on `task_types.owner_member_id`; the Dashboard uses these assignments to show each member's remaining tasks.
-- The Setlists screen shows the running order, song duration, gig details, and running-time summary. Songs can be expanded to see their task details.
-- Setlist search and the language, single/medley, and key filters narrow the visible songs without changing their saved order.
-- Setlists are read-only by default. Aaron's admin account can choose **Edit setlist** to create a setlist, add or remove songs, and drag songs into order.
-- Supabase row-level security is the authority for which records a user can read or change. The UI also disables task controls the current member cannot edit.
-
-See [the current implementation context](docs/CURRENT_STATE.md) and [the app guide](docs/APP_GUIDE.md) for the full picture.
+For local preview, serve the repository root with a static web server. Never put service-role keys, passwords, R2 keys, or tokens in Git.
