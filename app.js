@@ -4383,6 +4383,13 @@ async function practiceOpenSong(songId) {
   practiceLoadLyrics(songId);
   if (!practice.available?.has(songId) && !offline.manifest[songId]) { renderPracticePlayers(); return; }
   practice.loadingSong = true;
+  // Watchdog for saved app sessions that leave an audio request pending.
+  const loadingWatchdog = setTimeout(() => {
+    if (practice.songId !== songId || practice.loadToken !== songToken || !practice.loadingSong) return;
+    practice.loadingSong = false;
+    practice.error = `Audio is taking too long to load for ${songId}. Select the song again to retry.`;
+    renderPracticePlayers();
+  }, 20000);
   renderPracticePlayers();
   try {
     let tracks;
@@ -4411,6 +4418,7 @@ async function practiceOpenSong(songId) {
       practice.error = error.message === 'r2_not_configured' ? 'Audio storage is not set up yet.' : `Could not load this song's audio: ${error.message}`;
     }
   } finally {
+    clearTimeout(loadingWatchdog);
     if (practice.songId === songId && practice.loadToken === songToken) {
       practice.loadingSong = false;
       renderPracticePlayers();
@@ -4472,7 +4480,9 @@ function renderPracticePlayers() {
   practiceKeepPlace(() => { try { renderPracticePlayersInner(); } finally { ptRender(); } });
 }
 function renderPracticePlayersInner() {
-  const song = state.songs.find((item) => item.id === practice.songId);
+  const song = state.songs.find((item) => item.id === practice.songId)
+    || practice.songList?.find((item) => item.id === practice.songId)
+    || (practice.songId ? { id: practice.songId, name: practice.songId } : null);
   const mixBox = $('#practice-mixdown');
   const multiBox = $('#practice-multitrack');
   const dlBox = $('#practice-downloads');
@@ -6072,7 +6082,9 @@ function ptRender() {
   const bar = $('#practice-transport');
   if (!bar) return;
   document.querySelectorAll('body > .pt-song-menu, body > .pt-work-popover').forEach((menu) => menu.remove());
-  const song = state.songs.find((item) => item.id === practice.songId);
+  const song = state.songs.find((item) => item.id === practice.songId)
+    || practice.songList?.find((item) => item.id === practice.songId)
+    || (practice.songId ? { id: practice.songId, name: practice.songId } : null);
   const engine = ptEngine();
   // Stays on screen while the next song loads (only hidden when nothing is chosen).
   if (!song) { bar.classList.add('hidden'); ptMeasure(); return; }
