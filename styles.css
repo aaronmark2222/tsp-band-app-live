@@ -1048,12 +1048,12 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .ly-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .ly-chip { border: 1px solid #1b1b1b; background: #3c3c3c; color: #ddd; border-radius: 14px; padding: 5px 12px; font-size: 12px; }
 .ly-chip.on { background: #f39a26; color: #1c1c1c; border-color: #f39a26; font-weight: 600; }
-.ly-chip-wrap { display:inline-flex; align-items:center; overflow:hidden; border:1px solid #1b1b1b; border-radius:14px; background:#3c3c3c; }
+.ly-chip-wrap { display:inline-flex; align-items:center; overflow:hidden; border:1px solid #1b1b1b; border-radius:999px; background:#3c3c3c; }
 .ly-chip-wrap.on { border-color:#f39a26; background:#f39a26; }
-.ly-chip-wrap .ly-chip { border:0; border-radius:0; background:transparent; }
+.ly-chip-wrap .ly-chip { border:0!important; border-radius:999px 0 0 999px!important; background:transparent!important; box-shadow:none!important; }
 .ly-chip-wrap .ly-chip:hover { background:rgba(255,255,255,.08)!important; }
-.ly-chip-wrap .ly-chip.on { background:transparent!important; }
-.ly-chip-edit { display:inline-flex; align-items:center; justify-content:center; align-self:stretch; width:29px; padding:0 7px 0 2px; border:0; border-left:1px solid rgba(0,0,0,.2); background:transparent; color:#241708; cursor:pointer; }
+.ly-chip-wrap .ly-chip.on { background:transparent!important; color:#1b1206!important; }
+.ly-chip-edit { display:inline-flex; align-items:center; justify-content:center; align-self:stretch; width:32px; margin:0; padding:0 9px 0 4px; border:0; border-radius:0!important; border-left:1px solid rgba(0,0,0,.24); background:transparent; color:#241708; box-shadow:none!important; cursor:pointer; }
 .ly-chip-edit svg { width:14px; height:14px; fill:currentColor; }
 .ly-chip-edit:hover,.ly-chip-edit:focus-visible { background:rgba(0,0,0,.1); outline:none; }
 .ly-sizes { display: flex; gap: 4px; align-items: center; flex: none; }
@@ -1089,7 +1089,10 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .lyrics-edit-header p { margin:0; font-size:12px; }
 .lyrics-edit-close { flex:none; min-width:34px; min-height:34px; padding:0; }
 .lyrics-edit-canvas { flex:1 1 auto; min-height:180px; overflow:auto; overscroll-behavior:contain; padding:10px clamp(8px,3vw,28px) 24px; background:#000; border:1px solid rgba(255,255,255,.1); border-radius:10px; font-family:var(--sans); }
-.lyrics-edit-section { display:table; margin:1.15em 0 .55em; padding:.38em .85em; border-radius:999px; background:linear-gradient(180deg,color-mix(in srgb,var(--sec-color,#2f4f7a) 58%,#000),color-mix(in srgb,var(--sec-color,#2f4f7a) 42%,#000)); color:#fff; font-size:.78em; font-weight:500; }
+.lyrics-edit-section-block { margin:1.15em 0 .55em; }
+.lyrics-edit-section { display:table; margin:0 0 .35em; padding:.38em .85em; border-radius:999px; background:linear-gradient(180deg,color-mix(in srgb,var(--sec-color,#2f4f7a) 58%,#000),color-mix(in srgb,var(--sec-color,#2f4f7a) 42%,#000)); color:#fff; font-size:.78em; font-weight:500; }
+.lyrics-edit-add-clip { display:flex; align-items:center; justify-content:center; width:25px; height:22px; margin:0 0 .25em .1em; border:1px solid rgba(255,255,255,.11); border-radius:6px; background:rgba(255,255,255,.018); color:rgba(255,255,255,.43); font:17px/1 var(--sans); cursor:pointer; transition:color .15s,border-color .15s,background .15s; }
+.lyrics-edit-add-clip:hover,.lyrics-edit-add-clip:focus-visible { border-color:rgba(243,176,77,.5); background:rgba(243,176,77,.07); color:rgba(255,255,255,.82); outline:none; }
 .lyrics-edit-cell { position:relative; margin:.35em 0; padding:.32em .55em .3em; border:1px solid color-mix(in srgb,var(--edit-clip-ink,#fff) 26%,transparent); border-radius:8px; background:color-mix(in srgb,var(--edit-clip-ink,#fff) 5%,transparent); color:var(--edit-clip-ink,#d6d6d6); line-height:1.25; cursor:text; transition:border-color .15s,background .15s; }
 .lyrics-edit-cell:hover,.lyrics-edit-cell:focus-visible { border-color:color-mix(in srgb,var(--edit-clip-ink,#fff) 62%,transparent); background:color-mix(in srgb,var(--edit-clip-ink,#fff) 9%,transparent); outline:none; }
 .lyrics-edit-cell.editing { padding:.4em .5em; border-color:rgba(243,176,77,.85); background:rgba(243,176,77,.09); box-shadow:0 0 0 1px rgba(243,176,77,.2); }
