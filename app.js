@@ -2415,7 +2415,8 @@ function setAbletonConnected(connected) {
   abletonBridge.connected = connected;
   const localMasterOpen = connected && abletonMainProjectOpen();
   const visible = localMasterOpen || abletonPresence.available;
-  document.body.classList.toggle('ableton-connected', visible);
+  // Keep Live-control click targets local; the shared chip is informational.
+  document.body.classList.toggle('ableton-connected', localMasterOpen);
   let chip = document.querySelector('#ableton-chip');
   if (!chip) {
     chip = document.createElement('span');
