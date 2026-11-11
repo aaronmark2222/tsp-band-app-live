@@ -229,6 +229,9 @@ async function loadMember(user) {
     throw error;
   }
   if (!data) throw new Error('This account is not linked to a band member. Ask Aaron to check the account setup.');
+  // A different person signed in on this device: drop the previous person's saved data first.
+  const previous = dataCacheGet();
+  if (previous?.user_id && previous.user_id !== user.id) await clearDeviceData({ keepAudio: false });
   state.member = data;
   state.dashboardMemberId = data.id;
   dataCacheSet({ member: data, user_id: user.id });
@@ -1995,7 +1998,63 @@ $('#password-setup-sign-out').addEventListener('click', async () => {
   showLogin();
 });
 
-$('#sign-out').addEventListener('click', async () => { await activityEnd(); await db.auth.signOut(); state.member = null; showLogin(); });
+// ---------------------------------------------------------------------------
+// Sign-out: remove what this device saved about the band, so the next person
+// to use it cannot open songs, tasks, lyrics or audio without signing in.
+// The app shell (public files) stays so the sign-in page still opens offline.
+function signOutKeysToRemove(keys, keepAudio) {
+  // With "keep audio", only the two keys the saved audio needs survive.
+  const keep = keepAudio ? new Set(['tsp-offline-v1', 'tsp-offline-manifest-v1']) : new Set();
+  return keys.filter((key) => key.startsWith('tsp-') && !keep.has(key));
+}
+async function clearDeviceData({ keepAudio = false } = {}) {
+  for (const store of [localStorage, sessionStorage]) {
+    try {
+      const keys = [];
+      for (let i = 0; i < store.length; i += 1) keys.push(store.key(i));
+      signOutKeysToRemove(keys.filter(Boolean), keepAudio && store === localStorage).forEach((key) => store.removeItem(key));
+    } catch { /* storage unavailable */ }
+  }
+  try { await caches.delete('tsp-offline-data-v1'); } catch { /* ignore */ }
+  if (!keepAudio) {
+    try { await caches.delete('tsp-practice-audio-v1'); } catch { /* ignore */ }
+    try { memBlobs.clear(); offline.manifest = {}; } catch { /* not loaded yet */ }
+    // Forget the chosen audio folder (files in that folder are the device owner's and stay).
+    try { await new Promise((resolve) => { const req = indexedDB.deleteDatabase('tsp-offline'); req.onsuccess = req.onerror = req.onblocked = () => resolve(); }); } catch { /* ignore */ }
+  }
+}
+function askSignOutChoice() {
+  return new Promise((resolve) => {
+    const dialog = document.createElement('dialog');
+    dialog.className = 'editor-dialog signout-dialog';
+    const title = document.createElement('h2'); title.textContent = 'Sign out';
+    const text = document.createElement('p');
+    text.textContent = 'Signing out removes the band data saved on this device. Practice audio saved here can be removed too (best on a shared device) or kept so it does not download again. If you keep it, this device still holds those audio files.';
+    const actions = document.createElement('div'); actions.className = 'signout-actions';
+    const button = (label, value, cls) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = `button ${cls}`; b.textContent = label;
+      b.addEventListener('click', () => { dialog.close(); dialog.remove(); resolve(value); });
+      actions.append(b);
+    };
+    button('Sign out and remove everything', 'all', 'primary');
+    button('Sign out, keep saved audio', 'keep-audio', 'quiet');
+    button('Cancel', null, 'quiet');
+    dialog.addEventListener('cancel', () => { dialog.remove(); resolve(null); });
+    dialog.append(title, text, actions);
+    document.body.append(dialog);
+    dialog.showModal();
+  });
+}
+$('#sign-out').addEventListener('click', async () => {
+  const choice = await askSignOutChoice();
+  if (!choice) return;
+  try { await activityEnd(); } catch { /* ignore */ }
+  try { await db.auth.signOut(); } catch (error) { console.warn('Sign-out request failed; local session cleared anyway', error); }
+  await clearDeviceData({ keepAudio: choice === 'keep-audio' });
+  state.member = null;
+  // Reload so nothing loaded for the previous member stays in memory.
+  location.reload();
+});
 document.querySelectorAll('.tab').forEach((button) => button.addEventListener('click', () => setView(button.dataset.view)));
 $('#song-search').addEventListener('input', renderSongs);
 $('#dashboard-tabs').addEventListener('click', (event) => {
