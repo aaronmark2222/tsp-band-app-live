@@ -3098,7 +3098,7 @@ const SET_READ_TIMEOUT_MS = 15 * 60 * 1000;
 async function pendingAbletonLyricsEdits() {
   const [{ data: edits, error: editError }, { data: baselines, error: baselineError }] = await Promise.all([
     db.from('song_lyrics_edits').select('song_id,track_slug,lines,updated_at'),
-    db.from('song_lyrics').select('song_id,tracks')
+    db.from('song_lyrics').select('song_id,tracks,sections')
   ]);
   if (editError) throw editError;
   if (baselineError) throw baselineError;
@@ -3110,6 +3110,22 @@ async function pendingAbletonLyricsEdits() {
     if (!baseTrack) throw new Error(`No saved Ableton baseline for ${edit.song_id} · ${edit.track_slug}. Keep the edit in Practice and sync Ableton first.`);
     const baseLines = [...(baseTrack.lines || [])].sort((x, y) => Number(x.t) - Number(y.t));
     const lines = [...(edit.lines || [])].sort((x, y) => Number(x.t) - Number(y.t));
+    // If Ableton already contains a newly-added section clip but the previous
+    // sync stopped before clearing the override, treat that row as part of the
+    // new baseline on retry instead of asking Live to create it twice.
+    if (['drums', 'percussion'].includes(edit.track_slug) && baseSong.sections?.length) {
+      const matched = new Set();
+      lines.forEach((line, i) => {
+        if (!line.is_new_clip) return;
+        const baseIndex = baseLines.findIndex((base, j) => !matched.has(j)
+          && base.text === line.text
+          && lyricsEditorSectionIndex(base, baseSong.sections) === Number(line.section_index));
+        if (baseIndex < 0) return;
+        matched.add(baseIndex);
+        const { is_new_clip, section_index, ...alreadySaved } = line;
+        lines[i] = alreadySaved;
+      });
+    }
     updates.push({ song_id: edit.song_id, track_slug: edit.track_slug, base_lines: baseLines, lines });
     rowsToClear.push({ song_id: edit.song_id, track_slug: edit.track_slug, updated_at: edit.updated_at, lines });
   }
@@ -5075,6 +5091,7 @@ function lyricsDefaultTrack() {
   if (slug === 'dale' || slug === 'anston') return 'lyrics';
   if (/guitar/.test(instrument)) return 'guitar';
   if (/key/.test(instrument)) return 'keyboard';
+  if (/percussion/.test(instrument)) return 'percussion';
   if (/drum/.test(instrument)) return 'drums';
   return 'chords';
 }
@@ -5083,9 +5100,15 @@ function saveLyricsPrefs(patch) {
 }
 
 
-const LYRICS_EDITABLE_TRACKS = ['guitar', 'keyboard', 'drums'];
+const LYRICS_EDITABLE_TRACKS = ['guitar', 'keyboard', 'drums', 'percussion'];
 let lyricsEditChannel = null;
 let lyricsEditDraft = null;
+function lyricsClipTextForEditor(text) {
+  return String(text || '').replace(/\s*\\{1,2}\s*/g, '\n');
+}
+function lyricsClipTextFromEditor(text) {
+  return String(text || '').replace(/\r\n?/g, '\n').split('\n').filter((line) => line.trim()).join(' \\ ');
+}
 function lyricsEditorTrackForMember(shown = lyricsShownSlug()) {
   if (state.member?.is_admin) {
     const standard = LYRICS_STANDARD.some(([key]) => key === shown);
@@ -5093,7 +5116,7 @@ function lyricsEditorTrackForMember(shown = lyricsShownSlug()) {
     return shown && (standard || custom) ? shown : null;
   }
   const i = String(state.member?.instrument || '').toLowerCase();
-  return /guitar/.test(i) ? 'guitar' : /key/.test(i) ? 'keyboard' : /drum/.test(i) ? 'drums' : null;
+  return /guitar/.test(i) ? 'guitar' : /key/.test(i) ? 'keyboard' : /percussion/.test(i) ? 'percussion' : /drum/.test(i) ? 'drums' : null;
 }
 function lyricsTrackLabel(slug) {
   return LYRICS_STANDARD.find(([key]) => key === slug)?.[1]
@@ -5168,12 +5191,20 @@ function lyricsEditorDialog() {
   d = $('#lyrics-edit-dialog');
   d.addEventListener('click', async (e) => {
     if (e.target.closest('[data-edit-close]')) { d.close(); return; }
+    const addSection = e.target.closest('[data-edit-add-section]');
+    if (addSection) { addLyricsEditorClip(Number(addSection.dataset.editAddSection)); return; }
     if (e.target.closest('[data-edit-restore]')) await restoreLyricsEditor();
     const undo = e.target.closest('[data-edit-undo]');
     if (undo) {
       const i = Number(undo.dataset.editUndo);
-      if (lyricsEditDraft?.sessionLines[i]) {
-        lyricsEditDraft.lines[i].text = lyricsEditDraft.sessionLines[i].text;
+      const line = lyricsEditDraft?.lines[i];
+      if (line?._addedThisSession) {
+        lyricsEditDraft.lines.splice(i, 1);
+        lyricsEditDraft.activeIndex = null;
+        lyricsEditDraft.message = '';
+        renderLyricsEditor();
+      } else if (line) {
+        line.text = line._sessionText;
         lyricsEditDraft.activeIndex = null;
         lyricsEditDraft.message = '';
         renderLyricsEditor();
@@ -5186,19 +5217,40 @@ function lyricsEditorDialog() {
       renderLyricsEditor({ focus: true });
     }
   });
+  d.addEventListener('click', (e) => {
+    const clickedCell = e.target.closest('[data-edit-cell]')?.dataset.editCell ?? null;
+    const activatesCell = !!e.target.closest('[data-edit-cell], [data-edit-add-section]');
+    setTimeout(() => {
+      if (!lyricsEditDraft || !d.open || lyricsEditDraft.activeIndex == null || activatesCell) return;
+      if (String(lyricsEditDraft.activeIndex) === clickedCell) return;
+      lyricsEditDraft.activeIndex = null;
+      renderLyricsEditor();
+    }, 0);
+  });
   d.addEventListener('input', (e) => {
     const field = e.target.closest('[data-edit-line]');
     if (!field || !lyricsEditDraft) return;
     const i = Number(field.dataset.editLine);
-    if (lyricsEditDraft.lines[i]) lyricsEditDraft.lines[i].text = field.value;
+    const value = field.value.replace(/\r\n?/g, '\n').replace(/^\n+/, '').replace(/\n{2,}/g, '\n');
+    if (value !== field.value) {
+      const caret = Math.min(field.selectionStart, value.length);
+      field.value = value;
+      field.setSelectionRange(caret, caret);
+    }
+    if (lyricsEditDraft.lines[i]) lyricsEditDraft.lines[i].text = lyricsClipTextFromEditor(value);
     const undo = field.closest('[data-edit-cell]')?.querySelector('[data-edit-undo]');
-    if (undo) undo.disabled = field.value === lyricsEditDraft.sessionLines[i]?.text;
+    if (undo) undo.disabled = lyricsEditDraft.lines[i]?._addedThisSession ? false : lyricsEditDraft.lines[i]?.text === lyricsEditDraft.lines[i]?._sessionText;
     const save = d.querySelector('[data-edit-save]');
     if (save) save.disabled = lyricsEditDraft.saving || !lyricsEditorHasChanges();
     const restore = d.querySelector('[data-edit-restore]');
     if (restore) restore.disabled = lyricsEditDraft.saving || lyricsEditDraft.restoreAbleton || (!lyricsEditDraft.hasOverride && lyricsEditorMatchesAbleton());
   });
   d.addEventListener('keydown', (e) => {
+    const textField = e.target.closest('[data-edit-line]');
+    if (textField && e.key === 'Enter') {
+      const currentLine = textField.value.slice(0, textField.selectionStart).split('\n').pop() || '';
+      if (!currentLine.trim()) { e.preventDefault(); return; }
+    }
     const cell = e.target.closest('[data-edit-cell][tabindex="0"]');
     if (!cell || e.target.matches('textarea')) return;
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); cell.click(); }
@@ -5209,28 +5261,66 @@ function lyricsEditorDialog() {
 }
 function lyricsEditorHasChanges() {
   const d = lyricsEditDraft;
-  return !!d && (d.restoreAbleton || d.lines.some((line, i) => line.text !== d.sessionLines[i]?.text));
+  if (!d) return false;
+  if (d.restoreAbleton || d.lines.some((line) => line._addedThisSession)) return true;
+  const current = new Map(d.lines.map((line) => [line._editKey, line]));
+  return d.sessionLines.some((line) => current.get(line._editKey)?.text !== line.text);
 }
 function lyricsEditorMatchesAbleton() {
   const d = lyricsEditDraft;
-  return !!d && d.lines.length === d.abletonLines.length && d.lines.every((line, i) => line.text === d.abletonLines[i]?.text);
+  if (d?.lines.some((line) => line.is_new_clip)) return false;
+  const current = d?.lines.filter((line) => !line.is_new_clip) || [];
+  return !!d && current.length === d.abletonLines.length && current.every((line, i) => line.text === d.abletonLines[i]?.text);
+}
+function lyricsEditorSectionIndex(line, sections) {
+  const mid = (Number(line.t) + Number(line.e ?? line.t)) / 2;
+  let index = -1;
+  sections.forEach((section, i) => { if (Number(section.t) <= mid) index = i; });
+  return index;
 }
 function lyricsEditorItems() {
   const d = lyricsEditDraft;
   const sections = (practice.lyrics?.sections || []).slice().sort((a, b) => a.t - b.t);
-  const items = sections.map((sec) => ({ type: 'section', t: sec.t, at: sec.t, rank: 1, name: sec.name, c: sec.c }));
+  const items = sections.map((sec, sectionIndex) => ({ type: 'section', t: sec.t, at: sec.t, rank: 1, name: sec.name, c: sec.c, sectionIndex }));
   (d?.lines || []).forEach((line, i) => {
     const text = String(line.text || '');
+    if (line.is_new_clip) {
+      const sectionIndex = Number(line.section_index);
+      items.push({ type: 'line', t: line.t, at: sections[sectionIndex]?.t ?? line.t, rank: 2, line, i, sectionIndex });
+      return;
+    }
     const end = Number.isFinite(line.e) ? line.e : line.t;
     const boundary = sections.find((sec) => sec.t >= line.t - 0.01 && sec.t < end - 0.01);
-    let at = line.t; let rank = 2;
+    let at = line.t; let rank = 2; let sectionIndex = lyricsEditorSectionIndex(line, sections);
     if (boundary) {
       const inNext = /\[\s*>\s*\]/.test(text) ? true : /\[\s*<\s*\]/.test(text) ? false : (end - boundary.t) > (boundary.t - line.t);
       at = boundary.t; rank = inNext ? 2 : 0;
+      if (inNext) sectionIndex = sections.indexOf(boundary);
+      else sectionIndex = sections.indexOf(boundary) - 1;
     }
-    items.push({ type: 'line', t: line.t, at, rank, line, i });
+    items.push({ type: 'line', t: line.t, at, rank, line, i, sectionIndex });
   });
   return items.sort((a, b) => a.at - b.at || a.rank - b.rank || a.t - b.t);
+}
+function addLyricsEditorClip(sectionIndex) {
+  const d = lyricsEditDraft;
+  if (!d || d.saving || !['drums', 'percussion'].includes(d.slug)) return;
+  const sections = (practice.lyrics?.sections || []).slice().sort((a, b) => a.t - b.t);
+  const section = sections[sectionIndex];
+  const end = sections[sectionIndex + 1]?.t ?? (Number(practice.lyrics?.duration_seconds) || ptDuration());
+  if (!section || !Number.isFinite(end) || end <= Number(section.t)) {
+    d.message = 'Could not find this section’s end time. Sync Ableton and try again.';
+    renderLyricsEditor(); return;
+  }
+  if (d.lines.some((line) => line.is_new_clip && Number(line.section_index) === sectionIndex)) return;
+  const line = { t: Number(section.t), e: end, text: '', is_new_clip: true, section_index: sectionIndex,
+    _editKey: `new-${Date.now()}-${Math.random()}`, _sessionText: '', _addedThisSession: true };
+  d.lines.push(line);
+  d.lines.sort((a, b) => Number(a.t) - Number(b.t));
+  d.restoreAbleton = false;
+  d.activeIndex = d.lines.indexOf(line);
+  d.message = '';
+  renderLyricsEditor({ focus: true });
 }
 function renderLyricsEditor({ focus = false } = {}) {
   const d = lyricsEditorDialog();
@@ -5240,18 +5330,24 @@ function renderLyricsEditor({ focus = false } = {}) {
   const scrollTop = canvas.scrollTop;
   canvas.className = `lyrics-edit-canvas ly-size-${lyricsPrefs().size}`;
   d.querySelector('[data-edit-title]').textContent = draft.songName + ' · ' + lyricsTrackLabel(draft.slug);
-  canvas.innerHTML = lyricsEditorItems().map((item) => {
+  const items = lyricsEditorItems();
+  const occupiedSections = new Set(items.filter((item) => item.type === 'line' && item.sectionIndex >= 0).map((item) => item.sectionIndex));
+  const canAddSectionClips = ['drums', 'percussion'].includes(draft.slug);
+  canvas.innerHTML = items.map((item) => {
     if (item.type === 'section') {
       const color = /^#[0-9a-f]{6}$/i.test(item.c || '') ? `--sec-color:${item.c}` : '';
-      return `<div class="lyrics-edit-section"${color ? ` style="${color}"` : ''}>${escapeHtml(item.name)}</div>`;
+      const add = canAddSectionClips && !occupiedSections.has(item.sectionIndex)
+        ? `<button type="button" class="lyrics-edit-add-clip" data-edit-add-section="${item.sectionIndex}" aria-label="Add a ${escapeHtml(lyricsTrackLabel(draft.slug))} MIDI clip to ${escapeHtml(item.name)}" title="Add MIDI clip">＋</button>` : '';
+      return `<div class="lyrics-edit-section-block"><div class="lyrics-edit-section"${color ? ` style="${color}"` : ''}>${escapeHtml(item.name)}</div>${add}</div>`;
     }
     const line = item.line;
     const ink = lyricInk(line.c);
-    const changed = line.text !== draft.sessionLines[item.i]?.text;
+    const changed = !!line._addedThisSession || line.text !== line._sessionText;
     const editing = draft.activeIndex === item.i;
+    const clipLabel = line.is_new_clip ? 'New MIDI clip' : `Clip ${item.i + 1}`;
     return `<div class="lyrics-edit-cell ${editing ? 'editing' : ''}" data-edit-cell="${item.i}" role="group" tabindex="0" aria-label="Lyric clip ${item.i + 1}"${ink ? ` style="--edit-clip-ink:${ink}"` : ''}>${editing
-      ? `<textarea class="lyrics-edit-input" data-edit-line="${item.i}" rows="3" aria-label="Clip ${item.i + 1} text">${escapeHtml(line.text || '')}</textarea><div class="lyrics-edit-cell-tools"><span>Clip ${item.i + 1} · original MIDI clip text</span><button type="button" class="lyrics-edit-undo" data-edit-undo="${item.i}" ${changed ? '' : 'disabled'}>Undo</button></div>`
-      : `<div class="lyrics-edit-cell-preview">${lyricLineHtml(line.text)}</div><div class="lyrics-edit-cell-tools"><span>Clip ${item.i + 1}</span>${changed ? `<button type="button" class="lyrics-edit-undo" data-edit-undo="${item.i}">Undo</button>` : ''}</div>`}</div>`;
+      ? `<textarea class="lyrics-edit-input" data-edit-line="${item.i}" rows="3" aria-label="${clipLabel} text">${escapeHtml(lyricsClipTextForEditor(line.text))}</textarea><div class="lyrics-edit-cell-tools"><span>${clipLabel} · original MIDI clip text</span><button type="button" class="lyrics-edit-undo" data-edit-undo="${item.i}" ${changed ? '' : 'disabled'}>Undo</button></div>`
+      : `<div class="lyrics-edit-cell-preview">${lyricLineHtml(line.text)}</div><div class="lyrics-edit-cell-tools"><span>${clipLabel}</span>${changed ? `<button type="button" class="lyrics-edit-undo" data-edit-undo="${item.i}">Undo</button>` : ''}</div>`}</div>`;
   }).join('') || '<p class="lyrics-edit-empty">No lyric clips on this track.</p>';
   d.querySelector('[data-edit-message]').textContent = draft.message || (draft.restoreAbleton ? 'Ableton version is selected. Choose Save Lyrics to remove the saved edits.' : '');
   d.querySelector('[data-edit-restore]').disabled = draft.saving || draft.restoreAbleton || (!draft.hasOverride && lyricsEditorMatchesAbleton());
@@ -5269,14 +5365,15 @@ function openLyricsEditor(slug) {
   const track = practice.lyrics.tracks.find((x) => x.slug === slug);
   const abletonTrack = practice.lyrics.sourceTracks?.find((x) => x.slug === slug);
   const abletonLines = (abletonTrack?.lines || track?.lines || []).map((x) => ({ ...x }));
-  if (track?.lines?.length && track.lines.length !== abletonLines.length) {
+  const lines = (track?.lines || []).map((x, i) => ({ ...x, _editKey: `opening-${i}`, _sessionText: x.text, _addedThisSession: false }));
+  const fixedLines = lines.filter((line) => !line.is_new_clip);
+  if (fixedLines.length !== abletonLines.length || (lines.some((line) => line.is_new_clip) && !['drums', 'percussion'].includes(slug))) {
     showNotice('This track’s saved edit has a different number of clips from Ableton. Restore the Ableton version before editing.', true);
     return;
   }
   const edit = (practice.lyrics.lyricsEdits || []).find((x) => x.track_slug === slug);
-  const lines = (track?.lines || []).map((x) => ({ ...x }));
   lyricsEditDraft = { songId: practice.songId, songName: song?.name || practice.songId, slug,
-    lines, sessionLines: lines.map((x) => ({ ...x })), abletonLines,
+    lines, sessionLines: lines.map((x) => ({ _editKey: x._editKey, text: x.text })), abletonLines,
     updatedAt: edit?.updated_at || null, hasOverride: !!edit, restoreAbleton: false, activeIndex: null, message: '', saving: false };
   renderLyricsEditor();
   lyricsEditorDialog().showModal();
@@ -5284,9 +5381,25 @@ function openLyricsEditor(slug) {
 async function saveLyricsEditor() {
   if (!lyricsEditDraft || lyricsEditDraft.saving) return;
   const d = lyricsEditDraft;
-  if (d.lines.length !== d.sessionLines.length || d.lines.length !== d.abletonLines.length) {
-    d.message = 'Clip count cannot change here. Restore the Ableton version before saving.';
+  const mayAddClips = ['drums', 'percussion'].includes(d.slug);
+  const presentKeys = new Set(d.lines.filter((line) => !line._addedThisSession).map((line) => line._editKey));
+  if (!d.restoreAbleton && d.sessionLines.some((line) => !presentKeys.has(line._editKey))) {
+    d.message = 'Existing MIDI clips cannot be removed here. Restore the Ableton version if you want to clear all edits.';
     renderLyricsEditor(); return;
+  }
+  const additions = d.lines.filter((line) => line.is_new_clip);
+  if (!d.restoreAbleton && additions.length && !mayAddClips) {
+    d.message = 'Only Drums and Percussion tracks can add MIDI clips.';
+    renderLyricsEditor(); return;
+  }
+  const additionSections = new Set();
+  for (const line of additions) {
+    const index = Number(line.section_index);
+    if (!Number.isInteger(index) || index < 0 || additionSections.has(index)) {
+      d.message = 'A section can have only one Drums or Percussion MIDI clip.';
+      renderLyricsEditor(); return;
+    }
+    additionSections.add(index);
   }
   if (d.lines.some((line) => !String(line.text || '').trim())) {
     d.message = 'Each MIDI clip needs text. Use chord text such as [G] for a chord-only clip.';
@@ -5299,6 +5412,10 @@ async function saveLyricsEditor() {
     if (readError) throw readError;
     if ((latest?.updated_at || null) !== d.updatedAt) throw new Error('Another edit was saved while this editor was open. Close and reopen to keep everyone’s changes.');
     const restore = d.restoreAbleton || lyricsEditorMatchesAbleton();
+    const linesToSave = d.lines.map((line) => {
+      const { _editKey, _sessionText, _addedThisSession, ...saved } = line;
+      return { ...saved, text: lyricsClipTextFromEditor(saved.text) };
+    });
     if (restore) {
       if (latest) {
         let deletion = db.from('song_lyrics_edits').delete().eq('song_id', d.songId).eq('track_slug', d.slug).eq('updated_at', d.updatedAt);
@@ -5307,7 +5424,7 @@ async function saveLyricsEditor() {
         if (!deleted?.length) throw new Error('Another edit was saved while this editor was open. Close and reopen to keep everyone’s changes.');
       }
     } else {
-      const { error } = await db.from('song_lyrics_edits').upsert({ song_id: d.songId, track_slug: d.slug, lines: d.lines, edited_by_member_id: state.member.id, updated_at: new Date().toISOString() }, { onConflict: 'song_id,track_slug' });
+      const { error } = await db.from('song_lyrics_edits').upsert({ song_id: d.songId, track_slug: d.slug, lines: linesToSave, edited_by_member_id: state.member.id, updated_at: new Date().toISOString() }, { onConflict: 'song_id,track_slug' });
       if (error) throw error;
     }
     const rows = await readLyricsEdits(d.songId);
@@ -5324,7 +5441,10 @@ async function saveLyricsEditor() {
 async function restoreLyricsEditor() {
   const d = lyricsEditDraft;
   if (!d || d.saving || (lyricsEditorMatchesAbleton() && !d.hasOverride)) return;
-  d.lines = d.abletonLines.map((x) => ({ ...x }));
+  d.lines = d.abletonLines.map((x, i) => {
+    const original = d.lines.find((line) => !line.is_new_clip && Math.abs(Number(line.t) - Number(x.t)) < 0.01);
+    return { ...x, _editKey: original?._editKey || `ableton-${i}`, _sessionText: original?._sessionText ?? x.text, _addedThisSession: false };
+  });
   d.restoreAbleton = true;
   d.activeIndex = null;
   d.message = 'Ableton version is selected. Choose Save Lyrics to remove the saved edits.';
@@ -5356,7 +5476,7 @@ function lyricInk(hex) {
   return `rgb(${r}, ${g}, ${b})`;
 }
 // Always offered (in this order), plus any other +LYRICS track a song has.
-const LYRICS_STANDARD = [['chords', 'Chords'], ['guitar', 'Guitar'], ['keyboard', 'Keyboard'], ['lyrics', 'Lyrics'], ['drums', 'Drums']];
+const LYRICS_STANDARD = [['chords', 'Chords'], ['guitar', 'Guitar'], ['keyboard', 'Keyboard'], ['lyrics', 'Lyrics'], ['drums', 'Drums'], ['percussion', 'Percussion']];
 
 function lyricLineHtml(text) {
   let raw = String(text || '').replace(/\[\s*[<>]\s*\]/g, '');
@@ -5563,12 +5683,13 @@ function renderPracticeLyricsInner() {
   const current = lyricsTrack();
   const shown = lyricsShownSlug();
   const editSlug = lyricsEditorTrackForMember(shown);
-  const editActionLabel = state.member?.is_admin ? 'Edit ' + lyricsTrackLabel(editSlug) + ' lyrics' : 'Edit my ' + lyricsTrackLabel(editSlug) + ' lyrics';
-  const editTools = editSlug ? '<div class="ly-edit-tools"><button type="button" class="button quiet" data-lyrics-edit="' + escapeHtml(editSlug) + '">' + escapeHtml(editActionLabel) + '</button><span class="muted">Edits appear for everyone in Practice as soon as you save.</span></div>' : '';
   const chipList = [...LYRICS_STANDARD, ...tracks.filter((t) => !LYRICS_STANDARD.some(([slug]) => slug === t.slug)).map((t) => [t.slug, t.label])];
   const chips = chipList.map(([slug, label]) => {
     const has = tracks.some((t) => t.slug === slug && t.lines?.length);
-    return `<button type="button" class="ly-chip ${slug === shown ? 'on' : ''} ${has ? '' : 'empty'}" data-lyrics-track="${escapeHtml(slug)}" title="${has ? '' : 'Nothing on this track for this song'}">${escapeHtml(label)}</button>`;
+    const selected = slug === shown;
+    const edit = selected && editSlug === slug
+      ? `<button type="button" class="ly-chip-edit" data-lyrics-edit="${escapeHtml(slug)}" title="Edit ${escapeHtml(label)} lyrics" aria-label="Edit ${escapeHtml(label)} lyrics"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 16.5V20h3.5L18 9.5 14.5 6 4 16.5Zm16.7-9.8a.93.93 0 0 0 0-1.3l-2.1-2.1a.93.93 0 0 0-1.3 0l-1.7 1.7 3.4 3.4 1.7-1.7Z"/></svg></button>` : '';
+    return `<span class="ly-chip-wrap ${selected ? 'on' : ''}"><button type="button" class="ly-chip ${selected ? 'on' : ''} ${has ? '' : 'empty'}" data-lyrics-track="${escapeHtml(slug)}" title="${has ? '' : 'Nothing on this track for this song'}">${escapeHtml(label)}</button>${edit}</span>`;
   }).join('');
   const chosenLabel = chipList.find(([slug]) => slug === shown)?.[1] || shown;
   const missing = !current ? `<p class="muted ly-missing">No ${escapeHtml(chosenLabel)} notes in this song; showing its sections.</p>` : '';
@@ -5608,7 +5729,7 @@ function renderPracticeLyricsInner() {
   });
   const song = state.songs.find((row) => row.id === practice.songId);
   box.innerHTML = `<header><h2>Lyrics</h2><span class="ly-sizes">${['s', 'm', 'l'].map((size) => `<button type="button" class="ly-size ${prefs.size === size ? 'on' : ''}" data-lyrics-size="${size}">${size === 's' ? 'A' : size === 'm' ? 'A' : 'A'}</button>`).join('')}<button type="button" class="ly-fs-btn" data-lyrics-fs title="${lyricsFs.on ? 'Exit full screen (Esc)' : 'Full screen (F)'}" aria-label="${lyricsFs.on ? 'Exit full screen' : 'Full screen lyrics'}">${lyricsFs.on ? LY_FS_ICONS.exit : LY_FS_ICONS.enter}</button></span></header>
-    <div class="ly-chips">${chips}</div>${editTools}${missing}
+    <div class="ly-chips">${chips}</div>${missing}
     <div class="ly-scroll ly-size-${prefs.size} ly-track-${escapeHtml(current?.slug || 'none')}" id="practice-lyrics-scroll">${song ? `<div class="ly-title">${escapeHtml(song.name)}</div>` : ''}${withDots.map((it) => it.type === 'dots'
       ? `<div class="ly-dots" data-t="${it.t}" data-t1="${it.t1}">${'<span class="ly-dot"></span>'.repeat(it.n)}</div>`
       : it.type === 'section'
