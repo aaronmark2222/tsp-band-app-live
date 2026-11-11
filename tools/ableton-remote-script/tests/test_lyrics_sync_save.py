@@ -28,6 +28,13 @@ def load_tspwork():
     return module
 
 
+def load_alsreader():
+    spec = importlib.util.spec_from_file_location("alsreader_under_test", ROOT / "TSPWork" / "alsreader.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 class LyricsSyncSaveTests(unittest.TestCase):
     def setUp(self):
         self.module = load_tspwork()
@@ -76,6 +83,24 @@ class LyricsSyncSaveTests(unittest.TestCase):
         result = self.bridge._sync_lyrics({"not": "a list"})
         self.assertEqual(result["error"], "invalid_edits")
         self.assertEqual(self.saved_scripts, [])
+
+
+class LyricsParserTests(unittest.TestCase):
+    def test_short_lyric_clip_is_preserved_as_timed_practice_line(self):
+        reader = load_alsreader()
+        timeline = reader.Timeline([(-63072000.0, 120.0)], [(-63072000.0, 4.0)])
+        parsed = reader._lyrics_for(
+            [{"slug": "guitar", "label": "Guitar", "clips": [
+                {"start": 4.0, "end": 8.0, "name": "Hi", "disabled": False, "color": 0}
+            ]}],
+            [],
+            0.0,
+            16.0,
+            timeline,
+        )
+        self.assertEqual(parsed["tracks"][0]["slug"], "guitar")
+        self.assertEqual(parsed["tracks"][0]["lines"][0]["text"], "Hi")
+        self.assertEqual(parsed["tracks"][0]["lines"][0]["t"], 2.0)
 
 
 if __name__ == "__main__":
