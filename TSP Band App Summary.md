@@ -301,7 +301,7 @@ Four tabs: **Songs** (searchable table, language filter, per-task status dropdow
 - Reordered the Oct 30th setlist to the requested sequence wherever the title already exists in the song catalogue, and added Punjabi Medley (HM4) as the final item.
 - The catalogue-backed sequence currently occupies positions 2–23. Position 1 is reserved for “KESARIYA Prelude,” which does not yet exist in the songs table; no new song/task record was created without its details.
 - The live setlist therefore now has 22 catalogue-backed songs. Confirm the missing Prelude title and details before adding it.
-- Nishanth (Drums) and Albert (Keyboard) already have member records. Nishanth’s account was invited at `shettynishanth157@gmail.com`, linked to the existing member row, and marked to require first-login password setup. Albert’s address is `albertwilsonsynth@gmail.com`; Supabase’s built-in email service rate-limited the second invitation. The account has not yet been created or linked.
+- Nishanth (Drums) and Albert (Keyboard) already have member records. Nishanth’s account was invited at their own email address (not recorded here), linked to the existing member row, and marked to require first-login password setup. Albert’s address is their own email address (not recorded here); Supabase’s built-in email service rate-limited the second invitation. The account has not yet been created or linked.
 
 
 ### 20 Oct 2026 — repertoire and setlist creation
