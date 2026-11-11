@@ -1048,6 +1048,14 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 .ly-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .ly-chip { border: 1px solid #1b1b1b; background: #3c3c3c; color: #ddd; border-radius: 14px; padding: 5px 12px; font-size: 12px; }
 .ly-chip.on { background: #f39a26; color: #1c1c1c; border-color: #f39a26; font-weight: 600; }
+.ly-chip-wrap { display:inline-flex; align-items:center; overflow:hidden; border:1px solid #1b1b1b; border-radius:14px; background:#3c3c3c; }
+.ly-chip-wrap.on { border-color:#f39a26; background:#f39a26; }
+.ly-chip-wrap .ly-chip { border:0; border-radius:0; background:transparent; }
+.ly-chip-wrap .ly-chip:hover { background:rgba(255,255,255,.08)!important; }
+.ly-chip-wrap .ly-chip.on { background:transparent!important; }
+.ly-chip-edit { display:inline-flex; align-items:center; justify-content:center; align-self:stretch; width:29px; padding:0 7px 0 2px; border:0; border-left:1px solid rgba(0,0,0,.2); background:transparent; color:#241708; cursor:pointer; }
+.ly-chip-edit svg { width:14px; height:14px; fill:currentColor; }
+.ly-chip-edit:hover,.ly-chip-edit:focus-visible { background:rgba(0,0,0,.1); outline:none; }
 .ly-sizes { display: flex; gap: 4px; align-items: center; flex: none; }
 .ly-size { box-sizing: border-box; flex: none; width: 30px; height: 30px; -webkit-appearance: none; appearance: none; line-height: 1; border: 1px solid #1b1b1b; background: #3c3c3c; color: #ddd; border-radius: 3px; padding: 0; }
 .ly-size[data-lyrics-size="s"] { font-size: 11px; } .ly-size[data-lyrics-size="m"] { font-size: 14px; } .ly-size[data-lyrics-size="l"] { font-size: 18px; }
