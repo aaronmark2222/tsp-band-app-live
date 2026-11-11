@@ -71,7 +71,7 @@ function showNotice(message, isError = false) {
   box.classList.toggle('error-notice', isError);
   box.classList.remove('hidden');
   clearTimeout(showNotice.timer);
-  showNotice.timer = setTimeout(() => box.classList.add('hidden'), 4200);
+  showNotice.timer = setTimeout(() => box.classList.add('hidden'), isError ? 12000 : 4200);
 }
 
 function fail(message, error) {
@@ -2933,7 +2933,7 @@ function renderSyncPage() {
     return;
   }
   if (!sync.snapshot) {
-    content.innerHTML = '<div class="empty-state">Press <b>Sync Ableton Set</b> to write saved Practice lyric edits to the main Ableton project, save it, then read the saved set back. Make sure Ableton has the test copy open.</div>';
+    content.innerHTML = '<div class="empty-state">Press <b>Sync Ableton Set</b> to write saved Practice lyric edits to the open main Ableton project, save it, then read the saved set back. Make sure Ableton has the main project open.</div>';
     return;
   }
   const { tasks, meta, notices, snoozed } = computeSyncDiff(sync.snapshot);
@@ -3204,30 +3204,37 @@ async function clearSyncedLyricsOverrides(snapshot) {
   }
   refreshSyncLyricsPendingBadge();
 }
-async function refreshPracticeLyricsAfterSync(snapshot) {
-  const songId = practice.songId;
-  if (!snapshot?.songs?.[songId]?.lyrics) return;
-  // Reload the saved baseline and any edits that remain after writeback cleanup.
-  await practiceLoadLyrics(songId);
-}
 const PRACTICE_LYRICS_SYNC_KEY = 'tsp-practice-lyrics-sync';
+const practiceLyricsSyncSeen = new Set();
 let practiceLyricsSyncChannel = null;
-try { practiceLyricsSyncChannel = new BroadcastChannel('tsp-practice-lyrics-sync'); } catch { /* storage event fallback below */ }
+try { practiceLyricsSyncChannel = new BroadcastChannel('tsp-practice-lyrics-sync'); } catch { /* storage events below are the fallback */ }
 function refreshPracticeLyricsForSync(message) {
   if (message?.type !== 'ableton-lyrics-synced' || !Array.isArray(message.song_ids)) return false;
+  if (message.id && practiceLyricsSyncSeen.has(message.id)) return false;
+  if (message.id) {
+    practiceLyricsSyncSeen.add(message.id);
+    if (practiceLyricsSyncSeen.size > 100) practiceLyricsSyncSeen.delete(practiceLyricsSyncSeen.values().next().value);
+  }
   if (state.view !== 'practice' || !message.song_ids.includes(practice.songId)) return false;
   practiceLoadLyrics(practice.songId).catch((error) => console.warn('Could not refresh Practice lyrics after Ableton sync', error));
   return true;
 }
 practiceLyricsSyncChannel?.addEventListener('message', (event) => refreshPracticeLyricsForSync(event.data));
 window.addEventListener('storage', (event) => {
-  if (practiceLyricsSyncChannel || event.key !== PRACTICE_LYRICS_SYNC_KEY || !event.newValue) return;
+  if (event.key !== PRACTICE_LYRICS_SYNC_KEY || !event.newValue) return;
   try { refreshPracticeLyricsForSync(JSON.parse(event.newValue)); } catch { /* ignore malformed local signal */ }
 });
 function broadcastPracticeLyricsSync(songIds) {
-  const message = { type: 'ableton-lyrics-synced', song_ids: songIds };
-  if (practiceLyricsSyncChannel) practiceLyricsSyncChannel.postMessage(message);
-  else try { localStorage.setItem(PRACTICE_LYRICS_SYNC_KEY, JSON.stringify(message)); } catch { /* storage unavailable */ }
+  const message = { type: 'ableton-lyrics-synced', song_ids: songIds, id: `${Date.now()}-${Math.random()}` };
+  try { practiceLyricsSyncChannel?.postMessage(message); } catch { /* storage event fallback below */ }
+  try { localStorage.setItem(PRACTICE_LYRICS_SYNC_KEY, JSON.stringify(message)); } catch { /* private mode: same-tab refresh still works */ }
+}
+async function refreshPracticeLyricsAfterSync(snapshot) {
+  const songId = practice.songId;
+  if (!snapshot?.songs?.[songId]?.lyrics) return;
+  // Re-read the persisted baseline after writeback cleanup so this view cannot
+  // retain the override that was just removed in Supabase.
+  await practiceLoadLyrics(songId);
 }
 async function readAbletonSet() {
   if (!abletonBridge.connected) { await probeAbletonBridge(); }
@@ -3266,9 +3273,13 @@ async function readAbletonSet() {
     if (Object.values(sync.snapshot.songs || {}).some((song) => song.lyrics)) {
       try {
         sync.lyricsSaved = await saveSongLyrics(sync.snapshot);
-        await clearSyncedLyricsOverrides(sync.snapshot);
-        await refreshPracticeLyricsAfterSync(sync.snapshot);
-        broadcastPracticeLyricsSync(Object.keys(sync.snapshot.songs || {}));
+        let lyricsRefreshError = null;
+        try { await clearSyncedLyricsOverrides(sync.snapshot); }
+        catch (error) { lyricsRefreshError = error; }
+        try { await refreshPracticeLyricsAfterSync(sync.snapshot); }
+        catch (error) { if (!lyricsRefreshError) lyricsRefreshError = error; }
+        finally { broadcastPracticeLyricsSync(Object.keys(sync.snapshot.songs || {})); }
+        if (lyricsRefreshError) throw lyricsRefreshError;
       } catch (error) { sync.lyricsSaved = null; showNotice(`Lyrics were not fully saved for Practice: ${error.message}`, true); }
     }
     // Practice audio: the set's current track fingerprints (yellow = changed since upload).
@@ -4428,11 +4439,13 @@ async function practiceOpenSong(songId) {
   practiceLoadLyrics(songId);
   if (!practice.available?.has(songId) && !offline.manifest[songId]) { renderPracticePlayers(); return; }
   practice.loadingSong = true;
-  // Watchdog for saved app sessions that leave an audio request pending.
+  // Keep a separate UI watchdog as well as the request timeout below. The
+  // installed app can retain a pending load across a view switch; never let
+  // that leave Practice dimmed with an empty transport indefinitely.
   const loadingWatchdog = setTimeout(() => {
     if (practice.songId !== songId || practice.loadToken !== songToken || !practice.loadingSong) return;
     practice.loadingSong = false;
-    practice.error = `Audio is taking too long to load for ${songId}. Select the song again to retry.`;
+    practice.error = `Audio is taking too long to load for ${songId}. You can retry by selecting the song again.`;
     renderPracticePlayers();
   }, 20000);
   renderPracticePlayers();
@@ -4526,8 +4539,7 @@ function renderPracticePlayers() {
 }
 function renderPracticePlayersInner() {
   const song = state.songs.find((item) => item.id === practice.songId)
-    || practice.songList?.find((item) => item.id === practice.songId)
-    || (practice.songId ? { id: practice.songId, name: practice.songId } : null);
+    || practice.songList?.find((item) => item.id === practice.songId);
   const mixBox = $('#practice-mixdown');
   const multiBox = $('#practice-multitrack');
   const dlBox = $('#practice-downloads');
@@ -6157,8 +6169,7 @@ function ptRender() {
   if (!bar) return;
   document.querySelectorAll('body > .pt-song-menu, body > .pt-work-popover').forEach((menu) => menu.remove());
   const song = state.songs.find((item) => item.id === practice.songId)
-    || practice.songList?.find((item) => item.id === practice.songId)
-    || (practice.songId ? { id: practice.songId, name: practice.songId } : null);
+    || practice.songList?.find((item) => item.id === practice.songId);
   const engine = ptEngine();
   // Stays on screen while the next song loads (only hidden when nothing is chosen).
   if (!song) { bar.classList.add('hidden'); ptMeasure(); return; }
