@@ -2889,7 +2889,7 @@ function renderSyncPage() {
     return;
   }
   if (!sync.snapshot) {
-    content.innerHTML = '<div class="empty-state">Press <b>Sync Ableton Set</b> to write saved Practice lyric edits to the Ableton test copy, save it, then read the saved set back. Make sure Ableton has the test copy open.</div>';
+    content.innerHTML = '<div class="empty-state">Press <b>Sync Ableton Set</b> to write saved Practice lyric edits to the main Ableton project, save it, then read the saved set back. Make sure Ableton has the test copy open.</div>';
     return;
   }
   const { tasks, meta, notices, snoozed } = computeSyncDiff(sync.snapshot);
@@ -3115,12 +3115,12 @@ async function pendingAbletonLyricsEdits() {
   }
   return { updates, rowsToClear };
 }
-async function syncLyricsToTestCopy() {
+async function syncLyricsToMainProject() {
   const pending = await pendingAbletonLyricsEdits();
   const result = await abletonRequest('/sync-lyrics', { edits: pending.updates }, SET_READ_TIMEOUT_MS);
   if (!result?.ok) {
-    if (result?.error === 'wrong_open_set') throw new Error(`Open the Ableton test copy before syncing. TSPWork sees: ${result.open_path || 'no saved set'}`);
-    throw new Error(result?.message || result?.detail || result?.error || 'Could not sync lyric edits to the Ableton test copy.');
+    if (result?.error === 'wrong_open_set') throw new Error(`Open the main Ableton project before syncing. TSPWork sees: ${result.open_path || 'no saved set'}`);
+    throw new Error(result?.message || result?.detail || result?.error || 'Could not sync lyric edits to the main Ableton project.');
   }
   sync.writebackRows = pending.rowsToClear;
   return result;
@@ -3145,9 +3145,9 @@ async function readAbletonSet() {
   readProgressStart();
   if (state.view === 'sync') renderSyncPage(); else renderSyncStatus();
   try {
-    // Write shared lyric edits first. TSPWork refuses unless the exact test copy is open.
-    readProgressStep('Syncing lyrics to the Ableton test copy…', 0);
-    await syncLyricsToTestCopy();
+    // Write shared lyric edits first. TSPWork refuses unless the exact main project is open.
+    readProgressStep('Syncing lyrics to the main Ableton project…', 0);
+    await syncLyricsToMainProject();
     // TSPWork does one thing at a time (a read takes a few minutes). If it's
     // still busy with something else (another window's read, a jump), wait for it.
     let result = null;

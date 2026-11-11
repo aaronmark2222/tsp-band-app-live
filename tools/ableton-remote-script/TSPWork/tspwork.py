@@ -3,7 +3,7 @@
 Safety rules (agreed with Aaron, 6 Nov 2026):
   * Listens on 127.0.0.1 only: nothing outside this Mac can reach it.
   * Accepts requests only from the TSP Work site (and localhost for testing).
-  * Lyrics writeback is enabled only for the explicitly guarded test-copy
+  * Lyrics writeback is enabled only for the explicitly guarded main-project
     path; every other set is refused. Other commands only move the playhead,
     select a track or time region and zoom. The loop brace is restored.
   * Zooming uses Live's own menu commands, clicked by name through macOS
@@ -31,7 +31,7 @@ from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
 TLS_PORT = 47711
-VERSION = '1.21'
+VERSION = '1.22'
 DEBUG_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requests.log')
 # https listener for the live site in Safari. Certificate made for 127.0.0.1 /
 # localhost only, trusted once in this Mac's Keychain. Files sit next to this
@@ -44,15 +44,15 @@ ALLOWED_ORIGINS = (
     'http://127.0.0.1:8000',
 )
 SONG_ID_RE = re.compile(r'^[A-Z][A-Za-z]*[0-9]+$')
-TEST_ALS_PATH = '/Users/aaron/Desktop/TSP LIVE MASTER PROJECT Project/TSP LIVE MASTER PROJECT TEST COPY.als'
-DEFAULT_ALS = TEST_ALS_PATH
+MAIN_ALS_PATH = '/Users/aaron/Desktop/TSP LIVE MASTER PROJECT Project/TSP LIVE MASTER PROJECT.als'
+DEFAULT_ALS = MAIN_ALS_PATH
 CONFIG_FILE = os.path.expanduser('~/.tspwork.json')  # optional {"als_path": "..."}
 
 
 def als_path():
     # Temporary hard safety boundary: Sync is only allowed to read/write this
-    # exact test copy until the feature has been accepted for production.
-    return TEST_ALS_PATH
+    # exact main project until the feature has been accepted for production.
+    return MAIN_ALS_PATH
 
 # task key -> (parent group name or None, track name prefix)
 TASK_TRACKS = {
@@ -690,15 +690,15 @@ class TSPWork(ControlSurface):
             result['error'] = outcome
         return result
 
-    # ------------------------------------------------------------ musician lyric writeback (test copy only)
+    # ------------------------------------------------------------ musician lyric writeback (main project only)
     def _cmd_prepare_lyrics_writeback(self, edits):
-        expected = os.path.realpath(TEST_ALS_PATH)
+        expected = os.path.realpath(MAIN_ALS_PATH)
         opened = os.path.realpath(getattr(self.song(), 'file_path', '') or '')
         if opened != expected:
-            return {'ok': False, 'error': 'wrong_open_set', 'expected_path': TEST_ALS_PATH,
+            return {'ok': False, 'error': 'wrong_open_set', 'expected_path': MAIN_ALS_PATH,
                     'open_path': getattr(self.song(), 'file_path', '')}
-        if not os.path.exists(TEST_ALS_PATH):
-            return {'ok': False, 'error': 'test_set_not_found', 'expected_path': TEST_ALS_PATH}
+        if not os.path.exists(MAIN_ALS_PATH):
+            return {'ok': False, 'error': 'main_set_not_found', 'expected_path': MAIN_ALS_PATH}
         tracks = [t for t in self._all_tracks() if '+LYRICS' in (t.name or '').upper()]
         by_slug = {}
         for track in tracks:
@@ -748,7 +748,7 @@ class TSPWork(ControlSurface):
 
     def _cmd_apply_lyrics_writeback(self, plans):
         opened = os.path.realpath(getattr(self.song(), 'file_path', '') or '')
-        if opened != os.path.realpath(TEST_ALS_PATH):
+        if opened != os.path.realpath(MAIN_ALS_PATH):
             return {'ok': False, 'error': 'wrong_open_set', 'open_path': getattr(self.song(), 'file_path', '')}
         changed = []
         try:
@@ -773,7 +773,7 @@ class TSPWork(ControlSurface):
         plans = pre.pop('plans', [])
         if not plans and not edits:
             return {'ok': True, 'changed': 0, 'saved': False}
-        before = os.path.getmtime(TEST_ALS_PATH)
+        before = os.path.getmtime(MAIN_ALS_PATH)
         applied = self._run_on_main(self._cmd_apply_lyrics_writeback, plans, timeout=15)
         if not applied.get('ok'):
             return applied
@@ -794,16 +794,16 @@ return "ok"
         deadline = time.time() + 20
         while time.time() < deadline:
             try:
-                if os.path.getmtime(TEST_ALS_PATH) > before:
+                if os.path.getmtime(MAIN_ALS_PATH) > before:
                     break
             except Exception:
                 pass
             time.sleep(0.25)
-        if applied.get('changed', 0) and os.path.getmtime(TEST_ALS_PATH) <= before:
+        if applied.get('changed', 0) and os.path.getmtime(MAIN_ALS_PATH) <= before:
             return {'ok': False, 'error': 'save_not_confirmed', 'changed': applied.get('changed', 0),
-                    'message': 'Live did not update the test copy save time; Practice edits were kept.'}
+                    'message': 'Live did not update the main project save time; Practice edits were kept.'}
         return {'ok': True, 'changed': applied.get('changed', 0), 'saved': True,
-                'saved_at': os.path.getmtime(TEST_ALS_PATH), 'als_path': TEST_ALS_PATH}
+                'saved_at': os.path.getmtime(MAIN_ALS_PATH), 'als_path': MAIN_ALS_PATH}
 
     # ------------------------------------------------------------ .als reading
     def _snapshot(self):
