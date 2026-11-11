@@ -5217,12 +5217,14 @@ async function practiceLoadLyrics(songId) {
 function lyricsEditorDialog() {
   let d = $('#lyrics-edit-dialog');
   if (d) return d;
-  document.body.insertAdjacentHTML('beforeend', '<dialog id="lyrics-edit-dialog" class="lyrics-edit-dialog"><form id="lyrics-edit-form"><header class="lyrics-edit-header"><div><h2 data-edit-title></h2><p class="muted">Click a clip to edit its original text. Chords, sections, timing, and clip count stay in place.</p></div><button type="button" class="button quiet lyrics-edit-close" data-edit-close aria-label="Cancel editing">×</button></header><div id="lyrics-edit-lines" class="lyrics-edit-canvas" data-edit-lines></div><p class="lyrics-edit-message" id="lyrics-edit-message" data-edit-message role="status"></p><footer><button type="button" class="button quiet" data-edit-restore>Restore Ableton Version</button><span class="lyrics-edit-spacer"></span><button type="button" class="button quiet" data-edit-close>Cancel</button><button type="submit" class="button primary" data-edit-save>Save Lyrics</button></footer></form></dialog>');
+  document.body.insertAdjacentHTML('beforeend', '<dialog id="lyrics-edit-dialog" class="lyrics-edit-dialog"><form id="lyrics-edit-form"><header class="lyrics-edit-header"><div><h2 data-edit-title></h2><p class="muted">Click a clip to edit its original text. Drums and Percussion clips can also be added or removed by section.</p></div><button type="button" class="button quiet lyrics-edit-close" data-edit-close aria-label="Cancel editing">×</button></header><div id="lyrics-edit-lines" class="lyrics-edit-canvas" data-edit-lines></div><p class="lyrics-edit-message" id="lyrics-edit-message" data-edit-message role="status"></p><footer><button type="button" class="button quiet" data-edit-restore>Restore Ableton Version</button><span class="lyrics-edit-spacer"></span><button type="button" class="button quiet" data-edit-close>Cancel</button><button type="submit" class="button primary" data-edit-save>Save Lyrics</button></footer></form></dialog>');
   d = $('#lyrics-edit-dialog');
   d.addEventListener('click', async (e) => {
     if (e.target.closest('[data-edit-close]')) { d.close(); return; }
     const addSection = e.target.closest('[data-edit-add-section]');
-    if (addSection) { addLyricsEditorClip(Number(addSection.dataset.editAddSection)); return; }
+    if (addSection) { finishLyricsEditorCell(); addLyricsEditorClip(Number(addSection.dataset.editAddSection)); return; }
+    const remove = e.target.closest('[data-edit-remove-clip]');
+    if (remove) { removeLyricsEditorClip(Number(remove.dataset.editRemoveClip)); return; }
     if (e.target.closest('[data-edit-restore]')) await restoreLyricsEditor();
     const undo = e.target.closest('[data-edit-undo]');
     if (undo) {
@@ -5243,7 +5245,12 @@ function lyricsEditorDialog() {
     }
     const cell = e.target.closest('[data-edit-cell]');
     if (cell && !e.target.closest('[data-edit-line]')) {
-      lyricsEditDraft.activeIndex = Number(cell.dataset.editCell);
+      const targetLine = lyricsEditDraft.lines[Number(cell.dataset.editCell)];
+      const targetKey = targetLine?._editKey;
+      if (lyricsEditDraft.activeIndex != null && lyricsEditDraft.activeIndex !== Number(cell.dataset.editCell)) finishLyricsEditorCell();
+      const targetIndex = lyricsEditDraft.lines.findIndex((line) => line._editKey === targetKey);
+      if (targetIndex < 0) return;
+      lyricsEditDraft.activeIndex = targetIndex;
       renderLyricsEditor({ focus: true });
     }
   });
@@ -5253,8 +5260,7 @@ function lyricsEditorDialog() {
     setTimeout(() => {
       if (!lyricsEditDraft || !d.open || lyricsEditDraft.activeIndex == null || activatesCell) return;
       if (String(lyricsEditDraft.activeIndex) === clickedCell) return;
-      lyricsEditDraft.activeIndex = null;
-      renderLyricsEditor();
+      finishLyricsEditorCell();
     }, 0);
   });
   d.addEventListener('input', (e) => {
@@ -5285,9 +5291,30 @@ function lyricsEditorDialog() {
     if (!cell || e.target.matches('textarea')) return;
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); cell.click(); }
   });
-  d.addEventListener('submit', async (e) => { e.preventDefault(); await saveLyricsEditor(); });
+  d.addEventListener('submit', async (e) => { e.preventDefault(); finishLyricsEditorCell(); await saveLyricsEditor(); });
   d.addEventListener('close', () => { lyricsEditDraft = null; });
   return d;
+}
+function removeLyricsEditorClip(index) {
+  const d = lyricsEditDraft;
+  if (!d || d.saving || !['drums', 'percussion'].includes(d.slug)) return;
+  if (!d.lines[index]) return;
+  d.lines.splice(index, 1);
+  d.activeIndex = null;
+  d.message = '';
+  renderLyricsEditor();
+}
+function finishLyricsEditorCell() {
+  const d = lyricsEditDraft;
+  if (!d || d.activeIndex == null) return;
+  const index = d.activeIndex;
+  const line = d.lines[index];
+  d.activeIndex = null;
+  if (line && ['drums', 'percussion'].includes(d.slug) && !String(line.text || '').trim()) {
+    d.lines.splice(index, 1);
+    d.message = '';
+  }
+  renderLyricsEditor();
 }
 function lyricsEditorHasChanges() {
   const d = lyricsEditDraft;
@@ -5375,7 +5402,8 @@ function renderLyricsEditor({ focus = false } = {}) {
     const changed = !!line._addedThisSession || line.text !== line._sessionText;
     const editing = draft.activeIndex === item.i;
     const clipLabel = line.is_new_clip ? 'New MIDI clip' : `Clip ${item.i + 1}`;
-    return `<div class="lyrics-edit-cell ${editing ? 'editing' : ''}" data-edit-cell="${item.i}" role="group" tabindex="0" aria-label="Lyric clip ${item.i + 1}"${ink ? ` style="--edit-clip-ink:${ink}"` : ''}>${editing
+    const removeButton = canAddSectionClips ? `<button type="button" class="lyrics-edit-remove-clip" data-edit-remove-clip="${item.i}" aria-label="Remove ${escapeHtml(lyricsTrackLabel(draft.slug))} MIDI clip" title="Remove MIDI clip">×</button>` : '';
+    return `<div class="lyrics-edit-cell ${editing ? 'editing' : ''}" data-edit-cell="${item.i}" role="group" tabindex="0" aria-label="Lyric clip ${item.i + 1}"${ink ? ` style="--edit-clip-ink:${ink}"` : ''}>${removeButton}${editing
       ? `<textarea class="lyrics-edit-input" data-edit-line="${item.i}" rows="3" aria-label="${clipLabel} text">${escapeHtml(lyricsClipTextForEditor(line.text))}</textarea><div class="lyrics-edit-cell-tools"><span>${clipLabel} · original MIDI clip text</span><button type="button" class="lyrics-edit-undo" data-edit-undo="${item.i}" ${changed ? '' : 'disabled'}>Undo</button></div>`
       : `<div class="lyrics-edit-cell-preview">${lyricLineHtml(line.text)}</div><div class="lyrics-edit-cell-tools"><span>${clipLabel}</span>${changed ? `<button type="button" class="lyrics-edit-undo" data-edit-undo="${item.i}">Undo</button>` : ''}</div>`}</div>`;
   }).join('') || '<p class="lyrics-edit-empty">No lyric clips on this track.</p>';
@@ -5397,7 +5425,8 @@ function openLyricsEditor(slug) {
   const abletonLines = (abletonTrack?.lines || []).map((x) => ({ ...x }));
   const lines = (track?.lines || []).map((x, i) => ({ ...x, _editKey: `opening-${i}`, _sessionText: x.text, _addedThisSession: false }));
   const fixedLines = lines.filter((line) => !line.is_new_clip);
-  if (fixedLines.length !== abletonLines.length || (lines.some((line) => line.is_new_clip) && !['drums', 'percussion'].includes(slug))) {
+  const mayChangeClipCount = ['drums', 'percussion'].includes(slug);
+  if ((!mayChangeClipCount && fixedLines.length !== abletonLines.length) || (lines.some((line) => line.is_new_clip) && !mayChangeClipCount)) {
     showNotice('This track’s saved edit has a different number of clips from Ableton. Restore the Ableton version before editing.', true);
     return;
   }
@@ -5413,8 +5442,8 @@ async function saveLyricsEditor() {
   const d = lyricsEditDraft;
   const mayAddClips = ['drums', 'percussion'].includes(d.slug);
   const presentKeys = new Set(d.lines.filter((line) => !line._addedThisSession).map((line) => line._editKey));
-  if (!d.restoreAbleton && d.sessionLines.some((line) => !presentKeys.has(line._editKey))) {
-    d.message = 'Existing MIDI clips cannot be removed here. Restore the Ableton version if you want to clear all edits.';
+  if (!d.restoreAbleton && !mayAddClips && d.sessionLines.some((line) => !presentKeys.has(line._editKey))) {
+    d.message = 'Existing MIDI clips cannot be removed from this track.';
     renderLyricsEditor(); return;
   }
   const additions = d.lines.filter((line) => line.is_new_clip);
