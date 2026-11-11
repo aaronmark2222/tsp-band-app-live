@@ -1,5 +1,7 @@
 # TSP Band App: how it works
 
+> **Historical snapshot.** This guide predates the current Practice lyrics editor and guarded Ableton writeback. Use [APP_PLAN.md](../APP_PLAN.md) and live service state for current behavior; this file is retained for background only.
+
 This is the working guide to the current app. Keep it in sync with changes to the app and database. The repository is intended to contain the code and the information needed to understand and maintain it. For the current end-to-end relationship among the app, live Supabase project, Ableton master, and planned audio export, see the [cross-system map](SYSTEM_MAP.md). That map records the latest user-confirmed workflow and separates implemented behavior from future work.
 
 ## What the app is for
