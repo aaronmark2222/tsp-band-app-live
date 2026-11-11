@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png?v=20261019">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="TSP Work">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#292929">
+    <title>TSP Work · The String Project</title>
+    <link rel="icon" href="assets/the-string-project-logo.png?v=20261019" type="image/png">
+    <link rel="stylesheet" href="styles.css?v=20261111-lyrics-edit-admin1">
+    <script type="module" src="app.js?v=20261111-lyrics-sync-practice-refresh1"></script>
+  </head>
+  <body>
+    <main id="app" class="shell">
+      <section id="login-screen" class="login-screen hidden">
+        <div class="login-card">
+          <img class="band-logo login-logo" src="assets/the-string-project-logo.png?v=20261019" alt="The String Project">
+          <p class="eyebrow">TSP WORKSPACE</p>
+          <h1>Good music<br>takes a team.</h1>
+          <p class="muted">Sign in to see songs, progress and setlists.</p>
+          <form id="login-form" class="stack">
+            <label>Email<input id="email" type="email" autocomplete="username" required></label>
+            <label>Password<input id="password" type="password" autocomplete="current-password" required></label>
+            <button class="button primary" type="submit">Sign in <span>→</span></button>
+            <button id="forgot-password-open" type="button" class="text-button recovery-link">Forgot password?</button>
+            <p id="login-error" class="error" role="alert"></p>
+          </form>
+          <form id="reset-request-form" class="stack hidden">
+            <label>Email<input id="reset-email" type="email" autocomplete="email" required></label>
+            <button id="send-reset-link" class="button primary" type="submit">Send reset email <span>→</span></button>
+            <p id="reset-request-message" class="notice-message" role="status"></p>
+            <button id="cancel-password-reset" type="button" class="text-button">Back to sign in</button>
+          </form>
+          <p class="tiny muted">Access is limited to linked band accounts.</p>
+        </div>
+      </section>
+
+      <section id="first-login-screen" class="login-screen hidden">
+<div class="login-card">
+<img class="band-logo login-logo" src="assets/the-string-project-logo.png?v=20261019" alt="The String Project">
+<p class="eyebrow">WELCOME</p>
+<h1>Choose your<br>own password.</h1>
+<p class="muted">You signed in with a temporary password. Set a new one to continue.</p>
+<form id="first-login-form" class="stack">
+<label>New password<input id="new-password" type="password" autocomplete="new-password" minlength="8" required></label>
+<label>Confirm new password<input id="confirm-password" type="password" autocomplete="new-password" minlength="8" required></label>
+<button id="save-password" class="button primary" type="submit">Save password <span>→</span></button>
+<p id="password-setup-error" class="error" role="alert"></p>
+</form>
+<button id="password-setup-sign-out" class="text-button" type="button">Sign out</button>
+</div>
+</section>
+<section id="password-recovery-screen" class="login-screen hidden">
+  <div class="login-card">
+    <img class="band-logo login-logo" src="assets/the-string-project-logo.png?v=20261019" alt="The String Project">
+    <p class="eyebrow">PASSWORD RESET</p>
+    <h1>Choose a new<br>password.</h1>
+    <p class="muted">Enter a new password for your TSP Work account.</p>
+    <form id="recovery-form" class="stack">
+      <label>New password<input id="recovery-new-password" type="password" autocomplete="new-password" minlength="8" required></label>
+      <label>Confirm new password<input id="recovery-confirm-password" type="password" autocomplete="new-password" minlength="8" required></label>
+      <button id="save-recovery-password" class="button primary" type="submit">Save password <span>→</span></button>
+      <p id="recovery-error" class="error" role="alert"></p>
+    </form>
+    <button id="recovery-sign-out" class="text-button" type="button">Back to sign in</button>
+  </div>
+</section>
+<section id="workspace" class="workspace hidden">
+        <header class="topbar">
+          <a class="brand" href="#songs"><img class="band-logo header-logo" src="assets/the-string-project-logo.png?v=20261019" alt="The String Project"><span>TSP Work</span></a>
+          <nav class="tabs" aria-label="Main navigation">
+            <button class="tab active" data-view="songs">Songs <b id="song-count">—</b></button>
+            <button class="tab" data-view="setlists">Setlists</button>
+            <button class="tab" data-view="gigs">Gigs</button>
+            <button class="tab" data-view="dashboard">Dashboard</button>
+            <button class="tab" data-view="practice">Practice</button>
+            <button id="sync-tab" class="tab hidden sync-tab" data-view="sync" aria-label="Ableton Sync" title="Ableton Sync"><span class="sync-logo" aria-hidden="true"></span><svg class="sync-mark" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M19.5 9A8 8 0 0 0 5.2 7.2M4.5 15a8 8 0 0 0 14.3 1.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M5 3.5v4h4M19 20.5v-4h-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M7.5 12h2l1.2-2.5 2 5 1.3-2.5h2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          </nav>
+          <div class="account"><span id="member-badge" class="avatar">A</span><span id="member-name">Member</span><button id="member-access-open" class="text-button hidden" type="button">Member access</button><button id="sign-out" class="text-button">Sign out</button></div>
+        </header>
+        <div id="notice" class="notice hidden" role="status"></div>
+        <dialog id="member-access-dialog" class="access-dialog">
+          <div class="access-dialog-card">
+            <p class="eyebrow">ACCOUNT ADMIN</p>
+            <h2>Member sign-in</h2>
+            <p class="muted">Create a member sign-in, issue a temporary password, or send a reset email.</p>
+            <label for="access-member-select">Band member</label>
+            <select id="access-member-select" class="wide-select"><option value="">Loading…</option></select>
+            <label id="access-email-label" class="hidden" for="access-member-email">Sign-in email</label>
+            <input id="access-member-email" class="wide-select hidden" type="email" autocomplete="email" placeholder="Member sign-in email">
+            <div class="access-actions">
+              <button id="issue-temporary-password" class="button primary" type="button">Create temporary password</button>
+              <button id="send-member-reset" class="button quiet" type="button">Send reset email</button>
+            </div>
+            <div id="temporary-password-result" class="temporary-password-result hidden" role="status">
+              <strong>Temporary password</strong><code id="temporary-password-value"></code>
+              <button id="copy-temporary-password" class="button quiet" type="button">Copy</button>
+            </div>
+            <p id="access-message" class="notice-message" role="status"></p>
+            <button class="text-button" type="button" onclick="document.getElementById('member-access-dialog').close()">Done</button>
+          </div>
+        </dialog>
+
+
+        <dialog id="song-editor-dialog" class="editor-dialog">
+          <form id="new-song-form" class="editor-card" autocomplete="off">
+            <p class="eyebrow">REPERTOIRE</p>
+            <h2>Add a song</h2>
+            <p class="muted">The song will be added with every task prefilled as Incomplete. You can change any status before saving.</p>
+            <div class="editor-grid">
+              <div class="new-song-id-field"><label for="new-song-id-prefix">Song ID</label><div class="song-id-composer"><input id="new-song-id-prefix" name="tsp-song-id-entry" role="combobox" maxlength="24" autocomplete="new-password" autocapitalize="none" spellcheck="false" data-lpignore="true" placeholder="Type letters, e.g. EM" aria-autocomplete="list" aria-controls="new-song-id-suggestions" aria-expanded="false"></div><input id="new-song-id" type="hidden"><div id="new-song-id-suggestions" class="song-id-suggestions" role="listbox" aria-label="Suggested Song IDs"></div><small id="new-song-id-help">Type the letters; the next number stays at the end of this field and is assigned automatically.</small><small id="new-song-id-preview" class="form-help"></small></div>
+              <label class="song-name-field">Song Name<input id="new-song-name" name="tsp-song-title-entry" required maxlength="120" autocomplete="new-password" autocapitalize="words" spellcheck="false" data-lpignore="true" placeholder="Song title"></label>
+              <label>Song type<select id="new-song-type"><option value="Vox">Vocal (Vox)</option><option value="Inst">Instrumental (Inst)</option></select></label>
+              <fieldset class="editor-fieldset language-field"><legend>Languages</legend><div id="new-song-language-options" class="editor-options"></div></fieldset>
+              <div class="key-dropdown-field"><span>Key(s)</span><details id="new-song-key-dropdown" class="key-dropdown"><summary id="new-song-key-summary">Choose keys</summary><div id="new-song-key-options" class="editor-options key-options"></div></details></div>
+              <section class="tempo-editor"><div class="tempo-editor-heading"><span>Tempo</span></div><div id="new-song-tempo-points" class="tempo-points"></div><small>Bar numbers are relative to this song’s first bar. Choose a glyph to add a tempo change.</small></section>
+              <label>Duration (min:sec)<input id="new-song-duration" type="text" inputmode="numeric" pattern="[0-9]+:[0-5][0-9]" placeholder="e.g. 4:22"><small>Enter minutes and seconds as M:SS.</small></label>
+              <label>Backing track<select id="new-song-backing"><option value="">Automatic (not finished)</option><option value="Sent to Mix">Sent to Mix</option><option value="Mixed">Mixed</option></select></label>
+            </div>
+            <div class="editor-section"><h3>Task Statuses</h3><p class="muted">Each task starts as Incomplete. Change any status that needs a different value.</p><div id="new-song-task-statuses" class="new-song-task-list"></div></div>
+            <p id="new-song-error" class="error" role="alert"></p>
+            <div class="editor-actions"><button id="cancel-new-song" class="button quiet" type="button">Cancel</button><button class="button primary" type="submit">Add to repertoire</button></div>
+          </form>
+        </dialog>
+
+        <dialog id="edit-song-dialog" class="editor-dialog">
+          <form id="edit-song-form" class="editor-card">
+            <p class="eyebrow">REPERTOIRE</p>
+            <h2 id="edit-song-title">Edit song details</h2>
+            <div class="editor-grid">
+              <div class="song-identity-field"><span>Song ID</span><strong id="edit-song-id-value"></strong></div>
+              <div class="song-identity-field"><span>Format</span><strong id="edit-song-type-value"></strong></div>
+              <label class="song-name-field">Song Name<input id="edit-song-name" required maxlength="120" autocomplete="off"></label>
+              <fieldset class="editor-fieldset language-field"><legend>Languages</legend><div id="edit-song-language-options" class="editor-options"></div></fieldset>
+              <div class="key-dropdown-field"><span>Scale(s)</span><details id="edit-song-key-dropdown" class="key-dropdown"><summary id="edit-song-key-summary">Choose scales</summary><div id="edit-song-key-options" class="editor-options key-options"></div></details></div>
+              <section class="tempo-editor"><div class="tempo-editor-heading"><span>Tempo</span></div><div id="edit-song-tempo-points" class="tempo-points"></div><small>Bar numbers are relative to this song’s first bar. Set bars on each tempo change or leave them blank.</small></section>
+              <label>Duration (min:sec)<input id="edit-song-duration" type="text" inputmode="numeric" pattern="[0-9]+:[0-5][0-9]" placeholder="e.g. 4:22"></label>
+              <label>Backing track<select id="edit-song-backing"><option value="">Automatic</option><option value="Sent to Mix">Sent to Mix</option><option value="Mixed">Mixed</option></select></label>
+            </div>
+            <p id="edit-song-error" class="error" role="alert"></p>
+            <div class="editor-actions"><button id="cancel-edit-song" class="button quiet" type="button">Cancel</button><button class="button primary" type="submit">Save details</button><button id="delete-song-button" class="button danger" type="button">Delete song</button></div>
+          </form>
+        </dialog>
+
+        <section id="songs-view" class="view">
+          <div class="hero-row">
+            <div><p class="eyebrow">THE REPERTOIRE</p><h1>Songs <span id="song-total" class="heading-count"></span></h1><p class="muted">A shared view of every song and every part.</p></div>
+        
+          </div>
+          <div class="toolbar song-toolbar"><label class="search"><span>⌕</span><input id="song-search" type="search" placeholder="Find a song or ID…" aria-label="Search songs"></label><button id="song-filters-toggle" class="button quiet filter-toggle" type="button" aria-expanded="false" aria-controls="song-filter-panel">Filters</button><button id="new-song-open" class="button primary hidden" type="button">＋ Add song</button></div>
+          <div id="song-filter-panel" class="filter-panel hidden"><select id="language-filter" aria-label="Filter by language"><option value="">All languages</option></select><select id="performance-filter" aria-label="Filter by performance"><option value="">Singles and medleys</option><option value="single">Singles</option><option value="medley">Medleys</option></select><select id="key-filter" aria-label="Filter by key or scale"><option value="">Any key / scale</option></select><select id="song-sort" aria-label="Sort songs"><option value="original">Master list order</option><option value="name-asc">Name A–Z</option><option value="name-desc">Name Z–A</option><option value="performance">Singles, then medleys</option><option value="key">Key / scale</option><option value="duration-asc">Shortest first</option><option value="duration-desc">Longest first</option><option value="remaining-desc">Most band work left</option><option value="remaining-asc">Least band work left</option><option value="ready">Ready first</option></select><button id="clear-song-filters" class="button quiet hidden">Clear filters</button></div>
+          <div class="table-wrap"><table class="song-table"><thead id="songs-head"></thead><tbody id="songs-body"></tbody></table></div>
+          <p class="table-hint">Click a song name to expand its details. Combine filters or sort the list to find songs; status changes save as you make them.</p>
+        </section>
+
+        <section id="setlists-view" class="view hidden">
+          <div class="hero-row"><div><p class="eyebrow">LIVE & UPCOMING</p><h1>Setlists</h1><p class="muted">Browse a running order with filters that leave its saved order intact.</p></div></div>
+          <div class="setlist-layout">
+            <aside class="setlist-side"><label class="eyebrow" for="setlist-select">CHOOSE A SETLIST</label><select id="setlist-select" class="wide-select"></select><button id="new-setlist" class="button quiet full">＋ New setlist</button></aside>
+            <div class="setlist-main"><div class="setlist-heading"><div><h2 id="active-setlist-name">Setlist</h2><input id="setlist-name-input" class="setlist-name-input hidden" type="text" maxlength="100" autocomplete="off" aria-label="Setlist name"><p id="setlist-summary" class="muted">Loading…</p></div><div class="setlist-tools"><button id="setlist-edit-toggle" class="button quiet hidden">Edit setlist</button><button id="discard-setlist-order" class="button quiet hidden">Discard changes</button></div></div><div id="setlist-filter-toolbar" class="toolbar setlist-filter-toolbar hidden"><label class="search"><span>⌕</span><input id="setlist-search" type="search" placeholder="Find a song in this setlist…" aria-label="Search songs in this setlist"></label><button id="setlist-filters-toggle" class="button quiet filter-toggle" type="button" aria-expanded="false" aria-controls="setlist-filter-panel">Filters</button><div id="setlist-filter-panel" class="filter-panel hidden"><select id="setlist-language-filter" aria-label="Filter setlist by language"><option value="">All languages</option></select><select id="setlist-performance-filter" aria-label="Filter setlist by performance"><option value="">Singles and medleys</option><option value="single">Singles</option><option value="medley">Medleys</option></select><select id="setlist-key-filter" aria-label="Filter setlist by key or scale"><option value="">Any key / scale</option></select><button id="clear-setlist-filters" class="button quiet hidden">Clear filters</button><span id="setlist-filter-hint" class="filter-hint hidden">Clear filters to drag-reorder the full setlist.</span></div></div><ol id="setlist-items" class="setlist-items"></ol><div id="setlist-empty" class="empty-state hidden">No songs in this setlist yet. Choose Edit setlist to add songs from the repertoire.</div><div id="setlist-filter-empty" class="empty-state hidden">No songs match these filters.</div><div id="setlist-delete-controls" class="setlist-delete-controls hidden"><button id="delete-setlist" class="button quiet" type="button">Delete setlist</button></div></div>
+          </div>
+        </section>
+
+
+        <dialog id="setlist-create-dialog" class="editor-dialog">
+          <form id="new-setlist-form" class="editor-card setlist-editor-card">
+            <p class="eyebrow">SETLISTS</p>
+            <h2>Create a setlist</h2>
+            <div class="setlist-create-top"><label>Setlist name<input id="new-setlist-name" required maxlength="100" autocomplete="off" placeholder="Name this setlist"></label><label>Start from<select id="new-setlist-copy"><option value="">Empty setlist</option></select></label></div>
+            <div class="setlist-builder">
+              <section class="setlist-builder-pick">
+                <h3>Choose songs</h3>
+                <label class="search"><span>⌕</span><input id="new-setlist-search" type="search" placeholder="Find a song…" aria-label="Search repertoire"></label>
+                <div id="new-setlist-song-options" class="setlist-song-options"></div>
+              </section>
+              <section class="setlist-builder-order">
+                <h3>Running order <span id="new-setlist-count" class="muted">0 selected</span></h3>
+                <ol id="new-setlist-selected" class="setlist-selected-list"></ol>
+              </section>
+            </div>
+            <p class="form-help">Songs are added in the order shown. Use the arrows to change the running order.</p>
+            <p id="new-setlist-error" class="error" role="alert"></p>
+            <div class="editor-actions"><button id="cancel-new-setlist" class="button quiet" type="button">Cancel</button><button class="button primary" type="submit">Create setlist</button></div>
+          </form>
+        </dialog>
+
+        <section id="gigs-view" class="view hidden">
+          <div class="hero-row"><div><p class="eyebrow">PERFORMANCES</p><h1>Gigs</h1><p class="muted">Manage gig details and the setlist attached to each performance.</p></div><button id="new-gig" class="button primary hidden" type="button">＋ New gig</button></div>
+          <form id="gig-form" class="gig-form hidden">
+            <input id="gig-id" type="hidden">
+            <div class="gig-form-grid">
+              <label>Gig name<input id="gig-name" type="text" required maxlength="120"></label>
+              <label>Event date<input id="gig-date" type="date" required></label>
+              <label>Start time<input id="gig-time" type="time"></label>
+              <label>Location<input id="gig-location" type="text" maxlength="200"></label>
+              <label id="gig-setlist-field">Attached setlist<select id="gig-setlist" required></select></label>
+              <p id="gig-auto-setlist-note" class="gig-auto-setlist-note hidden">A new setlist with this gig’s name will be created and attached automatically.</p>
+              <label class="gig-notes-field">Notes<textarea id="gig-notes" rows="3"></textarea></label>
+            </div>
+            <div class="gig-form-actions"><button class="button primary" type="submit">Save gig</button><button id="cancel-gig-edit" class="button quiet" type="button">Cancel</button><button id="delete-gig" class="button danger hidden" type="button" title="Remove this gig (its setlist stays in Setlists)">Delete gig</button></div>
+          </form>
+          <div id="gig-list" class="gig-list"></div>
+        </section>
+
+        <section id="practice-view" class="view hidden">
+          <div class="practice-layout">
+          <div class="hero-row practice-hero"><div><p class="eyebrow">PLAY ALONG</p><h1>Practice</h1><p class="muted">Listen to the mixdown, or open the multitrack to switch parts on and off, solo and set levels. Your settings stay the same as you change songs.</p></div></div>
+          <div class="practice-pick">
+            <select id="practice-source" class="wide-select" aria-label="Practise songs from"></select>
+            <select id="practice-song" class="wide-select" aria-label="Song"></select>
+            <button type="button" class="button quiet" id="practice-prev" title="Previous song">‹</button>
+            <button type="button" class="button quiet" id="practice-next" title="Next song">›</button>
+            <span id="practice-song-note" class="muted"></span>
+          </div>
+            <div class="practice-main">
+              <section id="practice-mixdown" class="practice-card"></section>
+              <section id="practice-multitrack" class="practice-card"></section>
+              <section id="practice-offline" class="practice-card offline-card"></section>
+              <section id="practice-downloads" class="practice-card"></section>
+            </div>
+            <aside class="practice-side"><section id="practice-lyrics" class="practice-card lyrics-card"></section></aside>
+          </div>
+          <section id="practice-upload" class="practice-card hidden"></section>
+          <section id="practice-tone" class="practice-card tone-card hidden"></section>
+          <div id="practice-transport" class="pt-bar" role="toolbar" aria-label="Playback"></div>
+        </section>
+        <section id="sync-view" class="view hidden">
+          <div class="hero-row"><div><p class="eyebrow">ABLETON MASTER PROJECT</p><h1>Ableton Sync</h1><p class="muted">Writes saved Practice lyric edits to the open main Ableton project, saves it, then reads the saved set and suggests updates for TSP Work.</p></div><button id="sync-read" class="button primary" type="button">Sync Ableton Set</button></div>
+          <p id="sync-status" class="sync-status muted"></p>
+          <section id="export-panel" class="sync-card export-card"></section><div id="sync-content" class="sync-content"></div>
+        </section>
+
+        <section id="dashboard-view" class="view hidden">
+          <div class="hero-row"><div><p class="eyebrow">WORK TO READY</p><h1>Dashboard</h1><p class="muted">See what still needs doing before a performance. Parts are optional and do not block readiness.</p></div></div>
+          <label class="dashboard-member-picker">Dashboard for <select id="dashboard-member-select" aria-label="Choose whose dashboard to view"></select></label>
+          <div id="dashboard-tabs" class="dashboard-tabs" role="tablist" aria-label="Dashboard gigs and repertoire"></div>
+          <p id="dashboard-caption" class="dashboard-caption muted"></p>
+          <div id="dashboard-summary" class="dashboard-summary"></div>
+          <div id="dashboard-work-widgets" class="dashboard-work-widgets"></div>
+          <div id="dashboard-song-list" class="dashboard-song-list"></div>
+        </section>
+      </section>
+      <div id="loading" class="loading"><span class="spinner"></span><span>Opening your workspace…</span></div>
+      <script>
+        // The sign-in form stays hidden (so password managers don't pop up) unless
+        // this device has no saved sign-in; the app shows it later if one fails.
+        (function () {
+          try {
+            var signedIn = Object.keys(localStorage).some(function (k) { return /^sb-.*-auth-token$/.test(k) && localStorage.getItem(k); });
+            if (!signedIn) {
+              document.getElementById('login-screen').classList.remove('hidden');
+              document.getElementById('loading').classList.add('hidden');
+            }
+          } catch (e) {
+            document.getElementById('login-screen').classList.remove('hidden');
+          }
+        })();
+      </script>
+    </main>
+  </body>
+</html>
