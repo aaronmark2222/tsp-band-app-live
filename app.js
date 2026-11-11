@@ -3327,23 +3327,21 @@ function pendingLyricsRowMatchesSnapshot(snapshot, row) {
     .sort((a, b) => Number(a.t) - Number(b.t));
   const edited = [...(row.lines || [])].sort((a, b) => Number(a.t) - Number(b.t));
   const base = [...(row.base_lines || [])].sort((a, b) => Number(a.t) - Number(b.t));
-  // Drum/Percussion clip creation or removal changes the track shape. Keep its
-  // exact structural check; ordinary edits can safely rebase untouched clips.
-  if (edited.length !== base.length || edited.some((line) => line.is_new_clip)
-    || saved.length !== edited.length) {
+  const structuralTrack = ['drums', 'percussion'].includes(row.track_slug);
+  // Practice can create/remove Drum or Percussion clips. Confirm that complete
+  // structural edit; all other tracks only need their changed Practice lines
+  // confirmed, so unrelated Live clip changes or additions can be rebased.
+  if (structuralTrack && (edited.length !== base.length || edited.some((line) => line.is_new_clip))) {
     return saved.length === edited.length && saved.every((line, i) => line.text === edited[i]?.text);
   }
-  const used = new Set();
+  const usedBase = new Set();
   for (const line of edited) {
     const t = Number(line.t);
-    const baseMatches = base.map((candidate, i) => ({ i, gap: Math.abs(Number(candidate.t) - t) }))
-      .filter((match) => !used.has(match.i)).sort((a, b) => a.gap - b.gap);
-    const match = baseMatches[0];
+    const match = base.map((candidate, i) => ({ i, gap: Math.abs(Number(candidate.t) - t) }))
+      .filter((item) => !usedBase.has(item.i)).sort((a, b) => a.gap - b.gap)[0];
     if (!match || match.gap > 0.03) return false;
-    used.add(match.i);
+    usedBase.add(match.i);
     const original = base[match.i];
-    // Practice left this clip alone. Its current Live text may be a separate
-    // edit, which saveSongLyrics will adopt into the refreshed baseline.
     if (String(line.text || '').trim() === String(original.text || '').trim()) continue;
     const savedLine = saved.find((candidate) => Math.abs(Number(candidate.t) - t) <= 0.03);
     if (!savedLine || String(savedLine.text || '').trim() !== String(line.text || '').trim()) return false;
