@@ -3137,6 +3137,31 @@ async function clearSyncedLyricsOverrides(snapshot) {
     if (error) throw error;
   }
 }
+async function refreshPracticeLyricsAfterSync(snapshot) {
+  const songId = practice.songId;
+  if (!snapshot?.songs?.[songId]?.lyrics) return;
+  // Reload the saved baseline and any edits that remain after writeback cleanup.
+  await practiceLoadLyrics(songId);
+}
+const PRACTICE_LYRICS_SYNC_KEY = 'tsp-practice-lyrics-sync';
+let practiceLyricsSyncChannel = null;
+try { practiceLyricsSyncChannel = new BroadcastChannel('tsp-practice-lyrics-sync'); } catch { /* storage event fallback below */ }
+function refreshPracticeLyricsForSync(message) {
+  if (message?.type !== 'ableton-lyrics-synced' || !Array.isArray(message.song_ids)) return false;
+  if (state.view !== 'practice' || !message.song_ids.includes(practice.songId)) return false;
+  practiceLoadLyrics(practice.songId).catch((error) => console.warn('Could not refresh Practice lyrics after Ableton sync', error));
+  return true;
+}
+practiceLyricsSyncChannel?.addEventListener('message', (event) => refreshPracticeLyricsForSync(event.data));
+window.addEventListener('storage', (event) => {
+  if (practiceLyricsSyncChannel || event.key !== PRACTICE_LYRICS_SYNC_KEY || !event.newValue) return;
+  try { refreshPracticeLyricsForSync(JSON.parse(event.newValue)); } catch { /* ignore malformed local signal */ }
+});
+function broadcastPracticeLyricsSync(songIds) {
+  const message = { type: 'ableton-lyrics-synced', song_ids: songIds };
+  if (practiceLyricsSyncChannel) practiceLyricsSyncChannel.postMessage(message);
+  else try { localStorage.setItem(PRACTICE_LYRICS_SYNC_KEY, JSON.stringify(message)); } catch { /* storage unavailable */ }
+}
 async function readAbletonSet() {
   if (!abletonBridge.connected) { await probeAbletonBridge(); }
   if (!abletonBridge.connected) { renderSyncStatus(); showNotice('Ableton is not connected.', true); return; }
@@ -3172,7 +3197,12 @@ async function readAbletonSet() {
     // Lyrics for the Practice page come from this read.
     readProgressStep('Saving lyrics for Practice…', 1);
     if (Object.values(sync.snapshot.songs || {}).some((song) => song.lyrics)) {
-      try { sync.lyricsSaved = await saveSongLyrics(sync.snapshot); await clearSyncedLyricsOverrides(sync.snapshot); } catch (error) { sync.lyricsSaved = null; showNotice(`Lyrics were not fully saved for Practice: ${error.message}`, true); }
+      try {
+        sync.lyricsSaved = await saveSongLyrics(sync.snapshot);
+        await clearSyncedLyricsOverrides(sync.snapshot);
+        await refreshPracticeLyricsAfterSync(sync.snapshot);
+        broadcastPracticeLyricsSync(Object.keys(sync.snapshot.songs || {}));
+      } catch (error) { sync.lyricsSaved = null; showNotice(`Lyrics were not fully saved for Practice: ${error.message}`, true); }
     }
     // Practice audio: the set's current track fingerprints (yellow = changed since upload).
     readProgressStep('Saving audio fingerprints…', 2);
