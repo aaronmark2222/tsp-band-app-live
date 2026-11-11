@@ -2420,7 +2420,7 @@ const ABLETON_PRESENCE_KEY = 'ableton_bridge_presence';
 const ABLETON_PRESENCE_TTL_MS = 45000;
 const abletonBridge = { connected: false, timer: null, busy: false, started: false, base: null };
 const abletonPresence = { available: false, awaitingSave: false, needsAttention: false, timer: null, lastHeartbeat: 0, lastSync: null };
-const autoLyricsSync = { channel: null, timer: null, busy: false, started: false, lastErrorAt: 0, retryAfter: 0 };
+const autoLyricsSync = { channel: null, timer: null, busy: false, started: false, rerun: false, lastErrorAt: 0, retryAfter: 0 };
 
 function abletonMainProjectOpen(status = abletonBridge.status) {
   return !!status?.ok && status.open_als_path === status.als_path
@@ -2562,7 +2562,10 @@ function startSharedAbletonPresence() {
 function scheduleAutoLyricsSync(delay = 700) {
   if (!autoLyricsSync.started || !abletonBridgeEligible() || Date.now() < autoLyricsSync.retryAfter) return;
   clearTimeout(autoLyricsSync.timer);
-  autoLyricsSync.timer = setTimeout(runAutoLyricsSync, delay);
+  autoLyricsSync.timer = setTimeout(() => {
+    autoLyricsSync.timer = null;
+    runAutoLyricsSync();
+  }, delay);
 }
 
 function startAutoLyricsSync() {
@@ -2576,7 +2579,11 @@ function startAutoLyricsSync() {
 }
 
 async function runAutoLyricsSync() {
-  if (!abletonBridgeEligible() || autoLyricsSync.busy || sync.reading || abletonBridge.busy) return;
+  if (!abletonBridgeEligible()) return;
+  if (autoLyricsSync.busy || sync.reading || abletonBridge.busy) {
+    autoLyricsSync.rerun = true;
+    return;
+  }
   autoLyricsSync.busy = true;
   try {
     const status = await abletonRequest('/status', null, 1500);
@@ -2632,6 +2639,10 @@ async function runAutoLyricsSync() {
     }
   } finally {
     autoLyricsSync.busy = false;
+    if (autoLyricsSync.rerun) {
+      autoLyricsSync.rerun = false;
+      scheduleAutoLyricsSync(250);
+    }
   }
 }
 async function probeAbletonBridge() {
@@ -5877,10 +5888,6 @@ function openLyricsEditor(slug) {
 async function saveLyricsEditor() {
   if (!lyricsEditDraft || lyricsEditDraft.saving) return;
   const d = lyricsEditDraft;
-  if (abletonPresence.awaitingSave) {
-    d.message = 'A lyric edit is already in Live memory. Save the set manually and choose Sync Ableton Set before making another change.';
-    renderLyricsEditor(); return;
-  }
   const mayAddClips = ['drums', 'percussion'].includes(d.slug);
   const presentKeys = new Set(d.lines.filter((line) => !line._addedThisSession).map((line) => line._editKey));
   if (!d.restoreAbleton && !mayAddClips && d.sessionLines.some((line) => !presentKeys.has(line._editKey))) {
@@ -5911,6 +5918,7 @@ async function saveLyricsEditor() {
     const { data: latest, error: readError } = await db.from('song_lyrics_edits').select('updated_at').eq('song_id', d.songId).eq('track_slug', d.slug).maybeSingle();
     if (readError) throw readError;
     if ((latest?.updated_at || null) !== d.updatedAt) throw new Error('Another edit was saved while this editor was open. Close and reopen to keep everyone’s changes.');
+    if (latest) throw new Error('This track already has a queued lyric change. Save the set manually and choose Sync Ableton Set before changing this track again. You can still edit a different track.');
     const restore = d.restoreAbleton || lyricsEditorMatchesAbleton();
     if (restore && abletonPresence.awaitingSave) throw new Error('Save the pending Ableton change manually and choose Sync Ableton Set before restoring lyrics.');
     const linesToSave = d.lines.map((line) => {
