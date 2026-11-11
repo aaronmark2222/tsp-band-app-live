@@ -5959,32 +5959,33 @@ async function saveLyricsEditor() {
   if (!lyricsEditorHasChanges()) { $('#lyrics-edit-dialog').close(); return; }
   d.saving = true; renderLyricsEditor();
   try {
-    const { data: latest, error: readError } = await db.from('song_lyrics_edits').select('updated_at').eq('song_id', d.songId).eq('track_slug', d.slug).maybeSingle();
+    const { data: latest, error: readError } = await db.from('song_lyrics_edits').select('updated_at, applied_lines').eq('song_id', d.songId).eq('track_slug', d.slug).maybeSingle();
     if (readError) throw readError;
     if ((latest?.updated_at || null) !== d.updatedAt) throw new Error('Another edit was saved while this editor was open. Close and reopen to keep everyone’s changes.');
     const restore = d.restoreAbleton || lyricsEditorMatchesAbleton();
-    if (restore && abletonPresence.awaitingSave) throw new Error('Save the pending Ableton change manually and choose Sync Ableton Set before restoring lyrics.');
+    const restoreToLive = restore && !!latest && (abletonPresence.available || abletonPresence.awaitingSave || Array.isArray(latest.applied_lines));
     const linesToSave = d.lines.map((line) => {
       const { _editKey, _sessionText, _addedThisSession, ...saved } = line;
       return { ...saved, text: lyricsClipTextFromEditor(saved.text) };
     });
-    if (restore) {
-      if (latest) {
-        let deletion = db.from('song_lyrics_edits').delete().eq('song_id', d.songId).eq('track_slug', d.slug).eq('updated_at', d.updatedAt);
-        const { data: deleted, error } = await deletion.select('updated_at');
-        if (error) throw error;
-        if (!deleted?.length) throw new Error('Another edit was saved while this editor was open. Close and reopen to keep everyone’s changes.');
-      }
-    } else {
+    if (restore && latest && !restoreToLive) {
+      let deletion = db.from('song_lyrics_edits').delete().eq('song_id', d.songId).eq('track_slug', d.slug).eq('updated_at', d.updatedAt);
+      const { data: deleted, error } = await deletion.select('updated_at');
+      if (error) throw error;
+      if (!deleted?.length) throw new Error('Another edit was saved while this editor was open. Close and reopen to keep everyone’s changes.');
+    } else if (!restore || restoreToLive) {
       const { error } = await db.from('song_lyrics_edits').upsert({ song_id: d.songId, track_slug: d.slug, lines: linesToSave, edited_by_member_id: state.member.id, updated_at: new Date().toISOString() }, { onConflict: 'song_id,track_slug' });
       if (error) throw error;
     }
     const rows = await readLyricsEdits(d.songId);
     await jsonCachePut('lyrics-edits/' + d.songId, rows);
     applyLyricsEdits(rows); practiceKeepPlace(renderPracticeLyrics);
-    showNotice(restore ? lyricsTrackLabel(d.slug) + ' lyrics restored from Ableton.' : abletonPresence.available
-      ? lyricsTrackLabel(d.slug) + ' lyrics saved. Sending them to the open Ableton Master Project…'
-      : lyricsTrackLabel(d.slug) + ' lyrics saved to shared Practice; they will sync when Ableton is available.');
+    showNotice(restoreToLive
+      ? lyricsTrackLabel(d.slug) + ' Ableton lyrics queued to replace the pending in-memory edit.'
+      : restore ? lyricsTrackLabel(d.slug) + ' lyrics restored from Ableton.'
+      : abletonPresence.available
+        ? lyricsTrackLabel(d.slug) + ' lyrics saved. Sending them to the open Ableton Master Project…'
+        : lyricsTrackLabel(d.slug) + ' lyrics saved to shared Practice; they will sync when Ableton is available.');
     $('#lyrics-edit-dialog').close();
   } catch (error) {
     d.saving = false;
@@ -6001,7 +6002,7 @@ async function restoreLyricsEditor() {
   });
   d.restoreAbleton = true;
   d.activeIndex = null;
-  d.message = 'Ableton version is selected. Choose Save Lyrics to remove the saved edits.';
+  d.message = 'Ableton version is selected. Choose Save Lyrics to restore this track; an in-memory change will be replaced in Live and remain queued until you save and sync.';
   renderLyricsEditor();
 }
 
