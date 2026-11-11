@@ -2514,12 +2514,27 @@ async function runAutoLyricsSync() {
       }
       return;
     }
-    const write = await abletonRequest('/sync-lyrics', { edits: pending.updates }, SET_READ_TIMEOUT_MS);
-    if (!write?.ok) throw new Error(write?.message || write?.detail || write?.error || 'Ableton could not apply the saved lyric edits.');
+    // The bridge refuses a whole request when one row conflicts. Set that row
+    // aside (it stays queued) and send the rest, so one conflict cannot block
+    // everyone else's edits.
+    let updates = pending.updates; const refused = [...(pending.problems || [])]; let write = null;
+    for (let attempt = 0; attempt <= pending.updates.length && updates.length; attempt += 1) {
+      write = await abletonRequest('/sync-lyrics', { edits: updates }, SET_READ_TIMEOUT_MS);
+      if (write?.ok || !write?.song_id || !write?.track_slug) break;
+      const before = updates.length;
+      updates = updates.filter((row) => !(row.song_id === write.song_id && row.track_slug === write.track_slug));
+      if (updates.length === before) break;
+      refused.push({ song_id: write.song_id, track_slug: write.track_slug, error: write.error });
+    }
+    if (updates.length && !write?.ok) throw new Error(write?.message || write?.detail || write?.error || 'Ableton could not apply the saved lyric edits.');
+    if (refused.length) {
+      autoLyricsSync.refused = refused;
+      if (!updates.length) throw new Error(`Lyric edits need attention: ${refused.map((row) => `${row.song_id} · ${row.track_slug} (${row.error})`).join(', ')}`);
+    } else autoLyricsSync.refused = [];
     // The queued DB row is the durable pending marker. This also restores the
     // warning after the Mac app or browser restarts.
     abletonPresence.awaitingSave = true;
-    abletonPresence.needsAttention = false;
+    abletonPresence.needsAttention = refused.length > 0;
     abletonPresence.lastHeartbeat = 0;
     setAbletonConnected(true);
     await publishAbletonPresence(true);
@@ -3065,7 +3080,7 @@ function renderSyncPage() {
     return;
   }
   if (!sync.snapshot) {
-    content.innerHTML = '<div class="empty-state">Press <b>Sync Ableton Set</b> to write saved Practice lyric edits to the open main Ableton project, save it, then read the saved set back. Make sure Ableton has the main project open.</div>';
+    content.innerHTML = '<div class="empty-state">Press <b>Sync Ableton Set</b> to read the set you last saved in Live and confirm any Practice lyric edits it contains. TSP Work never saves the set: save it yourself in Live first. Make sure Ableton has the main project open.</div>';
     return;
   }
   const { tasks, meta, notices, snoozed } = computeSyncDiff(sync.snapshot);
@@ -3279,7 +3294,7 @@ async function pendingAbletonLyricsEdits() {
   if (editError) throw editError;
   if (baselineError) throw baselineError;
   const baselineBySong = new Map((baselines || []).map((row) => [row.song_id, row]));
-  const updates = []; const rowsToClear = [];
+  const updates = []; const rowsToClear = []; const problems = [];
   for (const edit of edits || []) {
     const baseSong = baselineBySong.get(edit.song_id);
     let baseTrack = baseSong?.tracks?.find((track) => track.slug === edit.track_slug);
@@ -3289,7 +3304,11 @@ async function pendingAbletonLyricsEdits() {
       // An all-new Drum/Percussion edit therefore has a valid empty baseline.
       baseTrack = { lines: [] };
     }
-    if (!baseTrack) throw new Error(`No saved Ableton baseline for ${edit.song_id} · ${edit.track_slug}. Keep the edit in Practice and sync Ableton first.`);
+    if (!baseTrack) {
+      // Kept queued and reported; one row without a baseline must not block the others.
+      problems.push({ song_id: edit.song_id, track_slug: edit.track_slug, error: 'no_baseline', message: 'No saved Ableton baseline yet. The edit is kept in Practice.' });
+      continue;
+    }
     const baseLines = [...(baseTrack.lines || [])].sort((x, y) => Number(x.t) - Number(y.t));
     const lines = [...(edit.lines || [])].sort((x, y) => Number(x.t) - Number(y.t));
     // If Ableton already contains a newly-added section clip but the previous
@@ -3311,7 +3330,72 @@ async function pendingAbletonLyricsEdits() {
     updates.push({ song_id: edit.song_id, track_slug: edit.track_slug, base_lines: baseLines, lines });
     rowsToClear.push({ song_id: edit.song_id, track_slug: edit.track_slug, updated_at: edit.updated_at, base_lines: baseLines, lines });
   }
-  return { updates, rowsToClear };
+  return { updates, rowsToClear, problems, baselineBySong };
+}
+const lyricsRowKey = (row) => `${row.song_id}|${row.track_slug}`;
+// Split queued rows into those the saved set confirms and those it does not.
+function classifyPendingLyricsRows(snapshot, rows) {
+  const confirmed = []; const unconfirmed = [];
+  for (const row of rows || []) (pendingLyricsRowMatchesSnapshot(snapshot, row) ? confirmed : unconfirmed).push(row);
+  return { confirmed, unconfirmed };
+}
+// The lyrics tracks to store as one song's baseline. A track with a queued,
+// unconfirmed edit keeps its previous baseline: the bridge detects conflicts
+// by comparing Live with the baseline the edit was made against, so replacing
+// it would let a later relay overwrite a hand edit made in Live.
+function baselineTracksForSave(snapshotTracks, heldSlugs, previousTracks) {
+  const held = new Set(heldSlugs || []);
+  if (!held.size) return snapshotTracks || [];
+  const previous = new Map((previousTracks || []).map((track) => [track.slug, track]));
+  const out = []; const seen = new Set();
+  for (const track of snapshotTracks || []) {
+    if (!held.has(track.slug)) { out.push(track); continue; }
+    seen.add(track.slug);
+    if (previous.has(track.slug)) out.push(previous.get(track.slug));
+  }
+  for (const slug of held) if (!seen.has(slug) && previous.has(slug)) out.push(previous.get(slug));
+  return out;
+}
+// After reading the saved set: store the new baseline and clear only the
+// queued edits that the saved file confirms and that nobody changed meanwhile.
+// Everything else stays queued and is returned for reporting. Safe to repeat.
+async function reconcileLyricsAfterRead(snapshot, pending, io) {
+  if (!snapshot?.songs) throw new Error('No saved-set snapshot to confirm lyric edits against.');
+  const { confirmed, unconfirmed } = classifyPendingLyricsRows(snapshot, pending.rowsToClear);
+  const validated = new Map(confirmed.map((row) => [lyricsRowKey(row), row.updated_at]));
+  const current = await io.currentEdits();
+  const held = new Map(); const unchanged = new Set(); const changed = [];
+  for (const row of current || []) {
+    const key = lyricsRowKey(row);
+    if (validated.has(key) && validated.get(key) === row.updated_at) { unchanged.add(key); continue; }
+    if (validated.has(key)) changed.push({ song_id: row.song_id, track_slug: row.track_slug });
+    if (!held.has(row.song_id)) held.set(row.song_id, new Set());
+    held.get(row.song_id).add(row.track_slug);
+  }
+  const saved = await io.saveBaseline(snapshot, held, pending.baselineBySong);
+  const cleared = [];
+  for (const row of confirmed) {
+    if (!unchanged.has(lyricsRowKey(row))) continue;
+    if (await io.deleteEdit(row)) cleared.push({ song_id: row.song_id, track_slug: row.track_slug });
+    else changed.push({ song_id: row.song_id, track_slug: row.track_slug });
+  }
+  return { saved, cleared, changed, unconfirmed: unconfirmed.map((row) => ({ song_id: row.song_id, track_slug: row.track_slug })) };
+}
+const lyricsReconcileIo = {
+  async currentEdits() {
+    const { data, error } = await db.from('song_lyrics_edits').select('song_id,track_slug,updated_at');
+    if (error) throw error;
+    return data || [];
+  },
+  saveBaseline: (snapshot, held, baselineBySong) => saveSongLyrics(snapshot, held, baselineBySong),
+  async deleteEdit(row) {
+    const { data, error } = await db.from('song_lyrics_edits').delete().eq('song_id', row.song_id).eq('track_slug', row.track_slug).eq('updated_at', row.updated_at).select('updated_at');
+    if (error) throw error;
+    return (data || []).length > 0;
+  }
+};
+function lyricsQueueLabel(rows) {
+  return rows.map((row) => `${row.song_id} · ${lyricsTrackLabel(row.track_slug)}`).join(', ');
 }
 async function syncLyricsToMainProject() {
   const pending = await pendingAbletonLyricsEdits();
@@ -3410,8 +3494,9 @@ async function readAbletonSet() {
     // relay applies pending Practice edits to Live memory separately; never
     // write clips here while reading the saved .als.
     readProgressStep('Checking queued Practice lyrics…', 0);
-    const pending = await pendingAbletonLyricsEdits();
-    sync.writebackRows = pending.rowsToClear;
+    let pending = null;
+    try { pending = await pendingAbletonLyricsEdits(); sync.writebackRows = pending.rowsToClear; }
+    catch (error) { console.warn('Queued lyric edits could not be loaded; lyrics will not be updated in this sync', error); }
     // TSPWork does one thing at a time (a read takes a few minutes). If it's
     // still busy with something else (another window's read, a jump), wait for it.
     let result = null;
@@ -3429,9 +3514,9 @@ async function readAbletonSet() {
     sync.snapshot = result.snapshot;
     sync.readAt = new Date();
     sync.dismissed.clear();
-    // /snapshot reads the on-disk .als. Keep shared lyrics queued until that
-    // saved file confirms the in-memory Live edits were manually saved.
-    verifyPendingLyricsSnapshot(sync.snapshot);
+    // /snapshot reads the on-disk .als. A queued lyric edit that the saved file
+    // does not confirm stays queued and is reported below; it no longer stops
+    // the rest of the sync (tempo, duration, keys, fingerprints, colours).
     // Duration and tempo always follow Ableton: apply them straight away.
     const autoMeta = computeSyncDiff(sync.snapshot).meta.filter((item) => SYNC_AUTO_FIELDS.includes(item.field));
     if (autoMeta.length) sync.autoApply = autoMeta;
@@ -3440,20 +3525,22 @@ async function readAbletonSet() {
     readProgressStep('Saving lyrics for Practice…', 1);
     if (Object.values(sync.snapshot.songs || {}).some((song) => song.lyrics)) {
       try {
-        sync.lyricsSaved = await saveSongLyrics(sync.snapshot);
-        let lyricsRefreshError = null;
-        try { await clearSyncedLyricsOverrides(sync.snapshot); }
-        catch (error) { lyricsRefreshError = error; }
+        if (!pending) throw new Error('queued lyric edits could not be checked, so the lyrics baseline was left as it was');
+        const outcome = await reconcileLyricsAfterRead(sync.snapshot, pending, lyricsReconcileIo);
+        sync.lyricsSaved = outcome.saved;
+        sync.lyricsQueued = [...outcome.unconfirmed, ...outcome.changed, ...(pending.problems || [])];
+        refreshSyncLyricsPendingBadge();
         try { await refreshPracticeLyricsAfterSync(sync.snapshot); }
-        catch (error) { if (!lyricsRefreshError) lyricsRefreshError = error; }
         finally { broadcastPracticeLyricsSync(Object.keys(sync.snapshot.songs || {})); }
-        if (lyricsRefreshError) throw lyricsRefreshError;
-        abletonPresence.awaitingSave = false;
+        abletonPresence.awaitingSave = sync.lyricsQueued.length > 0 && abletonPresence.awaitingSave;
         abletonPresence.needsAttention = false;
         abletonPresence.lastSync = new Date().toISOString();
         abletonPresence.lastHeartbeat = 0;
         setAbletonConnected(true);
         await publishAbletonPresence(true);
+        if (sync.lyricsQueued.length) {
+          showNotice(`Sync finished. Still queued (not in the saved set yet): ${lyricsQueueLabel(sync.lyricsQueued)}. Save the set in Live and sync again; if an edit conflicts with a change made in Live, reopen it in Practice.`, true);
+        }
       } catch (error) { sync.lyricsSaved = null; showNotice(`Lyrics were not fully saved for Practice: ${error.message}`, true); }
     }
     // Practice audio: the set's current track fingerprints (yellow = changed since upload).
@@ -6204,11 +6291,11 @@ $('#practice-lyrics').addEventListener('click', (event) => {
 });
 
 // Saved on each admin "Sync Ableton Set": one row per song with its lyrics.
-async function saveSongLyrics(snapshot) {
+async function saveSongLyrics(snapshot, held = new Map(), baselineBySong = new Map()) {
   const known = new Set(state.songs.map((song) => song.id));
   const rows = Object.entries(snapshot?.songs || {})
     .filter(([id, data]) => known.has(id) && data.lyrics)
-    .map(([id, data]) => ({ song_id: id, tracks: data.lyrics.tracks || [], sections: data.lyrics.sections || [], tempo: data.lyrics.tempo || [], bars: data.bars || [], tone: data.tone || [],
+    .map(([id, data]) => ({ song_id: id, tracks: baselineTracksForSave(data.lyrics.tracks || [], held.get(id), baselineBySong.get(id)?.tracks), sections: data.lyrics.sections || [], tempo: data.lyrics.tempo || [], bars: data.bars || [], tone: data.tone || [],
       duration_seconds: data.duration_seconds, als_modified_at: snapshot.als_modified_at, updated_at: new Date().toISOString() }));
   for (let i = 0; i < rows.length; i += 20) {
     const { error } = await db.from('song_lyrics').upsert(rows.slice(i, i + 20), { onConflict: 'song_id' });
