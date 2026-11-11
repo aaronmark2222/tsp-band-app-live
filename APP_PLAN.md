@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last reconciled: **2026-11-11** · App cache marker `?v=20261111-lyrics-sync-status1` · TSPWork Remote Script **1.26** · Supabase live ledger: **32 migrations**, latest `20261110191303_admin_edit_all_lyrics_tracks` · Edge Functions `practice-audio` v7 and `member-access-admin` v8 (deployed source matches this repository)._
+_Last reconciled: **2026-11-11** · App cache marker `?v=20261111-auto-ableton-lyrics1` · TSPWork Remote Script **1.26** · Supabase live ledger: **32 migrations**, latest `20261110191303_admin_edit_all_lyrics_tracks` · Edge Functions `practice-audio` v7 and `member-access-admin` v8 (deployed source matches this repository)._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -96,7 +96,7 @@ Aaron is the owner and the only person who runs Ableton Sync and exports. He mos
 | Supabase project | `hzvfrvjuqvmkeqbrgmqu` · `https://hzvfrvjuqvmkeqbrgmqu.supabase.co` · publishable key is in `app.js` (public by design) |
 | Edge Functions | `member-access-admin` (v8, `list_members` returns `role`; service role in secrets; a temporary password also confirms the email) · `practice-audio` (v7, R2 secrets `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, entered by Aaron himself) |
 | Cloudflare R2 | bucket **`tsp-practice`**, keys `songs/<SONG ID>/<element-slug>.m4a` (or older `.mp3`). CORS allows GET/PUT/HEAD from `https://aaronmark2222.github.io`. Free tier 10 GB. |
-| Ableton set | `/Users/aaron/Desktop/TSP LIVE MASTER PROJECT Project/TSP LIVE MASTER PROJECT.als` (about 18 MB gzip XML). **Read only.** Optional override in `~/.tspwork.json` `{"als_path": ...}` |
+| Ableton set | `/Users/aaron/Desktop/TSP LIVE MASTER PROJECT Project/TSP LIVE MASTER PROJECT.als` (about 18 MB gzip XML). TSPWork edits lyric MIDI clip names through Live and saves the open master set; the reader parses the saved `.als`. Optional override in `~/.tspwork.json` `{"als_path": ...}` is ignored by the write guard. |
 | TSPWork remote script | `~/Music/Ableton/User Library/Remote Scripts/TSPWork/` (`__init__.py`, `tspwork.py`, `alsreader.py`, `exporter.py`, `tspwork-localhost.crt/.key`, `requests.log`). Repo copy: `tools/ableton-remote-script/TSPWork/` (cert and key are git-ignored and must never be committed) |
 | TSPWork ports | HTTP `127.0.0.1:47710`, HTTPS `127.0.0.1:47711` (self-signed cert, trusted on Aaron's Mac with `security add-trusted-cert`). Allowed origins: the GitHub Pages origin and `localhost:8000` / `127.0.0.1:8000` |
 | AbleSet OSC | `127.0.0.1:39051`; devices targeted by IP `127.0.0.1`, `::1`, `::ffff:127.0.0.1` |
@@ -108,10 +108,10 @@ Aaron is the owner and the only person who runs Ableton Sync and exports. He mos
 
 ## 4. Standing rules (non-negotiable)
 
-1. **Never write, save or modify the `.als`, and never save Aaron's Live set.** TSPWork restores every solo, mute, loop and selection it touches.
+1. **Only the guarded lyric workflow may modify the `.als`.** TSPWork must verify the exact master project is open, preflight the lyric clips, ask Live to save, read the saved set back, and preserve the shared edit if readback fails. Do not modify any other set content.
 2. When Aaron asks to read his set or check anything about the project, **read the actual `.als`** at the path above (stage it into the workspace if the Mac VM runs out of memory parsing it).
 3. **Warn Aaron about issues you notice** in the project (slivers, empty clips, missing markers, mismatches). Exception: `[Key:]` markers starting before a bar line are normal (singing starts early), so don't flag them.
-4. **Only Aaron's MacBook triggers Ableton** (jumps, selections, transport, export). The bridge is localhost-only and admin-only.
+4. **Only Aaron's MacBook controls Ableton** (jumps, selections, transport, export and lyric writeback). The bridge is localhost-only and admin-only. Other signed-in devices share lyric edits through Supabase; the Mac app relays them to the open master set. An admin-written, short-lived `app_meta` heartbeat drives the Ableton chip on all devices. No device connects to the bridge over Wi-Fi.
 5. **Secrets:** never put the `service_role` key, R2 keys or any token in public code, chat or Git. R2 keys live only in Edge Function secrets, entered by Aaron.
 6. **Pushing to `main` deploys to the whole band.** Run the syntax check before pushing (section 12) and bump the `?v=` cache-buster in `index.html` on every frontend change (Safari caches hard).
 7. **Spelling:** Ableton locators are ALL CAPS and app song names are Title Case; on word differences, Ableton wins.
@@ -433,6 +433,8 @@ Aaron is testing whether the export checklist's yellow "changed since upload" fl
 - The editor preserves clip timing/order for ordinary tracks. Drums and Percussion may add or remove clips only in the app’s supported empty-section workflow.
 - Sync writes only to the allowlisted main Ableton set, preflights source text/timing, asks Live to save, reads the saved set back, and clears matching overrides only after verification. Failed or mismatched writeback keeps the shared edit.
 - Practice refreshes lyrics after sync in the active page and other open tabs. The loaded Live session must reload TSPWork 1.26 before using the newest bridge behavior.
+- Saved lyric edits now sync automatically while Aaron’s Mac app is open and the exact master project is open in Live. The Mac app applies the existing preflight/write/save/readback flow and clears only unchanged matching edit rows. If the host is offline, the edit remains queued in Practice until it reconnects.
+- Signed-in clients display a shared Ableton chip from the admin-written `app_meta.ableton_bridge_presence` heartbeat. The 45-second expiry prevents a stopped Mac app from appearing available indefinitely; the heartbeat shares no LAN address or local project path.
 
 ---
 
@@ -440,6 +442,7 @@ Aaron is testing whether the export checklist's yellow "changed since upload" fl
 
 - **2026-11-11**
   - Main-project lyrics writeback is the active target; the test copy is historical. Preserve the allowlisted path, preflight, save/readback verification, and retain-on-error behavior.
+  - Only saved Practice lyric edits can automatically modify lyric MIDI clip names in the exact master project. The Mac app is the relay; keep the TSPWork listener loopback-only and never expose the control port to Wi-Fi.
   - Drum/Percussion clip creation/removal is supported only in the Practice lyrics editor workflow.
   - Keep the live Supabase migration ledger and deployed function metadata as the authority when the documentation snapshot differs.
 - **2026-11-09**
@@ -520,6 +523,7 @@ Aaron is testing whether the export checklist's yellow "changed since upload" fl
 ---
 
 ## 17. Changelog of this plan
+- **2026-11-11:** Saved Practice lyrics now relay automatically from the open Mac app to the guarded Ableton master project; shared, expiring Ableton chip on signed-in devices (`?v=20261111-auto-ableton-lyrics1`).
 - **2026-11-11:** Reconciled the current app marker, TSPWork 1.26 behavior, Supabase ledger and row counts, R2 object count, and lyrics editor/writeback workflow against live services and the working app snapshot.
 - **2026-11-08:** Activity logging for statistics (`?v=20261108-act1`): `app_sessions`, `page_visits`, `practice_plays` (+ summary views). Members write/read their own rows; admin reads all. Code: `activity*` functions at the end of `app.js`.
 - **2026-11-08:** Liquid Glass theme across the whole app (`?v=20261108-glass4`).
