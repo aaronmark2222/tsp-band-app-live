@@ -629,7 +629,7 @@ function renderSetlistOptions() {
   const select = $('#setlist-select');
   // First visit: open the setlist of the next gig rather than the first one made.
   const current = state.activeSetlist || nextDashboardGig()?.setlist_id || select.value;
-  select.innerHTML = state.setlists.map((list) => `<option value="${list.id}">${escapeHtml(list.name)}</option>`).join('');
+  select.innerHTML = state.setlists.map((list) => `<option value="${escapeHtml(list.id)}">${escapeHtml(list.name)}</option>`).join('');
   if (!state.setlists.length) {
     select.innerHTML = '<option value="">No setlists yet</option>';
     state.activeSetlist = null;
@@ -1944,6 +1944,9 @@ $('#copy-temporary-password').addEventListener('click', async () => {
     setTimeout(() => { $('#copy-temporary-password').textContent = 'Copy'; }, 1600);
   } catch { $('#access-message').textContent = 'Select and copy the temporary password shown above.'; }
 });
+document.querySelector('[data-close-member-access]')?.addEventListener('click', () => $('#member-access-dialog').close());
+// Anything the Content-Security-Policy blocks is reported here (helps diagnose a missing allow-list entry).
+document.addEventListener('securitypolicyviolation', (event) => console.warn('Blocked by the page security policy:', event.violatedDirective, event.blockedURI));
 $('#member-access-dialog').addEventListener('close', () => {
   $('#temporary-password-value').textContent = '';
   $('#temporary-password-result').classList.add('hidden');
@@ -2430,7 +2433,27 @@ function abletonBridgeEligible() {
   return !!state.member?.is_admin && isMac;
 }
 
+// TSPWork 1.28+ runs a command only when it carries the signed-in admin's
+// short-lived Supabase token, which TSPWork confirms with Supabase itself.
+// Nothing long-lived is stored for this; the token comes from the live session.
+const ABLETON_AUTH_ERRORS = { auth_required: 'TSPWork needs you to be signed in as the band admin.', not_admin: 'TSPWork only accepts commands from the band admin’s sign-in. Sign out and in again if this is your account.', auth_unreachable: 'TSPWork could not confirm your sign-in with Supabase (is this Mac online?).' };
+async function abletonAuthToken(refresh = false) {
+  try {
+    const { data } = refresh ? await db.auth.refreshSession() : await db.auth.getSession();
+    return data?.session?.access_token || null;
+  } catch { return null; }
+}
 async function abletonRequest(path, body, timeoutMs) {
+  if (!body) return abletonRequestRaw(path, body, timeoutMs);
+  let result = await abletonRequestRaw(path, { ...body, _auth: await abletonAuthToken() }, timeoutMs);
+  if (result && ['auth_required', 'not_admin'].includes(result.error)) {
+    // The token may have just expired: refresh once and try again.
+    result = await abletonRequestRaw(path, { ...body, _auth: await abletonAuthToken(true) }, timeoutMs);
+  }
+  if (result && ABLETON_AUTH_ERRORS[result.error]) result.message = ABLETON_AUTH_ERRORS[result.error];
+  return result;
+}
+async function abletonRequestRaw(path, body, timeoutMs) {
   if (!body && !abletonBridge.base) {
     // Status probe with no known address yet: try each until one answers.
     let lastError;
@@ -3154,7 +3177,7 @@ function renderSyncPage() {
   // Dismissed = fixed in Ableton; hidden until the next read of the set.
   const chordOpen = chordAll.filter((m) => !m.allowed && !sync.dismissed.has(`${m.songId}|${m.taskKey}`));
   const chordAllowed = chordAll.filter((m) => m.allowed);
-  const chordRow = (m) => `<li class="sync-row sync-chord-row${m.allowed ? ' sync-snoozed' : ''}"><button type="button" class="sync-song" data-sync-jump="${escapeHtml(m.songId)}" title="Jump to this song in Ableton"><span class="song-id">${escapeHtml(m.songId)}</span><span>${escapeHtml(m.songName)}</span></button><button type="button" class="sync-task" data-sync-select="${escapeHtml(m.songId)}" data-task="${escapeHtml(m.track)}" data-from-beat="${m.beat}" title="Show this bar on the ${SYNC_CHORD_TRACKS[m.track]} track in Ableton">Bar ${m.song_bar} <span class="muted">(${m.bar})</span></button><span class="sync-change">${syncChordDescription(m)}</span>${m.allowed ? '' : `<span class="sync-actions"><button type="button" class="button quiet sync-apply" data-sync-dismiss="${escapeHtml(`${m.songId}|${m.taskKey}`)}" title="Fixed it in Ableton: hide until the next Sync Ableton Set">Dismiss</button>`}<button type="button" class="button quiet sync-apply" data-sync-chord="${escapeHtml(`${m.songId}|${m.taskKey}`)}" data-allow="${m.allowed ? '0' : '1'}" title="${m.allowed ? 'Show this again' : 'This difference is intended; stop showing it'}">${m.allowed ? 'Undo' : 'Allow'}</button>${m.allowed ? '' : '</span>'}</li>`;
+  const chordRow = (m) => `<li class="sync-row sync-chord-row${m.allowed ? ' sync-snoozed' : ''}"><button type="button" class="sync-song" data-sync-jump="${escapeHtml(m.songId)}" title="Jump to this song in Ableton"><span class="song-id">${escapeHtml(m.songId)}</span><span>${escapeHtml(m.songName)}</span></button><button type="button" class="sync-task" data-sync-select="${escapeHtml(m.songId)}" data-task="${escapeHtml(m.track)}" data-from-beat="${Number(m.beat) || 0}" title="Show this bar on the ${SYNC_CHORD_TRACKS[m.track]} track in Ableton">Bar ${m.song_bar} <span class="muted">(${m.bar})</span></button><span class="sync-change">${syncChordDescription(m)}</span>${m.allowed ? '' : `<span class="sync-actions"><button type="button" class="button quiet sync-apply" data-sync-dismiss="${escapeHtml(`${m.songId}|${m.taskKey}`)}" title="Fixed it in Ableton: hide until the next Sync Ableton Set">Dismiss</button>`}<button type="button" class="button quiet sync-apply" data-sync-chord="${escapeHtml(`${m.songId}|${m.taskKey}`)}" data-allow="${m.allowed ? '0' : '1'}" title="${m.allowed ? 'Show this again' : 'This difference is intended; stop showing it'}">${m.allowed ? 'Undo' : 'Allow'}</button>${m.allowed ? '' : '</span>'}</li>`;
   const metaRows = meta.map((item) => {
     const key = `m:${item.songId}:${item.field}`;
     return `<li class="sync-row"><button type="button" class="sync-song" data-sync-jump="${escapeHtml(item.songId)}" title="Jump to this song in Ableton"><span class="song-id">${escapeHtml(item.songId)}</span><span>${escapeHtml(item.songName)}</span></button><span class="sync-field">${SYNC_FIELD_LABELS[item.field]}</span><span class="sync-change"><s>${escapeHtml(String(syncValueLabel(item.field, item.from)))}</s> → <b>${escapeHtml(String(syncValueLabel(item.field, item.to)))}</b></span><button type="button" class="button sync-apply" data-sync-meta="${escapeHtml(key)}" ${busy(key)}>Apply</button></li>`;
@@ -4818,7 +4841,9 @@ function practiceMultiSaved(songId) {
 
 // Colour of a track as in the Ableton project (saved at each Sync read).
 function practiceColor(element) {
-  return practice.colors?.[element] || PRACTICE_COLORS[element] || '#9aa';
+  // Colours come from the set via the database; only a plain hex value may reach a style attribute.
+  const fromSet = practice.colors?.[element];
+  return (typeof fromSet === 'string' && /^#[0-9a-f]{3,8}$/i.test(fromSet) ? fromSet : null) || PRACTICE_COLORS[element] || '#9aa';
 }
 function practiceInk(hex) {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');

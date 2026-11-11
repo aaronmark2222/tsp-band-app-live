@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://esm.sh https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: data: https://*.r2.cloudflarestorage.com; connect-src 'self' blob: data: https://hzvfrvjuqvmkeqbrgmqu.supabase.co wss://hzvfrvjuqvmkeqbrgmqu.supabase.co https://*.r2.cloudflarestorage.com https://esm.sh https://127.0.0.1:47711 http://127.0.0.1:47710; font-src 'self' data:; worker-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; object-src 'none'">
     <link rel="apple-touch-icon" href="apple-touch-icon.png?v=20261019">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -11,8 +12,8 @@
     <meta name="theme-color" content="#292929">
     <title>TSP Work · The String Project</title>
     <link rel="icon" href="assets/the-string-project-logo.png?v=20261019" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=20261112-signout1">
-    <script type="module" src="app.js?v=20261112-signout1"></script>
+    <link rel="stylesheet" href="styles.css?v=20261112-csp1">
+    <script type="module" src="app.js?v=20261112-csp1"></script>
   </head>
   <body>
     <main id="app" class="shell">
@@ -101,7 +102,7 @@
               <button id="copy-temporary-password" class="button quiet" type="button">Copy</button>
             </div>
             <p id="access-message" class="notice-message" role="status"></p>
-            <button class="text-button" type="button" onclick="document.getElementById('member-access-dialog').close()">Done</button>
+            <button class="text-button" type="button" data-close-member-access>Done</button>
           </div>
         </dialog>
 
@@ -245,21 +246,7 @@
         </section>
       </section>
       <div id="loading" class="loading"><span class="spinner"></span><span>Opening your workspace…</span></div>
-      <script>
-        // The sign-in form stays hidden (so password managers don't pop up) unless
-        // this device has no saved sign-in; the app shows it later if one fails.
-        (function () {
-          try {
-            var signedIn = Object.keys(localStorage).some(function (k) { return /^sb-.*-auth-token$/.test(k) && localStorage.getItem(k); });
-            if (!signedIn) {
-              document.getElementById('login-screen').classList.remove('hidden');
-              document.getElementById('loading').classList.add('hidden');
-            }
-          } catch (e) {
-            document.getElementById('login-screen').classList.remove('hidden');
-          }
-        })();
-      </script>
+      <script src="boot.js?v=20261112-csp1"></script>
     </main>
   </body>
 </html>

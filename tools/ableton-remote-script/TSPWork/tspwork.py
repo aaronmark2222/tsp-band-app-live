@@ -2,13 +2,16 @@
 
 Safety rules (agreed with Aaron, 6 Nov 2026):
   * Listens on 127.0.0.1 only: nothing outside this Mac can reach it.
-  * Accepts requests only from the TSP Work site (and localhost for testing).
+  * Accepts requests only from the TSP Work site (and localhost for testing),
+    and every command must carry the signed-in band admin's short-lived
+    Supabase token, which TSPWork confirms with Supabase (1.28).
   * Lyrics writeback is enabled only for the explicitly guarded master-project
     path; every other set is refused. Other commands only move the playhead,
     select a track or time region and zoom. The loop brace is restored.
   * Zooming uses Live's own menu commands, clicked by name through macOS
     UI scripting (never a raw "z" keystroke), and only when Live is in front.
 """
+import hashlib
 import json
 import os
 import re
@@ -31,7 +34,7 @@ from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
 TLS_PORT = 47711
-VERSION = '1.27'
+VERSION = '1.28'
 DEBUG_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requests.log')
 # https listener for the live site in Safari. Certificate made for 127.0.0.1 /
 # localhost only, trusted once in this Mac's Keychain. Files sit next to this
@@ -44,6 +47,47 @@ ALLOWED_ORIGINS = (
     'http://127.0.0.1:8000',
 )
 SONG_ID_RE = re.compile(r'^[A-Z][A-Za-z]*[0-9]+$')
+
+# --- Request authorization (1.28) -------------------------------------------
+# The Origin header alone is not authentication. Every command (POST) must
+# carry the signed-in admin's short-lived Supabase access token in the JSON
+# body as "_auth". TSPWork asks Supabase whether that token belongs to the
+# band admin (rpc/is_admin) and remembers a "yes" for a few minutes. Nothing
+# secret is stored here: the project URL and publishable key are the public
+# values already in the web app.
+SUPABASE_URL = 'https://hzvfrvjuqvmkeqbrgmqu.supabase.co'
+SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_bXd0ymwEnYNqQCq1EwH2AA_0HajJecU'
+AUTH_CACHE_SECONDS = 300
+# With no internet (e.g. at a venue) a token that was confirmed recently is
+# still accepted, so jumping to songs keeps working offline.
+AUTH_OFFLINE_GRACE_SECONDS = 24 * 3600
+TOKEN_RE = re.compile(r'^[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}$')
+# Practice-audio uploads may only go to the band's private R2 bucket.
+UPLOAD_HOST_RE = re.compile(r'^https://[0-9a-f]{32}\.r2\.cloudflarestorage\.com/tsp-practice/songs/[A-Za-z0-9]+/[a-z0-9-]+\.(?:m4a|mp3)\?[^\s"\'<>]+$')
+EXPORT_ROOTS = ('/Volumes/', os.path.expanduser('~') + '/')
+try:
+    with open(os.path.abspath(__file__), 'rb') as _fh:
+        BUILD = hashlib.sha256(_fh.read()).hexdigest()[:12]
+except Exception:  # pragma: no cover
+    BUILD = 'unknown'
+
+
+def upload_links_ok(uploads):
+    """True when every link in the export's upload map points at the R2 bucket."""
+    if not isinstance(uploads, dict) or len(uploads) > 100:
+        return False
+    for song_id, elements in uploads.items():
+        if not SONG_ID_RE.match(str(song_id)) or not isinstance(elements, dict) or len(elements) > 40:
+            return False
+        for links in elements.values():
+            if not isinstance(links, dict):
+                return False
+            for kind, url in links.items():
+                if kind not in ('put', 'del', 'del_old') or not isinstance(url, str) or len(url) > 2000:
+                    return False
+                if not UPLOAD_HOST_RE.match(url) or ('/songs/%s/' % song_id) not in url:
+                    return False
+    return True
 MAIN_ALS_PATH = '/Users/aaron/Desktop/TSP LIVE MASTER PROJECT Project/TSP LIVE MASTER PROJECT.als'
 DEFAULT_ALS = MAIN_ALS_PATH
 CONFIG_FILE = os.path.expanduser('~/.tspwork.json')  # optional {"als_path": "..."}
@@ -320,7 +364,7 @@ class TSPWork(ControlSurface):
             saved = os.path.getmtime(path)
         except Exception:
             pass
-        return {'ok': True, 'version': VERSION, 'https': self._tls is not None, 'songs': count, 'playing': self.song().is_playing,
+        return {'ok': True, 'version': VERSION, 'build': BUILD, 'auth': 'supabase-admin', 'https': self._tls is not None, 'songs': count, 'playing': self.song().is_playing,
                 'als_path': path, 'open_als_path': getattr(self.song(), 'file_path', ''), 'als_saved_at': saved}
 
     def _cmd_jump(self, song_id):
@@ -594,11 +638,16 @@ class TSPWork(ControlSurface):
             root = os.path.expanduser(root)
             if not os.path.isabs(root) or '..' in root.split('/'):
                 return {'ok': False, 'error': 'bad_export_folder'}
+            # Exports go to an external drive or somewhere in the home folder only.
+            if not (os.path.realpath(root) + '/').startswith(EXPORT_ROOTS):
+                return {'ok': False, 'error': 'bad_export_folder'}
             # The drive (e.g. /Volumes/AARON SSD) must be plugged in; the last
             # folder level is created if needed.
             if not os.path.isdir(os.path.dirname(root.rstrip('/'))):
                 return {'ok': False, 'error': 'export_folder_missing', 'folder': root}
         uploads = payload.get('uploads') if isinstance(payload.get('uploads'), dict) else {}
+        if uploads and not upload_links_ok(uploads):
+            return {'ok': False, 'error': 'bad_upload_url'}
         if self._busy:
             return {'ok': False, 'error': 'busy'}
         import importlib
@@ -917,6 +966,56 @@ class TSPWork(ControlSurface):
             self.log_message('TSPWork snapshot error: %r' % (err,))
             return {'ok': False, 'error': 'als_read_failed', 'detail': str(err)[:300]}
 
+    # ------------------------------------------------------------ authorization
+    def _check_admin_online(self, token):
+        """True = Supabase says this token is the band admin; False = it says
+        no (wrong person, expired, invalid); None = Supabase unreachable."""
+        if subprocess is None:
+            return None
+        # Headers go through stdin so the token never shows up in the process list.
+        config = 'header = "apikey: %s"\nheader = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\n' % (
+            SUPABASE_PUBLISHABLE_KEY, token)
+        try:
+            out = subprocess.run(['/usr/bin/curl', '-sS', '-m', '6', '-X', 'POST', '-d', '{}', '-w', '\n%{http_code}',
+                                  '-K', '-', SUPABASE_URL + '/rest/v1/rpc/is_admin'],
+                                 input=config, capture_output=True, text=True, timeout=10)
+        except Exception:
+            return None
+        if out.returncode != 0:
+            return None
+        body, _, code = (out.stdout or '').rpartition('\n')
+        if code.strip() == '200':
+            return body.strip() == 'true'
+        if code.strip() in ('400', '401', '403'):
+            return False
+        return None
+
+    def _authorized(self, token):
+        if not isinstance(token, str) or len(token) > 4096 or not TOKEN_RE.match(token):
+            return False, 'auth_required'
+        cache = getattr(self, '_auth_cache', None)
+        if cache is None:
+            cache = self._auth_cache = {}
+        digest = hashlib.sha256(token.encode('ascii')).hexdigest()
+        now = time.time()
+        seen = cache.get(digest)
+        if seen is not None and now - seen < AUTH_CACHE_SECONDS:
+            return True, None
+        verdict = self._check_admin_online(token)
+        if verdict is True:
+            for key in [k for k, t in cache.items() if now - t > AUTH_OFFLINE_GRACE_SECONDS]:
+                cache.pop(key, None)
+            if len(cache) > 50:
+                cache.clear()
+            cache[digest] = now
+            return True, None
+        if verdict is None:
+            if seen is not None and now - seen < AUTH_OFFLINE_GRACE_SECONDS:
+                return True, None
+            return False, 'auth_unreachable'
+        cache.pop(digest, None)
+        return False, 'not_admin'
+
     # ------------------------------------------------------------ HTTP bridge
     def _serve(self, port, tls):
         try:
@@ -972,7 +1071,12 @@ class TSPWork(ControlSurface):
                     headers[k.strip().lower()] = v.strip()
             # /export carries a batch of signed upload links (~1 MB for every song).
             limit = 4 * 1024 * 1024 if path.startswith(('/export', '/sync-lyrics')) else 4096
-            length = min(int(headers.get('content-length', '0') or 0), limit)
+            try:
+                declared = int(headers.get('content-length', '0') or 0)
+            except ValueError:
+                declared = -1
+            too_large = declared < 0 or declared > limit
+            length = 0 if too_large else declared
             while len(body) < length:
                 chunk = conn.recv(4096)
                 if not chunk:
@@ -987,6 +1091,8 @@ class TSPWork(ControlSurface):
                 return self._reply(conn, 204, None, origin if allowed else None)
             if not allowed:
                 return self._reply(conn, 403, {'ok': False, 'error': 'origin_not_allowed'}, None)
+            if too_large:
+                return self._reply(conn, 413, {'ok': False, 'error': 'too_large'}, origin)
             if method == 'GET' and path.startswith('/status') and self._export and self._export.state['state'] in ('starting', 'running', 'uploading'):
                 # Live is busy rendering; answer without waiting for its main thread.
                 return self._reply(conn, 200, {'ok': True, 'version': VERSION, 'https': self._tls is not None,
@@ -1009,6 +1115,13 @@ class TSPWork(ControlSurface):
                 payload = json.loads(body[:length].decode('utf-8') or '{}')
             except Exception:
                 return self._reply(conn, 400, {'ok': False, 'error': 'bad_json'}, origin)
+            if not isinstance(payload, dict):
+                return self._reply(conn, 400, {'ok': False, 'error': 'bad_json'}, origin)
+            # Every command needs the signed-in admin's token (see _authorized).
+            authorized, why = self._authorized(payload.pop('_auth', None))
+            if not authorized:
+                self._debug('refused %s: %s' % (path, why))
+                return self._reply(conn, 401, {'ok': False, 'error': why}, origin)
             song_id = str(payload.get('song_id', ''))
             if path.startswith('/export'):
                 return self._reply(conn, 200, self._export_request(path, payload), origin)
@@ -1064,7 +1177,7 @@ class TSPWork(ControlSurface):
                 pass
 
     def _reply(self, conn, code, obj, origin):
-        reason = {200: 'OK', 204: 'No Content', 400: 'Bad Request', 403: 'Forbidden',
+        reason = {200: 'OK', 204: 'No Content', 400: 'Bad Request', 401: 'Unauthorized', 403: 'Forbidden', 413: 'Payload Too Large',
                   404: 'Not Found', 409: 'Conflict', 500: 'Server Error'}.get(code, 'OK')
         body = b'' if obj is None else json.dumps(obj).encode('utf-8')
         head = ['HTTP/1.1 %d %s' % (code, reason),
