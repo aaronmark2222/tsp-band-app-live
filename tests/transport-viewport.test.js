@@ -1,47 +1,23 @@
-// iPhone Safari can leave a bottom-pinned bar floating above the screen edge,
-// most often after the keyboard closes. The fix measures where the bar landed
-// rather than guessing why, so one pass puts it back.
+// iPhone only: after the on-screen keyboard closes, Safari can leave the
+// fixed playback bar above the screen edge. The fix is a one-shot re-anchor
+// after the keyboard goes away — nothing may run while the page scrolls.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { load, appSource } = require('./helpers');
+const { appSource } = require('./helpers');
 
-function fit({ innerHeight = 844, viewport = { offsetTop: 0, height: 844 }, barBottom = 844, barHeight = 60, gap = 0 }) {
-  const set = [];
-  const ctx = load(['ptBarFit'], {
-    window: { innerHeight, visualViewport: viewport },
-    document: {
-      documentElement: { style: { setProperty: (name, value) => set.push([name, value]) } },
-      getElementById: () => (barHeight ? { getBoundingClientRect: () => ({ bottom: barBottom, height: barHeight }) } : null)
-    },
-    ptBarGap: gap
-  });
-  ctx.ptBarFit();
-  return set;
-}
-
-test('a bar already on the edge is left alone', () => {
-  assert.deepEqual(fit({}), []);
+test('nothing listens to the visual viewport any more', () => {
+  assert.equal(appSource.includes('visualViewport.addEventListener'), false);
+  assert.equal(appSource.includes('--pt-bottom'), false);
 });
 
-test('a bar left floating above the edge is pushed back down', () => {
-  // What the keyboard leaves behind: the bar's bottom is 24px short.
-  assert.deepEqual(fit({ barBottom: 820 }), [['--pt-bottom', '-24px']]);
+test('the bar is pinned to the bottom with plain CSS again', () => {
+  const css = require('node:fs').readFileSync(require('node:path').resolve(__dirname, '../styles.css'), 'utf8');
+  assert.match(css, /\.pt-bar \{ position: fixed; left: 0; right: 0; bottom: 0;/);
+  assert.equal(css.includes('.pt-bar::after'), false);
 });
 
-test('a correction already in place is adjusted, not restarted', () => {
-  assert.deepEqual(fit({ barBottom: 820, gap: 10 }), [['--pt-bottom', '-14px']]);
-});
-
-test('the keyboard lifts the bar above itself', () => {
-  assert.deepEqual(fit({ viewport: { offsetTop: 0, height: 500 } }), [['--pt-bottom', '344px']]);
-});
-
-test('a hidden bar and a browser without a visual viewport are skipped', () => {
-  assert.deepEqual(fit({ barHeight: 0 }), []);
-  assert.deepEqual(fit({ viewport: undefined }), []);
-});
-
-test('the bar is re-measured while the keyboard animation settles', () => {
-  assert.match(appSource, /window\.addEventListener\('focusout', ptBarSettle\)/);
-  assert.match(appSource, /\[60, 180, 340, 550, 900\]\.map/);
+test('the re-anchor runs only after a keyboard closes, and only on iPhone', () => {
+  assert.match(appSource, /const IPHONE = \/iPhone\|iPod\/\.test/);
+  assert.match(appSource, /function ptKeyboardClosed\(\) \{\n  if \(!IPHONE\) return;/);
+  assert.match(appSource, /document\.addEventListener\('focusout', \(event\) => \{\n  if \(event\.target\?\.closest\?\.\('input, textarea, select, \[contenteditable\]'\)\) ptKeyboardClosed\(\);/);
 });

@@ -7155,51 +7155,33 @@ async function saveSongLyrics(snapshot, held = new Map(), baselineBySong = new M
 // ---------------------------------------------------------------------------
 // Practice transport: one Ableton-style bar at the bottom drives whichever
 // player is chosen (Mixdown or Multitrack); both follow its single playhead.
-// iPhone Safari: after the on-screen keyboard closes (and with the dynamic
-// toolbar, a pinch-zoom or a rubber-band scroll) a `bottom: 0` fixed bar can
-// end up floating above the screen edge with the page showing through the
-// gap. Rather than model the cause, this measures where the bar actually
-// landed and feeds the difference back as --pt-bottom, so one pass puts it on
-// the visible edge whatever Safari did. It is 0 on every normal layout.
-let ptBarGap = 0;
-let ptBarFitFrame = 0;
-let ptBarSettleTimers = [];
-function ptBarFit() {
-  const vv = window.visualViewport;
+// iPhone (Safari and the home-screen app): after the on-screen keyboard
+// closes, Safari can leave a `bottom: 0` fixed bar sitting a little above the
+// screen edge until something makes it re-anchor. One nudge after the
+// keyboard goes away fixes it; nothing here runs while scrolling, which is
+// what the earlier viewport-measuring attempt got wrong (Aaron, 13 Nov 2026).
+const IPHONE = /iPhone|iPod/.test(navigator.userAgent || '');
+let ptKeyboardTimers = [];
+function ptReanchorBar() {
   const bar = document.getElementById('practice-transport');
-  if (!vv || !bar) return;
-  const rect = bar.getBoundingClientRect();
-  if (!rect.height) return; // not on screen: nothing to correct
-  const wanted = vv.offsetTop + vv.height; // the bottom of what can be seen
-  const drift = rect.bottom - wanted;
-  if (Math.abs(drift) < 1) return;
-  const limit = window.innerHeight * 0.75;
-  const gap = Math.round(Math.max(-40, Math.min(limit, ptBarGap + drift)));
-  if (gap === ptBarGap) return;
-  ptBarGap = gap;
-  document.documentElement.style.setProperty('--pt-bottom', gap + 'px');
+  if (!bar) return;
+  const x = window.scrollX;
+  const y = window.scrollY;
+  window.scrollTo(x, y + 1);
+  window.scrollTo(x, y);
+  // A forced reflow of the bar itself, for the times the nudge is not enough.
+  bar.style.transform = 'translateZ(0)';
+  void bar.offsetHeight;
+  bar.style.transform = '';
 }
-function ptBarFitSoon() {
-  cancelAnimationFrame(ptBarFitFrame);
-  ptBarFitFrame = requestAnimationFrame(ptBarFit);
+function ptKeyboardClosed() {
+  if (!IPHONE) return;
+  ptKeyboardTimers.forEach(clearTimeout);
+  ptKeyboardTimers = [120, 400, 800].map((ms) => setTimeout(ptReanchorBar, ms));
 }
-// The keyboard closes over a few hundred milliseconds and Safari re-anchors
-// fixed elements late, so the bar is re-measured until the layout settles.
-function ptBarSettle() {
-  ptBarSettleTimers.forEach(clearTimeout);
-  ptBarSettleTimers = [60, 180, 340, 550, 900].map((ms) => setTimeout(ptBarFit, ms));
-  ptBarFitSoon();
-}
-if (window.visualViewport) {
-  window.visualViewport.addEventListener('resize', ptBarSettle);
-  window.visualViewport.addEventListener('scroll', ptBarFitSoon);
-}
-window.addEventListener('orientationchange', ptBarSettle);
-window.addEventListener('focusin', ptBarSettle);
-window.addEventListener('focusout', ptBarSettle);
-window.addEventListener('pageshow', ptBarSettle);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) ptBarSettle(); });
-ptBarFit();
+document.addEventListener('focusout', (event) => {
+  if (event.target?.closest?.('input, textarea, select, [contenteditable]')) ptKeyboardClosed();
+});
 
 const PT_MODE_KEY = 'tsp-practice-mode';
 let ptSongPickerOpen = false;
