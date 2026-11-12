@@ -1822,3 +1822,31 @@ body.lyrics-fs #practice-lyrics .ly-chips > * { flex: 0 0 auto; }
 body.lyrics-editing #practice-transport .pt-work-anchor,
 body.lyrics-editing #practice-transport .pt-chip.pt-ready,
 body.lyrics-editing #practice-transport .pt-song-wrap { display: none; }
+
+/* Full-screen lyrics: the editor's buttons are their own row under the track
+   chips, in the same glass pill style (Aaron, 13 Nov 2026). */
+body.lyrics-fs #practice-lyrics .ly-edit-bar {
+  position:fixed; top:calc(env(safe-area-inset-top) + 46px); left:max(12px,3vw); right:max(12px,3vw);
+  z-index:66; margin:0; padding:0; border:0; background:none; border-radius:0;
+  display:flex; flex-wrap:nowrap; gap:6px; align-items:center; overflow-x:auto; scrollbar-width:none;
+  transition:opacity .3s ease;
+}
+body.lyrics-fs #practice-lyrics .ly-edit-bar::-webkit-scrollbar { display:none; }
+body.lyrics-fs #practice-lyrics .ly-edit-what { display:none; }
+body.lyrics-fs #practice-lyrics .ly-edit-msg { display:none; }
+body.lyrics-fs #practice-lyrics .ly-edit-msg.warn {
+  display:block; flex:0 0 auto; max-width:55vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  padding:0 10px; color:#ffcfc8; font-size:12px;
+}
+body.lyrics-fs .ly-edit-btn {
+  flex:none; height:32px; padding:0 14px; border-radius:999px; font-size:13px;
+  background:rgba(255,255,255,.12); color:#fff; border:1px solid rgba(255,255,255,.22);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 2px 10px rgba(0,0,0,.18);
+  -webkit-backdrop-filter:blur(12px) saturate(160%); backdrop-filter:blur(12px) saturate(160%);
+}
+body.lyrics-fs .ly-edit-btn.primary { background:rgba(243,154,38,.78); border-color:rgba(255,200,130,.6); color:#1b1206; }
+body.lyrics-fs:not(.lyrics-fs-controls) #practice-lyrics .ly-edit-bar { opacity:0; pointer-events:none; }
+/* Room for the extra row above the words. */
+body.lyrics-fs.lyrics-editing #practice-lyrics .ly-scroll { padding-top:calc(env(safe-area-inset-top) + 104px)!important; }
+body.lyrics-fs .ly-scroll .lyrics-edit-cell { width:auto; }
+body.lyrics-fs .ly-scroll .lyrics-edit-input { font:inherit; line-height:1.25; }

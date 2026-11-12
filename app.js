@@ -6355,8 +6355,9 @@ function openLyricsEditor(slug) {
     lines, sessionLines: lines.map((x) => ({ _editKey: x._editKey, text: x.text })), abletonLines,
     updatedAt: edit?.updated_at || null, hasOverride: !!edit, restoreAbleton: false, activeIndex: null, message: '', saving: false };
   document.body.classList.add('lyrics-editing');
-  // Editing happens on the page, where the toolbar and the keyboard both fit.
-  if (lyricsFs.on) lyricsFsExit(true);
+  // Full screen keeps its controls up while editing: the editor's buttons are
+  // a row of their own under the track chips (Aaron, 13 Nov 2026).
+  if (lyricsFs.on) lyricsFsShowControls(6000);
   practice.lyricsHold = false;
   practice.lyricsTouchedAt = 0;
   practiceKeepPlace(renderPracticeLyrics);
@@ -6623,7 +6624,8 @@ function lyricsFsArmHide(ms = 2500) {
   clearTimeout(lyricsFs.timer);
   const check = () => {
     if (!lyricsFs.on || !document.body.classList.contains('lyrics-fs-controls')) return;
-    if (ptMixer.open) lyricsFs.timer = setTimeout(check, 500); // mixer open: stay until it's closed
+    if (lyricsEditDraft) lyricsFs.timer = setTimeout(check, 500); // editing: the buttons stay
+    else if (ptMixer.open) lyricsFs.timer = setTimeout(check, 500); // mixer open: stay until it's closed
     else if (ptIsPlaying()) lyricsFsHideControls();
     else lyricsFs.timer = setTimeout(check, 500); // paused: keep them; hide once playback starts
   };

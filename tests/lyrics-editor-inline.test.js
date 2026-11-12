@@ -162,3 +162,12 @@ test('the track chips, sizes and the pencil stay while editing', () => {
   assert.match(editing, /data-lyrics-edit="guitar"/);
   assert.match(editing, /data-lyrics-size="l"/);
 });
+
+test('full screen keeps the editor, with its buttons as their own row', () => {
+  assert.match(appSource, /if \(lyricsFs\.on\) lyricsFsShowControls\(6000\);/);
+  assert.equal(appSource.includes('if (lyricsFs.on) lyricsFsExit(true);'), false);
+  assert.match(appSource, /if \(lyricsEditDraft\) lyricsFs\.timer = setTimeout\(check, 500\); \/\/ editing: the buttons stay/);
+  const css = require('node:fs').readFileSync(require('node:path').resolve(__dirname, '../styles.css'), 'utf8');
+  assert.match(css, /body\.lyrics-fs #practice-lyrics \.ly-edit-bar \{/);
+  assert.match(css, /body\.lyrics-fs\.lyrics-editing #practice-lyrics \.ly-scroll \{ padding-top:/);
+});
