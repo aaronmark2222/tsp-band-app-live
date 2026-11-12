@@ -34,7 +34,7 @@ from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
 TLS_PORT = 47711
-VERSION = '1.28'
+VERSION = '1.29'
 DEBUG_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requests.log')
 # https listener for the live site in Safari. Certificate made for 127.0.0.1 /
 # localhost only, trusted once in this Mac's Keychain. Files sit next to this
@@ -224,6 +224,10 @@ class TSPWork(ControlSurface):
         self._solo_saved = []      # [(track, previous solo)] to put back
         self._loop_saved = None    # loop brace before 'Loop clip'
         self._export = None        # running/last practice-audio export job
+        # New for every load of TSPWork (a set opened, Live restarted, TSPWork
+        # reselected). The app uses it to notice that Live's memory may have
+        # gone back to the saved set, and re-checks every queued lyric edit.
+        self._session = '%012x' % int.from_bytes(os.urandom(6), 'big')
         self._tls = self._tls_context()
         self._thread = threading.Thread(target=self._serve, args=(PORT, None), name='TSPWorkBridge')
         self._thread.daemon = True
@@ -364,7 +368,7 @@ class TSPWork(ControlSurface):
             saved = os.path.getmtime(path)
         except Exception:
             pass
-        return {'ok': True, 'version': VERSION, 'build': BUILD, 'auth': 'supabase-admin', 'https': self._tls is not None, 'songs': count, 'playing': self.song().is_playing,
+        return {'ok': True, 'version': VERSION, 'build': BUILD, 'session': self._session, 'auth': 'supabase-admin', 'https': self._tls is not None, 'songs': count, 'playing': self.song().is_playing,
                 'als_path': path, 'open_als_path': getattr(self.song(), 'file_path', ''), 'als_saved_at': saved}
 
     def _cmd_jump(self, song_id):

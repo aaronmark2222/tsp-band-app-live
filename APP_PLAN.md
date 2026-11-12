@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last reconciled: **2026-11-12** · Frontend cache markers: `app.js?v=20261112-storagecheck1`, `styles.css?v=20261112-lyricsrt1` · TSPWork Remote Script **1.28 in this repository; 1.27 (with the hand-edit fix, commit `f43ac53`) installed on the Mac** · Supabase live ledger: **37 migrations**, latest `20261111194231_lyrics_track_relay_state` · Edge Functions `practice-audio` v7 and `member-access-admin` v8 · Operations and backups: [docs/OPERATIONS.md](docs/OPERATIONS.md)._
+_Last reconciled: **2026-11-12** · Frontend cache markers: `app.js?v=20261112-relay2`, `styles.css?v=20261112-relay2` · TSPWork Remote Script **1.29** (repository; check the installed copy's hash before relying on it) · Supabase live ledger: **38 migrations**, latest `20261112025420_lyrics_edit_relay_error` · Edge Functions `practice-audio` v7 and `member-access-admin` v8 · Operations and backups: [docs/OPERATIONS.md](docs/OPERATIONS.md)._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -443,6 +443,15 @@ Aaron is testing whether the export checklist's yellow "changed since upload" fl
 
 ## 14. Decision log (newest first)
 
+- **2026-11-12 (lyrics relay made dependable)**
+  - **Queue model:** one row per song and lyrics track in `song_lyrics_edits`: `lines` (what the track should say), `applied_lines` (what the Mac relay last put into Live's memory), `relay_error` (why Live refused it, if it did). The saved `.als` baseline stays in `song_lyrics` until a manual save and Sync confirm the edit.
+  - **Relay sends only new work**, in one request for all tracks, and does a **full re-check** of every queued edit when TSPWork reports a new `session` (Live or the set was reopened), when the Mac app opens, after Sync Ableton Set, and every two minutes. Re-checking is harmless: the bridge changes nothing when Live already matches.
+  - **Live reopened without saving:** the relay retries a refused track against the saved baseline, so queued edits go back into Live's memory by themselves.
+  - **A conflict holds back only its own track** for a minute (or until it is saved again); other tracks keep flowing. A busy bridge is retried after 3 s, connection trouble after 15 s.
+  - **Two devices editing one track** are merged line by line on save: lines this editor changed win, untouched lines take the other device's text. Only a clip added or removed elsewhere (Drums/Percussion) still asks the editor to reopen.
+  - **Every device sees where its edit is** under the track chips: saved and waiting for the Mac, sending, in Ableton (pending manual save), or not applied with the reason.
+  - TSPWork **1.29** adds `session` to `/status`; nothing else changed from 1.28.
+
 - **2026-11-12 (audit follow-up, verified against live services)**
   - **Guests are restricted in the database, not only in the UI.** `is_band_member()` gates every read policy except songs, `song_lyrics`, `song_lyrics_edits`, the guest's own `members` row and the `practice_track_colors` row of `app_meta`. Checked with the guest's, a member's and the admin's identity: the guest reads nothing else and cannot write.
   - **Accounts are linked only by the admin's Member access function.** The sign-up trigger no longer links by email. Public sign-ups are disabled (checked).
@@ -505,7 +514,8 @@ Aaron is testing whether the export checklist's yellow "changed since upload" fl
 
 ## 15. Known issues, caveats, warnings
 
-- **Installed bridge is one version behind on purpose (2026-11-12):** the Mac runs TSPWork 1.27 with the hand-edit fix; 1.28 (token check, R2-only uploads) is in the repository but must be installed only when no lyric edit is pending and the Live set is saved, then TSPWork reselected. Until then the bridge still relies on the Origin check alone.
+- **Installed bridge:** always compare the SHA-256 of `~/Music/Ableton/User Library/Remote Scripts/TSPWork/tspwork.py` with the repository file; Live only loads a new `tspwork.py` when TSPWork is reselected (Control Surface → None → TSPWork) or Live restarts. The app works with 1.27, 1.28 and 1.29.
+- **The Mac relay runs inside the TSP Work page on Aaron's Mac.** Keep that page in its own visible window or tab group: Safari slows and can suspend background tabs, which delays queued edits until the page is looked at again.
 - **Not yet checked by a person:** real playback on iPhone/Safari under the Content-Security-Policy, the sign-out dialog on a phone, and the guest account in the app after the database change. R2 public-access, CORS and lifecycle settings need the Cloudflare dashboard (docs/OPERATIONS.md).
 - **No automatic database backups** (Free plan). Follow docs/OPERATIONS.md before database changes.
 

@@ -70,3 +70,15 @@ Ableton MIDI clip names hold the lyric text. A backslash (`\\`) means a logical 
 - `ableton-sync/README.md` describes an older direct `.als` audit tool. It says it never changes the `.als` and is not the current app-to-Live writeback path.
 
 The Drum clip `nothing` added to I1 / first Intro was confirmed to appear in Ableton. See the latest Practice/Drum entries in [WORK LOG.md](WORK%20LOG.md) for the more recent empty-baseline and playback-render fixes.
+
+
+## Relay behaviour since 2026-11-12 (TSPWork 1.29, app `relay2`)
+
+- Any signed-in device can queue edits at any time, on any number of songs and tracks, and can edit the same track again before the previous edit has been saved in Live.
+- The Mac app (admin, on the Mac, with the exact master project open) applies queued edits to Live's memory within a few seconds, all tracks in one request. It never saves the set.
+- If the Mac app, Live or the set was closed, every queued edit is re-checked and applied when they are back. If Live was reopened without saving, the edits are applied again from the saved baseline.
+- A track that conflicts with a hand edit on the same clip stays queued, shows "Not in Ableton yet" with the reason on every device, and does not hold up other tracks.
+- Two devices saving the same track are merged line by line. The later save wins only on a line both changed.
+- Under the track chips each device shows the state of that track's edit: saved and waiting for the Mac, sending, in Ableton (pending manual save and sync), or not applied.
+- Confirmation is unchanged: save the set in Live, press **Sync Ableton Set**; only edits found in the saved file are cleared.
+- Keep the TSP Work page visible on the Mac. A hidden Safari tab can be slowed or suspended, which delays the relay until the page is shown again.
