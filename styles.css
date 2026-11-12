@@ -1823,9 +1823,12 @@ body.lyrics-editing #practice-transport .pt-song-wrap { display: none; }
 /* Full-screen lyrics: the editor's buttons are a second row of the top bar —
    the glass panel grows to hold them, Restore on the left, Cancel and Save on
    the right (Aaron, 13 Nov 2026). */
-body.lyrics-fs.lyrics-editing #practice-lyrics > header { padding-bottom:50px; }
+/* The translucent bar is #practice-lyrics::before, one glass layer behind the
+   whole top bar (the header itself is transparent in full screen), so that is
+   what has to grow to hold the editor row (Aaron, 13 Nov 2026). */
+body.lyrics-fs.lyrics-editing #practice-lyrics::before { height:calc(env(safe-area-inset-top) + 90px); }
 body.lyrics-fs #practice-lyrics .ly-edit-bar {
-  position:fixed; top:calc(env(safe-area-inset-top) + 48px); left:max(12px,3vw); right:max(12px,3vw);
+  position:fixed; top:calc(env(safe-area-inset-top) + 46px); left:max(12px,3vw); right:max(12px,3vw);
   z-index:66; margin:0; padding:0; border:0; background:none; border-radius:0;
   display:flex; flex-wrap:nowrap; gap:6px; align-items:center; overflow-x:auto; scrollbar-width:none;
   transition:opacity .3s ease;
@@ -1850,11 +1853,13 @@ body.lyrics-fs:not(.lyrics-fs-controls) #practice-lyrics .ly-edit-bar { opacity:
 body.lyrics-fs.lyrics-editing #practice-lyrics .ly-scroll { padding-top:calc(env(safe-area-inset-top) + 104px)!important; }
 body.lyrics-fs .ly-scroll .lyrics-edit-cell { width:auto; }
 body.lyrics-fs .ly-scroll .lyrics-edit-input { font:inherit; line-height:1.25; }
-/* Save is yellow, on the page and in full screen. */
-.ly-edit-bar .button.primary, body.lyrics-fs .ly-edit-btn.primary {
-  background:#f5c542; border-color:#f7d470; color:#2a2108; font-weight:600;
+/* Save is yellow, on the page and in full screen. The glass theme paints
+   every .button.primary with its accent and marks it important, so this has
+   to answer in kind. */
+.ly-edit-bar .ly-edit-save {
+  background:#f5c542!important; border-color:#f7d470!important; color:#2a2108!important; font-weight:600;
 }
-.ly-edit-bar .button.primary:hover:not(:disabled) { background:#f9d35f; }
+.ly-edit-bar .ly-edit-save:hover:not(:disabled) { background:#f9d35f!important; }
 
 /* A Song ID is a jump control only for someone who may use it, while the
    Ableton Master Project is open on Aaron's Mac; otherwise it is plain text. */

@@ -6472,7 +6472,7 @@ function lyricsEditBarHtml() {
     <span class="ly-edit-msg ${draft.message ? 'warn' : ''}" role="status">${escapeHtml(message)}</span>
     <button type="button" class="button quiet ly-edit-btn" data-edit-restore ${restoreOff ? 'disabled' : ''}>Ableton version</button>
     <button type="button" class="button quiet ly-edit-btn" data-edit-close>Cancel</button>
-    <button type="button" class="button primary ly-edit-btn" data-edit-save ${saveOff ? 'disabled' : ''}>${draft.saving ? 'Saving…' : 'Save'}</button>
+    <button type="button" class="button primary ly-edit-btn ly-edit-save" data-edit-save ${saveOff ? 'disabled' : ''}>${draft.saving ? 'Saving…' : 'Save'}</button>
   </div>`;
 }
 // Only the toolbar: used while typing, so the cells are never rebuilt under

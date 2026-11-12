@@ -174,9 +174,13 @@ test('full screen keeps the editor, with its buttons as their own row', () => {
 
 test('in full screen the editor buttons are a second row of the top bar', () => {
   const css = require('node:fs').readFileSync(require('node:path').resolve(__dirname, '../styles.css'), 'utf8');
-  assert.match(css, /body\.lyrics-fs\.lyrics-editing #practice-lyrics > header \{ padding-bottom:50px; \}/);
+  // The glass layer behind the top bar is the pseudo-element, and it has to
+  // grow to hold the editor row.
+  assert.match(css, /body\.lyrics-fs\.lyrics-editing #practice-lyrics::before \{ height:calc\(env\(safe-area-inset-top\) \+ 90px\); \}/);
+  assert.match(css, /body\.lyrics-fs #practice-lyrics \.ly-edit-bar \{\n  position:fixed; top:calc\(env\(safe-area-inset-top\) \+ 46px\)/);
   assert.match(css, /body\.lyrics-fs #practice-lyrics \.ly-edit-bar \[data-edit-close\] \{ margin-left:auto; \}/);
-  assert.match(css, /\.ly-edit-bar \.button\.primary, body\.lyrics-fs \.ly-edit-btn\.primary \{\n  background:#f5c542;/);
+  assert.match(css, /\.ly-edit-bar \.ly-edit-save \{\n  background:#f5c542!important;/);
+  assert.equal(appSource.includes('class="button primary ly-edit-btn" data-edit-save'), false, 'Save needs its own class to beat the theme');
 });
 
 test('the toolbar order puts Restore first and Save last', () => {
