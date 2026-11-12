@@ -91,3 +91,74 @@ test('the autoscroll is held while a clip is open and released in view', () => {
   assert.match(tick, /if \(lyricsEditDraft\.activeIndex != null\) practice\.lyricsHold = true;/);
   assert.match(tick, /lyricsLineInView\(scroll, target\)\) practice\.lyricsHold = false;/);
 });
+
+// Renders the whole lyrics card, reading and editing, through the real
+// renderer: this is what catches a broken branch in its markup.
+function renderWith(editing) {
+  let html = '';
+  const box = { innerHTML: '', classList: { add() {}, remove() {}, toggle() {} }, querySelector: () => null };
+  Object.defineProperty(box, 'innerHTML', { get: () => html, set: (v) => { html = v; } });
+  const lines = [{ t: 1, e: 5, text: 'first line', c: '#aabbcc' }, { t: 5, e: 9, text: 'second line' }];
+  const draft = {
+    songId: 'E1', songName: 'Song', slug: 'guitar',
+    lines: lines.map((l, i) => ({ ...l, _editKey: 'k' + i, _sessionText: l.text, _addedThisSession: false })),
+    sessionLines: lines.map((l, i) => ({ _editKey: 'k' + i, text: l.text })),
+    abletonLines: lines.map((l) => ({ ...l })),
+    updatedAt: null, hasOverride: false, restoreAbleton: false, activeIndex: editing ? 0 : null, message: '', saving: false
+  };
+  const ctx = load([
+    'renderPracticeLyricsInner', 'lyricsEditorBodyHtml', 'lyricsEditorItems', 'lyricsEditorSectionIndex',
+    'lyricsEditBarHtml', 'lyricsEditorHasChanges', 'lyricsEditorMatchesAbleton'
+  ], {
+    $: (sel) => (sel === '#practice-lyrics' ? box : null),
+    practice: { songId: 'E1', lyrics: { tracks: [{ slug: 'guitar', label: 'Guitar', lines }], sections: [{ t: 0, name: 'Intro', c: '#2f4f7a' }, { t: 4, name: 'Verse', c: '#3f6f4a' }], duration_seconds: 20, lyricsEdits: [] } },
+    state: { songs: [{ id: 'E1', name: 'Song' }], member: { is_admin: true } },
+    lyricsEditDraft: editing ? draft : null,
+    lyricsPrefs: () => ({ size: 'm', track: 'guitar' }),
+    lyricsTrack: () => ({ slug: 'guitar', lines }),
+    lyricsShownSlug: () => 'guitar',
+    lyricsEditorTrackForMember: () => 'guitar',
+    lyricsEditingHere: () => editing,
+    lyricsEditStatus: () => null,
+    lyricsTrackLabel: () => 'Guitar',
+    LYRICS_STANDARD: [['chords', 'Chords'], ['guitar', 'Guitar']],
+    LY_FS_ICONS: { enter: '<svg/>', exit: '<svg/>' },
+    lyricsFs: { on: false },
+    abletonPresence: { available: false },
+    escapeHtml: (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])),
+    lyricInk: (c) => (c ? c : ''),
+    lyricLineHtml: (t) => String(t),
+    lyricsClipTextForEditor: (t) => String(t),
+    lyricsDotCount: () => 0,
+    ptDuration: () => 20,
+    practiceLyricsTick: () => {},
+    practiceCheckLyricsLength: () => {}
+  });
+  ctx.renderPracticeLyricsInner();
+  return html;
+}
+
+test('the lyrics view renders the editor in place of the lines', () => {
+  const reading = renderWith(false);
+  assert.match(reading, /<div class="ly-line" data-line="0" data-t="1" data-e="5"/);
+  assert.equal(reading.includes('lyrics-edit-cell'), false);
+  assert.equal(reading.includes('ly-edit-bar'), false);
+  assert.match(reading, /Click a line to jump there/);
+
+  const editing = renderWith(true);
+  assert.match(editing, /id="practice-lyrics-scroll"/);
+  assert.match(editing, /ly-edit-bar/);
+  assert.match(editing, /class="ly-line lyrics-edit-cell editing[^"]*" data-edit-cell="0" data-line="0" data-t="1" data-e="5"/);
+  assert.match(editing, /data-edit-line="0"/);
+  assert.match(editing, /Tap a clip to edit it/);
+  assert.equal(editing.includes('Click a line to jump there'), false);
+  assert.equal(editing.includes('undefined'), false);
+  assert.equal(/\$\{/.test(editing), false, 'unresolved template placeholder');
+});
+
+test('the track chips, sizes and the pencil stay while editing', () => {
+  const editing = renderWith(true);
+  assert.match(editing, /data-lyrics-track="chords"/);
+  assert.match(editing, /data-lyrics-edit="guitar"/);
+  assert.match(editing, /data-lyrics-size="l"/);
+});
