@@ -1145,7 +1145,10 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 
 /* Practice transport (Ableton-style) */
 body.view-practice .shell { padding-bottom: 124px; }
-.pt-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 70; display: flex; align-items: center; gap: 12px; padding: 8px 16px calc(8px + env(safe-area-inset-bottom)); background: #1e1e1e; border-top: 1px solid #0c0c0c; box-shadow: 0 -6px 24px rgba(0,0,0,.35); font-size: 12px; color: #d6d6d6; }
+.pt-bar { position: fixed; left: 0; right: 0; bottom: var(--pt-bottom, 0px); z-index: 70; display: flex; align-items: center; gap: 12px; padding: 8px 16px calc(8px + env(safe-area-inset-bottom)); background: #1e1e1e; border-top: 1px solid #0c0c0c; box-shadow: 0 -6px 24px rgba(0,0,0,.35); font-size: 12px; color: #d6d6d6; }
+/* A skirt of the same colour under the bar: if iOS leaves a sliver between the
+   bar and the screen edge mid-gesture, the page never shows through it. */
+body:not(.lyrics-fs) .pt-bar::after { content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 140px; background: #1e1e1e; pointer-events: none; }
 .pt-group { display: flex; gap: 2px; background: #121212; padding: 2px; border-radius: 3px; }
 .pt-group button { display: grid; place-items: center; min-width: 34px; height: 26px; padding: 0 8px; border: 0; border-radius: 2px; background: #3a3a3a; color: #cfcfcf; font: 600 11px var(--sans); cursor: pointer; }
 .pt-group button:hover { background: #4a4a4a; }

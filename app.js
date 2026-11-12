@@ -6953,6 +6953,37 @@ async function saveSongLyrics(snapshot, held = new Map(), baselineBySong = new M
 // ---------------------------------------------------------------------------
 // Practice transport: one Ableton-style bar at the bottom drives whichever
 // player is chosen (Mixdown or Multitrack); both follow its single playhead.
+// iPhone Safari: with the dynamic toolbar, a pinch-zoom, a rubber-band scroll
+// or the on-screen keyboard, the layout viewport and the visible one disagree,
+// so a `bottom: 0` fixed bar can float above the screen edge with the page
+// showing through the gap. This measures that difference and pins the bar to
+// the visible bottom. It is 0 on every normal layout, so nothing moves when
+// there is nothing to correct; with the keyboard up it lifts the bar above it.
+let ptBarGap = 0;
+let ptBarFitFrame = 0;
+function ptBarFit() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const raw = window.innerHeight - vv.offsetTop - vv.height;
+  const limit = window.innerHeight * 0.75;
+  const gap = Math.abs(raw) < 1 ? 0 : Math.round(Math.max(-40, Math.min(limit, raw)));
+  if (gap === ptBarGap) return;
+  ptBarGap = gap;
+  document.documentElement.style.setProperty('--pt-bottom', gap + 'px');
+}
+function ptBarFitSoon() {
+  cancelAnimationFrame(ptBarFitFrame);
+  ptBarFitFrame = requestAnimationFrame(ptBarFit);
+}
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', ptBarFitSoon);
+  window.visualViewport.addEventListener('scroll', ptBarFitSoon);
+}
+window.addEventListener('orientationchange', () => setTimeout(ptBarFit, 300));
+window.addEventListener('focusin', ptBarFitSoon);
+window.addEventListener('focusout', () => setTimeout(ptBarFitSoon, 60));
+ptBarFit();
+
 const PT_MODE_KEY = 'tsp-practice-mode';
 let ptSongPickerOpen = false;
 let ptWorkOpen = false;
