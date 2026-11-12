@@ -1036,7 +1036,6 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
 /* Practice layout: players left, lyrics right (stacked on small screens). */
 .practice-pick { flex-wrap: wrap; }
 .practice-pick #practice-source { max-width: 280px; }
-.practice-pick #practice-prev, .practice-pick #practice-next { padding: 8px 14px; font-size: 18px; line-height: 1; }
 .practice-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, 1fr); gap: 16px; align-items: start; }
 .practice-side { position: sticky; top: 12px; }
 @media (max-width: 1000px) { .practice-layout { grid-template-columns: 1fr; } .practice-side { position: static; order: -1; } }
@@ -1379,8 +1378,7 @@ body { padding-top: env(safe-area-inset-top); }
 }
 @media (min-width:1001px){
   .practice-layout>.practice-pick{flex-wrap:nowrap}
-  .practice-layout>.practice-pick #practice-source{flex:0 0 210px}
-  .practice-layout>.practice-pick #practice-song{flex:1 1 auto;min-width:0;max-width:none}
+  .practice-layout>.practice-pick #practice-source{flex:0 1 320px}
 }
 /* Full song names on Songs and Setlists: long names wrap onto a second line. */
 .song-summary-toggle .song-title-container,.setlist-song-toggle .song-title-container{white-space:normal!important;overflow:visible!important}
@@ -1614,11 +1612,10 @@ select{color-scheme:dark}
 .ly-line{width:fit-content}
 
 /* Full-screen lyrics: mixer button joined to the right of Multitrack, and its drop-up mixer. */
-body:not(.lyrics-fs) #practice-transport .pt-mixer-btn{display:none!important}
-body.lyrics-fs #practice-transport .pt-mixer-btn{display:inline-flex;align-items:center;justify-content:center;min-width:36px;padding:0 10px;margin-left:-5px;border-radius:0 999px 999px 0!important;border-left:1px solid rgba(255,255,255,.22)}
-body.lyrics-fs #practice-transport .pt-multi{border-radius:999px 0 0 999px!important}
-body.lyrics-fs #practice-transport .pt-mixer-btn.open{background-color:rgba(255,255,255,.34);color:#fff}
-body.lyrics-fs #practice-transport .pt-mixer-btn:disabled{opacity:.4}
+#practice-transport .pt-mixer-btn{display:inline-flex;align-items:center;justify-content:center;min-width:36px;padding:0 10px;margin-left:-5px;border-radius:0 999px 999px 0!important;border-left:1px solid rgba(255,255,255,.22)}
+#practice-transport .pt-multi{border-radius:999px 0 0 999px!important}
+#practice-transport .pt-mixer-btn.open{background-color:rgba(255,255,255,.34);color:#fff}
+#practice-transport .pt-mixer-btn:disabled{opacity:.4}
 .pt-mixer{position:fixed;z-index:70;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;
   background:rgba(28,28,30,.55);-webkit-backdrop-filter:blur(26px) saturate(170%);backdrop-filter:blur(26px) saturate(170%);
   border:1px solid rgba(255,255,255,.16);border-radius:18px;box-shadow:0 14px 40px rgba(0,0,0,.45);color:#f2f2f2;
@@ -1772,3 +1769,7 @@ body.lyrics-fs #practice-lyrics .ly-edit-status { display: none; }
 .lyric-mismatch-texts dt { color: #9fb0a4; }
 .lyric-mismatch-texts dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .lyric-mismatch-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Practice: status for the open song sits beside the list picker. */
+#practice-song-note.error { color: #ff9e80; }
+.ab-lazy { opacity: .6; }

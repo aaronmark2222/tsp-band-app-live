@@ -12,8 +12,8 @@
     <meta name="theme-color" content="#292929">
     <title>TSP Work · The String Project</title>
     <link rel="icon" href="assets/the-string-project-logo.png?v=20261019" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=20261112-mismatch1">
-    <script type="module" src="app.js?v=20261112-mismatch1"></script>
+    <link rel="stylesheet" href="styles.css?v=20261112-practice1">
+    <script type="module" src="app.js?v=20261112-practice1"></script>
   </head>
   <body>
     <main id="app" class="shell">
@@ -209,17 +209,13 @@
 
         <section id="practice-view" class="view hidden">
           <div class="practice-layout">
-          <div class="hero-row practice-hero"><div><p class="eyebrow">PLAY ALONG</p><h1>Practice</h1><p class="muted">Listen to the mixdown, or open the multitrack to switch parts on and off, solo and set levels. Your settings stay the same as you change songs.</p></div></div>
+          <div class="hero-row practice-hero"><div><p class="eyebrow">PLAY ALONG</p><h1>Practice</h1><p class="muted">Play along with the bar at the bottom: the Mixdown, or the Multitrack with its mixer to switch parts on and off, solo and set levels. Your settings stay the same as you change songs.</p></div></div>
           <div class="practice-pick">
             <select id="practice-source" class="wide-select" aria-label="Practise songs from"></select>
-            <select id="practice-song" class="wide-select" aria-label="Song"></select>
-            <button type="button" class="button quiet" id="practice-prev" title="Previous song">‹</button>
-            <button type="button" class="button quiet" id="practice-next" title="Next song">›</button>
             <span id="practice-song-note" class="muted"></span>
           </div>
             <div class="practice-main">
-              <section id="practice-mixdown" class="practice-card"></section>
-              <section id="practice-multitrack" class="practice-card"></section>
+              <div id="practice-audio-host" hidden></div>
               <section id="practice-offline" class="practice-card offline-card"></section>
               <section id="practice-downloads" class="practice-card"></section>
             </div>

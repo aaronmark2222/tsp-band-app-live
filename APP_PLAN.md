@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last reconciled: **2026-11-12** · Frontend cache markers: `app.js?v=20261112-mismatch1`, `styles.css?v=20261112-mismatch1` · TSPWork Remote Script **1.30** (repository; check the installed copy's hash before relying on it) · Supabase live ledger: **40 migrations**, latest `20261112090228_lyrics_edit_relay_conflicts` · Edge Functions `practice-audio` v7 and `member-access-admin` v8 · Operations and backups: [docs/OPERATIONS.md](docs/OPERATIONS.md)._
+_Last reconciled: **2026-11-12** · Frontend cache markers: `app.js?v=20261112-practice1`, `styles.css?v=20261112-practice1` · TSPWork Remote Script **1.30** (repository; check the installed copy's hash before relying on it) · Supabase live ledger: **40 migrations**, latest `20261112090228_lyrics_edit_relay_conflicts` · Edge Functions `practice-audio` v7 and `member-access-admin` v8 · Operations and backups: [docs/OPERATIONS.md](docs/OPERATIONS.md)._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -223,15 +223,16 @@ The live ledger currently has **32 applied entries** through `20261110191303_adm
   - Start does **not** read the set: the fingerprints stored with each uploaded song come from the latest read (this window, or `app_meta.audio_fingerprints`), so **read the set once after editing, then export**. It fetches 24 h presigned links via `practice-audio` `upload_batch`, then `POST /export {songs, export_root, uploads}` (waiting up to 15 min if TSPWork is busy), then polls `/export/state`. When the run ends, songs that exported fine are unchecked.
 
 ### 6.3 Practice page (all members)
-- **Layout:** on computers the lyrics column runs from the top of the page beside the title, song pickers and players (`.practice-layout` grid areas hero/pick/main + side); on phones: title, pickers, lyrics, players.
-- **Song source:** All songs (repertoire), upcoming gigs, setlists, grouped without duplicates. Song picker in database order (uploaded songs in green) with ‹ › buttons.
-- **Mixdown** card (plain player).
+- **Layout:** the page holds the title, the song-list picker, the lyrics and (below) Offline audio and Download; everything to do with playing is in the bar at the bottom. On computers the lyrics column runs from the top of the page beside the title (`.practice-layout` grid areas hero/pick/main + side); on phones: title, picker, lyrics, the rest.
+- **Song source:** one picker: All songs (repertoire), upcoming gigs, setlists, grouped without duplicates. The song itself is chosen in the transport (its title opens the list; prev/next step through it). `#practice-song-note` beside the picker carries the song's status ("No practice audio … yet", mixdown loading or errors).
+- **Mixdown:** no card; the `<audio>` element lives hidden in `#practice-audio-host` and is driven by the transport.
 - **Multitrack:**
   - Ableton-style rows (track number/on, S solo, fader with dB, meter, download link) in `PRACTICE_ORDER`.
   - Colours come from the set (`app_meta`); stems are off by default.
   - Settings persist for the session across songs.
-  - **Solo overrides off.** Controls are **locked until every track has downloaded** ("Load multitrack (N MB)").
-  - Web Audio: decodeAudioData, then per track BufferSource → Gain → Analyser. **Phones** (`PHONE`) decode in mono at 44.1/32/24/22.05 kHz, picked so a song's decoded tracks stay under ~520 MB (long medleys otherwise crash iOS Safari).
+  - **No card on the page:** the rows are the **mixer drop-up** from the Multitrack button in the transport (`ptMixer*`), on every screen size and in full-screen lyrics alike. It also holds "Load multitrack (N MB)", Reset mix and "Use the Multitrack".
+  - **Solo overrides off.** Controls are locked until the tracks in the decode plan are in (a track that failed does not lock them).
+  - Web Audio: decodeAudioData, then per track BufferSource → Gain → Analyser. Playback is **stereo**. Computers decode every track at the device rate. **Phones and iPads** (`PHONE`) have a 320 MiB decode budget (`PRACTICE_MEM_BUDGET`; long medleys crash iOS Safari past ~520 MB): `practiceDecodePlan` keeps stereo and drops the sample rate (44.1/32/24/22.05 kHz) only as far as needed, decodes the tracks being listened to **first** and fills the rest of the budget, and falls back to mono only when stereo cannot fit. A track left out (stems are off by default) is decoded when it is switched on or soloed (`practiceEnsureTrack`) and joins a playing mix at the right spot (`practiceAttachTrack`); `practiceMakeRoom` drops silent tracks when the budget is tight. A track whose two channels are identical is stored as one (`practiceIsDualMono`), which sounds the same and leaves room for the tracks that really are stereo. Every file is still downloaded for offline use.
   - **Song changes:** the Mixdown/Multitrack choice carries over (sessionStorage `tsp-practice-mode`); a multitrack loads by itself only if it's already saved on the device or in memory (downloading is always the member's choice: Load multitrack, or the transport's Multitrack button); once it's ready in Multitrack mode, playback hands over from the Mixdown at the same spot. While the next song loads, the previous song's cards stay on the page dimmed (`practice-switching`) and `practiceKeepPlace` holds card heights and the scroll position, so nothing blanks or jumps (iPhone used to scroll to the top). Every file opened in a visit is also kept in memory, compressed (`memBlobs`, 220 MB phone / 700 MB computer), so going back to a song never downloads again even if the device can't save it. Save errors show in the Offline audio card. Multitrack downloads run in a background queue (`bgFetch`, two files at a time) that keeps going when the member changes song; the Offline audio card lists songs still downloading, and returning to the song attaches to its download. The card counts saved mixdowns and complete multitracks separately.
 - **Bottom transport (Ableton look, fixed; stays on screen while the next song loads, buttons greyed until it's playable):**
   - Mixdown/Multitrack switch (keeps the playhead; Multitrack shows a download icon and progress until loaded), prev song, back to start, play/pause, stop, next song, position, seek, length.
@@ -442,6 +443,11 @@ Aaron is testing whether the export checklist's yellow "changed since upload" fl
 ---
 
 ## 14. Decision log (newest first)
+
+- **2026-11-12 (Practice page simplified; multitrack plays in stereo)**
+  - The song selector and its ‹ › buttons are gone: the transport's song button and prev/next are the only song picker.
+  - The Mixdown and Multitrack cards are gone from the page. The mixer opens from the Multitrack button in the transport everywhere, as it already did in full-screen lyrics.
+  - The multitrack plays in **stereo**. Phones and iPads keep a memory budget, but now by decoding the tracks being listened to first (stems load when switched on) and by storing dual-mono tracks once, instead of making everything mono.
 
 - **2026-11-12 (lyric update mismatches)**
   - A Practice edit and a hand edit in Live on the **same clip** is a decision for Aaron, not an error: it is listed on **Ableton Sync → Lyric update mismatches** with the Practice text, the text now in Ableton and the saved text. **Use Practice edit** overwrites that clip in Live once; **Keep Ableton** makes the queue adopt Live's text. The choice is applied to the open set straight away. The Ableton chip does not turn red for a mismatch; other devices show "Waiting for a decision".

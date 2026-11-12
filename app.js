@@ -4523,7 +4523,7 @@ const PRACTICE_COLORS = { 'Part - Bass': '#ff8d4f', 'Part - Keyboard': '#ffd54d'
 const PRACTICE_SETTINGS_KEY = 'tsp-practice-mix-v1';
 const practice = {
   songId: '', available: null, tracks: [], loadingSong: false, error: '',
-  ctx: null, master: null, buffers: new Map(), nodes: new Map(), loadState: new Map(),
+  ctx: null, master: null, buffers: new Map(), nodes: new Map(), loadState: new Map(), eager: null, decodedBytes: 0,
   playing: false, offset: 0, startedAt: 0, duration: 0, raf: null, loadToken: 0, loadingRun: -1,
   upload: { items: [], running: false }
 };
@@ -5006,10 +5006,6 @@ async function renderPracticePage() {
   practice.songList = songs;
   if (!practice.songId) { try { practice.songId = localStorage.getItem('tsp-practice-song') || ''; } catch { /* ignore */ } }
   if (!songs.some((song) => song.id === practice.songId)) practice.songId = (songs.find((song) => practice.available.has(song.id)) || songs[0])?.id || '';
-  $('#practice-song').innerHTML = songs.map((song, i) => {
-    const has = practice.available.has(song.id);
-    return `<option value="${escapeHtml(song.id)}" class="${has ? 'has-audio' : 'no-audio'}" ${song.id === practice.songId ? 'selected' : ''}>${has ? '● ' : '○ '}${source === 'all' ? '' : `${i + 1}. `}${escapeHtml(song.id)} · ${escapeHtml(song.name)}${has ? '' : ' (no audio yet)'}</option>`;
-  }).join('');
   renderPracticeUpload();
   if (practice.tracks.songId !== practice.songId) await practiceOpenSong(practice.songId);
   else renderPracticePlayers();
@@ -5044,6 +5040,8 @@ async function practiceOpenSong(songId) {
   practice.loadingSong = false;
   practice.buffers = new Map();
   practice.loadState = new Map();
+  practice.eager = null;
+  practice.decodedBytes = 0;
   practice.duration = 0;
   practice.offset = 0;
   practice.position = 0;
@@ -5055,8 +5053,6 @@ async function practiceOpenSong(songId) {
   practice.loadToken += 1;
   const songToken = practice.loadToken;
   practice.loadingRun = -1;
-  const select = $('#practice-song');
-  if (select && select.value !== songId) select.value = songId;
   practiceLoadLyrics(songId);
   if (!practice.available?.has(songId) && !offline.manifest[songId]) { renderPracticePlayers(); return; }
   practice.loadingSong = true;
@@ -5163,57 +5159,46 @@ function renderPracticePlayers() {
 function renderPracticePlayersInner() {
   const song = state.songs.find((item) => item.id === practice.songId)
     || practice.songList?.find((item) => item.id === practice.songId);
-  const mixBox = $('#practice-mixdown');
-  const multiBox = $('#practice-multitrack');
   const dlBox = $('#practice-downloads');
-  $('#practice-song-note').textContent = '';
+  const note = $('#practice-song-note');
+  const say = (text, isError) => { if (!note) return; note.textContent = text; note.classList.toggle('error', !!isError); };
+  say('');
   dlBox.innerHTML = '';
-  if (!song) { mixBox.innerHTML = ''; multiBox.innerHTML = ''; return; }
-  if (practice.loadingSong) return; // keep the previous song's cards (dimmed) until this one is ready
+  if (!song) return;
+  if (practice.loadingSong) return; // keep the previous song on screen until this one is ready
   document.querySelector('.practice-layout')?.classList.remove('practice-switching');
-  if (practice.error) { mixBox.innerHTML = `<p class="error">${escapeHtml(practice.error)}</p>`; multiBox.innerHTML = ''; return; }
-  if (!practice.tracks.length) {
-    mixBox.innerHTML = `<div class="empty-state">No practice audio for ${escapeHtml(song.id)} ${escapeHtml(song.name)} yet.</div>`;
-    multiBox.innerHTML = '';
-    return;
-  }
+  if (practice.error) { say(practice.error, true); return; }
+  if (!practice.tracks.length) { say(`No practice audio for ${song.id} ${song.name} yet.`); return; }
   const mix = practice.tracks.find((t) => t.element === 'Mixdown');
-  mixBox.innerHTML = `<header><h2>Mixdown</h2><span class="muted">${escapeHtml(song.id)} · ${escapeHtml(song.name)}</span></header>
-    ${mix ? `<audio id="practice-mix-audio" preload="auto" ${offline.mode === 'none' && mix.url ? `src="${escapeHtml(mix.url)}"` : ''}></audio><p class="muted offline-note" id="practice-mix-note"></p>
-      <button type="button" class="pt-pick ${ptMode() === 'mix' ? 'on' : ''}" data-pt-mode="mix">${ptMode() === 'mix' ? '● Using the Mixdown' : 'Play the Mixdown'}</button>
-      <span class="muted">Use the transport at the bottom of the page.</span>` : '<p class="muted">No mixdown for this song.</p>'}`;
   // One Mixdown <audio> element for the whole visit: iOS only lets an element it
   // has already played start again from the lock screen (next/previous song).
-  const placeholder = $('#practice-mix-audio');
-  if (placeholder) {
-    const el = ptMixElement();
-    if (el.dataset.song !== practice.songId) {
-      el.pause();
-      el.dataset.song = practice.songId;
-      const src = placeholder.getAttribute('src');
-      if (src) el.setAttribute('src', src); else { el.removeAttribute('src'); el.load(); }
-    }
-    el.id = 'practice-mix-audio';
-    placeholder.replaceWith(el);
-  }
-  const audio = $('#practice-mix-audio');
-  if (audio && mix && !audio.getAttribute('src')) {
-    // Saved on this device: play the local copy (downloads once, then reuses it).
-    const songId = practice.songId;
-    const note = $('#practice-mix-note');
-    offlineTrackBlob(songId, mix, (msg) => { if (note) note.textContent = msg; })
-      .then((blob) => {
-        if (practice.songId !== songId || !document.body.contains(audio)) return;
-        audio.src = offlineObjectUrl(`${songId}|Mixdown`, blob);
-        if (note) note.textContent = '';
-        renderOfflinePanel();
-      })
-      .catch((error) => {
-        if (note) note.textContent = `Could not load the mixdown: ${error.message}`;
-        if (mix.url && practice.songId === songId) audio.src = mix.url;
-      });
-  }
+  const audio = mix ? ptMixElement() : null;
   if (audio) {
+    const host = $('#practice-audio-host');
+    if (audio.parentElement !== host) host.append(audio);
+    audio.id = 'practice-mix-audio';
+    if (audio.dataset.song !== practice.songId) {
+      audio.pause();
+      audio.dataset.song = practice.songId;
+      if (offline.mode === 'none' && mix.url) audio.setAttribute('src', mix.url);
+      else { audio.removeAttribute('src'); audio.load(); }
+    }
+    if (!audio.getAttribute('src')) {
+      // Saved on this device: play the local copy (downloads once, then reuses it).
+      const songId = practice.songId;
+      offlineTrackBlob(songId, mix, (msg) => { if (practice.songId === songId) say(msg); })
+        .then((blob) => {
+          if (practice.songId !== songId || !document.body.contains(audio)) return;
+          audio.src = offlineObjectUrl(`${songId}|Mixdown`, blob);
+          say('');
+          renderOfflinePanel();
+        })
+        .catch((error) => {
+          if (practice.songId !== songId) return;
+          say(`Could not load the mixdown: ${error.message}`, true);
+          if (mix.url) audio.src = mix.url;
+        });
+    }
     if (!audio.dataset.hooked) {
       audio.dataset.hooked = '1';
       audio.addEventListener('ended', () => { practice.position = 0; audio.currentTime = 0; ptRender(); });
@@ -5227,7 +5212,7 @@ function renderPracticePlayersInner() {
   renderPracticeMultitrack();
   renderOfflinePanel();
   ptRender();
-  const files = practice.tracks.slice().sort((a, b) => (a.element === 'Mixdown' ? -1 : b.element === 'Mixdown' ? 1 : practiceRank(a.element) - practiceRank(b.element)));
+  const files = practice.tracks.slice().sort((a2, b2) => (a2.element === 'Mixdown' ? -1 : b2.element === 'Mixdown' ? 1 : practiceRank(a2.element) - practiceRank(b2.element)));
   dlBox.innerHTML = `<header><h2>Download</h2><button type="button" class="button quiet" data-practice-dl-all title="Download every file of this song">Download all (${files.length})</button></header>
     <ul class="practice-dl-list">${files.map((t) => `<li><span class="practice-dl-dot" style="background:${t.element === 'Mixdown' ? '#f39a26' : practiceColor(t.element)}"></span><span>${escapeHtml(t.element)}</span><small class="muted">${t.bytes ? `${(t.bytes / 1048576).toFixed(1)} MB` : ''}</small><button type="button" class="button quiet" data-practice-dl-track="${escapeHtml(t.element)}">Download MP3</button></li>`).join('')}</ul>`;
   practiceCheckLyricsLength();
@@ -5243,7 +5228,7 @@ function practiceTrackRowMarkup(t, i, { loaded, anySolo }) {
   const ls = practice.loadState.get(t.element);
   const dbLabel = st.vol > 0 ? (20 * Math.log10(st.vol)).toFixed(1) : '-inf';
   return `<li class="ab-track ${audible ? '' : 'ab-silent'}" data-element="${escapeHtml(t.element)}" style="--track-color:${practiceColor(t.element)};--track-ink:${practiceInk(practiceColor(t.element))}">
-    <div class="ab-title"><span class="ab-name">${escapeHtml(t.element)}</span>${ls === 'error' ? '<small class="ab-err">failed</small>' : ls === 'loading' ? '<small>loading…</small>' : ''}</div>
+    <div class="ab-title"><span class="ab-name">${escapeHtml(t.element)}</span>${ls === 'error' ? '<small class="ab-err">failed</small>' : ls === 'loading' ? '<small>loading…</small>' : loaded && !practice.buffers.has(t.element) ? '<small class="ab-lazy">loads when on</small>' : ''}</div>
     <div class="ab-controls">
       <button type="button" class="ab-activator ${st.on ? 'on' : ''}" data-practice-on="${escapeHtml(t.element)}" aria-pressed="${st.on}" title="${loaded ? 'Track on/off' : 'Load the multitrack first'}" ${loaded ? '' : 'disabled'}>${i + 1}</button>
       <button type="button" class="ab-solo ${st.solo ? 'on' : ''}" data-practice-solo="${escapeHtml(t.element)}" aria-pressed="${st.solo}" title="${loaded ? 'Solo (Cmd/Ctrl-click to add)' : 'Load the multitrack first'}" ${loaded ? '' : 'disabled'}>S</button>
@@ -5253,34 +5238,43 @@ function practiceTrackRowMarkup(t, i, { loaded, anySolo }) {
     </div></li>`;
 }
 
+// The multitrack lives in the mixer drop-up on the playback bar (and in full
+// screen); there is no separate card on the page any more.
 function renderPracticeMultitrack() {
-  const box = $('#practice-multitrack');
-  const tracks = practiceMultiTracks();
-  if (!tracks.length && !lyricsEditorTrackForMember()) { box.innerHTML = ''; return; }
-  const loaded = tracks.every((t) => practice.buffers.has(t.element));
-  const loading = tracks.some((t) => practice.loadState.get(t.element) === 'loading');
-  const failed = tracks.filter((t) => practice.loadState.get(t.element) === 'error').length;
-  const totalMb = tracks.reduce((sum, t) => sum + (t.bytes || 0), 0) / 1048576;
-  const anySolo = tracks.some((t) => practiceTrackSetting(t.element).solo);
-  const lock = loaded ? '' : 'disabled';
-  const rows = tracks.map((t, i) => practiceTrackRowMarkup(t, i, { loaded, anySolo })).join('');
-  box.innerHTML = `<header><h2>Multitrack</h2><span class="muted">${tracks.length} tracks · ${totalMb.toFixed(0)} MB</span></header>
-    ${loaded ? `<div class="ab-transport">
-        <button type="button" class="pt-pick ${ptMode() === 'multi' ? 'on' : ''}" data-pt-mode="multi">${ptMode() === 'multi' ? '● Using the Multitrack' : 'Play the Multitrack'}</button>
-        <button type="button" class="button quiet" data-practice-reset title="Reset all tracks: on, no solo, 0 dB (stems off)">Reset mix</button>
-      </div>`
-    : `<div class="ab-transport"><button type="button" class="button primary" data-practice-load ${loading ? 'disabled' : ''}>${loading ? 'Loading tracks…' : `Load multitrack (${totalMb.toFixed(0)} MB)`}</button><span class="muted">${loading ? 'Preparing tracks to play in sync.' : failed ? `${failed} track${failed === 1 ? '' : 's'} failed to load. Select Load multitrack to retry.` : 'Downloads every track once so they play in sync.'}</span></div>`}
-    <ul class="ab-tracks ${loaded ? '' : 'ab-locked'}">${rows}</ul>`;
   if (ptMixer.open) ptMixerRender();
 }
 
-function practiceDecodePlan(trackCount) {
-  if (!PHONE) return { rate: 0, mono: false };
+// Decoded audio sits in memory, and phones and tablets have a hard limit, so:
+// stereo whenever the tracks being listened to fit, mono when they don't; the
+// sample rate drops only if even mono would not fit; and tracks nobody is
+// listening to (stems are off by default) are decoded when they are switched
+// on rather than up front. Computers decode everything in full quality.
+const PRACTICE_MEM_BUDGET = (PHONE ? 320 : 2048) * 1048576;
+const PRACTICE_RATES = [44100, 32000, 24000, 22050];
+const practiceBufferBytes = (buffer) => buffer.length * buffer.numberOfChannels * 4;
+function practiceAudibleElements(tracks = practiceMultiTracks()) {
+  const anySolo = tracks.some((t) => practiceTrackSetting(t.element).solo);
+  return new Set(tracks.filter((t) => {
+    const st = practiceTrackSetting(t.element);
+    return anySolo ? st.solo : st.on;
+  }).map((t) => t.element));
+}
+function practiceDecodePlan(tracks) {
+  const all = new Set(tracks.map((t) => t.element));
+  if (!PHONE) return { rate: 0, mono: false, eager: all };
   const song = state.songs.find((item) => item.id === practice.songId);
   const seconds = Math.max(60, Number(song?.duration_seconds) || 300) + 5;
-  const budget = 320 * 1048576; // Keep decoded audio below 320 MiB on older tablets/phones.
-  for (const rate of [44100, 32000, 24000]) if (seconds * trackCount * 4 * rate <= budget) return { rate, mono: true };
-  return { rate: 22050, mono: true };
+  const audible = practiceAudibleElements(tracks);
+  const order = [...tracks].sort((x, y) => (audible.has(y.element) ? 1 : 0) - (audible.has(x.element) ? 1 : 0));
+  const each = (rate, channels) => seconds * 4 * rate * channels;
+  const needed = Math.max(1, audible.size);
+  const take = (rate, channels) => new Set(order
+    .slice(0, Math.max(1, Math.min(tracks.length, Math.floor(PRACTICE_MEM_BUDGET / each(rate, channels)))))
+    .map((t) => t.element));
+  for (const rate of PRACTICE_RATES) if (each(rate, 2) * needed <= PRACTICE_MEM_BUDGET) return { rate, mono: false, eager: take(rate, 2) };
+  for (const rate of PRACTICE_RATES) if (each(rate, 1) * needed <= PRACTICE_MEM_BUDGET) return { rate, mono: true, eager: take(rate, 1) };
+  const last = PRACTICE_RATES[PRACTICE_RATES.length - 1];
+  return { rate: last, mono: true, eager: take(last, 1) };
 }
 function practiceToMono(buffer) {
   const mono = practice.ctx.createBuffer(1, buffer.length, buffer.sampleRate);
@@ -5291,6 +5285,112 @@ function practiceToMono(buffer) {
     for (let i = 0; i < data.length; i += 1) out[i] += data[i] / n;
   }
   return mono;
+}
+// Many exported parts (a DI bass, a close-miked drum) have the same signal in
+// both channels. Keeping one channel for those sounds identical and halves
+// what they use, which leaves room for the tracks that are really stereo.
+function practiceIsDualMono(buffer) {
+  if (buffer.numberOfChannels !== 2) return false;
+  const left = buffer.getChannelData(0);
+  const right = buffer.getChannelData(1);
+  for (let i = 0; i < left.length; i += 1) if (left[i] !== right[i]) return false;
+  return true;
+}
+function practiceFitBuffer(buffer) {
+  if (buffer.numberOfChannels < 2) return buffer;
+  if (practice.mono || practiceIsDualMono(buffer)) return practiceToMono(buffer);
+  return buffer;
+}
+function practiceForgetBuffer(element) {
+  const buffer = practice.buffers.get(element);
+  if (!buffer) return;
+  practice.decodedBytes = Math.max(0, practice.decodedBytes - practiceBufferBytes(buffer));
+  practice.buffers.delete(element);
+  practice.loadState.delete(element);
+  const node = practice.nodes.get(element);
+  if (node) {
+    try { node.source.onended = null; node.source.stop(); } catch { /* already stopped */ }
+    practice.nodes.delete(element);
+  }
+}
+// Room for a track about to be decoded: drop tracks nobody is listening to.
+// Their files stay on the device, so switching one back on reloads it quickly.
+function practiceMakeRoom(bytes) {
+  if (practice.decodedBytes + bytes <= PRACTICE_MEM_BUDGET) return;
+  const audible = practiceAudibleElements();
+  const droppable = practiceMultiTracks().filter((t) => practice.buffers.has(t.element) && !audible.has(t.element)).reverse();
+  for (const t of droppable) {
+    if (practice.decodedBytes + bytes <= PRACTICE_MEM_BUDGET) return;
+    practiceForgetBuffer(t.element);
+  }
+}
+async function practiceDecodeTrack(track, token, blobPromise) {
+  try {
+    const blob = await (blobPromise || bgFetchTrack(practice.songId, track));
+    if (token !== practice.loadToken) return false;
+    const data = await practiceWithTimeout(blob.arrayBuffer(), `Reading ${track.element}`);
+    let buffer = await practiceWithTimeout(practice.ctx.decodeAudioData(data), `Decoding ${track.element}`);
+    if (token !== practice.loadToken) return false;
+    buffer = practiceFitBuffer(buffer);
+    practiceMakeRoom(practiceBufferBytes(buffer));
+    // Still no room (a very long medley with everything switched on): this
+    // track plays in mono rather than not at all.
+    if (buffer.numberOfChannels > 1 && practice.decodedBytes + practiceBufferBytes(buffer) > PRACTICE_MEM_BUDGET) buffer = practiceToMono(buffer);
+    practice.buffers.set(track.element, buffer);
+    practice.decodedBytes += practiceBufferBytes(buffer);
+    practice.loadState.set(track.element, 'ready');
+    practice.duration = Math.max(practice.duration, buffer.duration);
+    practiceAttachTrack(track.element);
+    return true;
+  } catch (error) {
+    if (token !== practice.loadToken) return false;
+    practice.loadState.set(track.element, 'error');
+    console.warn('Practice track failed', track.element, error);
+    return false;
+  }
+}
+// A track decoded while the multitrack is playing joins in at the right spot.
+function practiceAttachTrack(element) {
+  const buffer = practice.buffers.get(element);
+  if (!practice.playing || !practice.ctx || !buffer || practice.nodes.has(element)) return;
+  const at = practicePosition() + 0.06;
+  if (at >= buffer.duration) return;
+  const source = practice.ctx.createBufferSource();
+  source.buffer = buffer;
+  const gain = practice.ctx.createGain();
+  const analyser = practice.ctx.createAnalyser();
+  analyser.fftSize = 512;
+  source.connect(analyser).connect(gain).connect(practice.master);
+  gain.gain.value = 0;
+  source.start(practice.ctx.currentTime + 0.06, at);
+  practice.nodes.set(element, { source, gain, analyser });
+  practiceApplyGains();
+}
+// Switching on (or soloing) a track that was left for later: decode it now.
+function practiceEnsureTrack(element) {
+  if (!practice.ctx || practice.buffers.has(element) || practice.loadState.get(element) === 'loading') return;
+  const track = practiceMultiTracks().find((t) => t.element === element);
+  if (!track) return;
+  const token = practice.loadToken;
+  practice.loadState.set(element, 'loading');
+  renderPracticeMultitrack();
+  practiceDecodeTrack(track, token).finally(() => {
+    if (token !== practice.loadToken) return;
+    practiceApplyGains();
+    renderPracticeMultitrack();
+    ptRender();
+  });
+}
+// The tracks this song decodes up front, and whether they are all in.
+function practiceEagerTracks() {
+  const tracks = practiceMultiTracks();
+  return practice.eager?.size ? tracks.filter((t) => practice.eager.has(t.element)) : tracks;
+}
+function practiceMultiLoaded() {
+  const eager = practiceEagerTracks();
+  if (!eager.length || !practice.buffers.size) return false;
+  // A track that failed does not keep the mixer locked.
+  return eager.every((t) => practice.buffers.has(t.element) || practice.loadState.get(t.element) === 'error');
 }
 // Multitrack downloads run in the background: leaving a song doesn't stop its
 // download, and coming back picks up where it is. At most two files at a time.
@@ -5333,17 +5433,21 @@ async function practiceLoadTracks() {
   if (practice.loadingRun === token) return;
   practice.loadingRun = token;
   const tracks = practiceMultiTracks();
-  // Mark them loading straight away so every button shows the download at once.
-  tracks.forEach((t) => { if (!practice.buffers.has(t.element)) practice.loadState.set(t.element, 'loading'); });
+  const plan = practiceDecodePlan(tracks);
+  practice.eager = plan.eager;
+  // Mark the tracks being decoded now so every button shows the download at once.
+  tracks.forEach((t) => { if (!practice.buffers.has(t.element) && plan.eager.has(t.element)) practice.loadState.set(t.element, 'loading'); });
   renderPracticeMultitrack();
   ptRender();
-  // Phones: decoded audio takes ~10× the download size, so long songs are
-  // decoded in mono and, if needed, at a lower sample rate to stay in memory.
-  const plan = practiceDecodePlan(tracks.length);
   try {
     if (practice.ctx && plan.rate && practice.ctx.sampleRate !== plan.rate && !practice.playing) {
       await practiceWithTimeout(practice.ctx.close(), 'Audio engine reset', 30000);
       practice.ctx = null;
+      // Buffers belong to the closed engine: they are decoded again below.
+      practice.buffers = new Map();
+      practice.loadState = new Map();
+      practice.decodedBytes = 0;
+      practice.duration = 0;
     }
     if (!practice.ctx) {
       const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -5367,28 +5471,18 @@ async function practiceLoadTracks() {
   // if the member moves to another song. Decoding (two at a time, to spare
   // phone memory) only happens while this song is open.
   const songId = practice.songId;
-  const queue = tracks.filter((t) => !practice.buffers.has(t.element));
-  const blobs = new Map(queue.map((t) => [t.element, bgFetchTrack(songId, t)]));
+  const missing = tracks.filter((t) => !practice.buffers.has(t.element));
+  // Every file is downloaded (so the song is complete on the device); only the
+  // tracks in the plan are decoded now.
+  const blobs = new Map(missing.map((t) => [t.element, bgFetchTrack(songId, t)]));
   blobs.forEach((promise) => promise.catch(() => {}));
+  const queue = missing.filter((t) => plan.eager.has(t.element));
   const worker = async () => {
     while (queue.length) {
       if (token !== practice.loadToken) return;
       const t = queue.shift();
-      try {
-        const blob = await blobs.get(t.element);
-        if (token !== practice.loadToken) return;
-        const data = await practiceWithTimeout(blob.arrayBuffer(), `Reading ${t.element}`);
-        let buffer = await practiceWithTimeout(practice.ctx.decodeAudioData(data), `Decoding ${t.element}`);
-        if (token !== practice.loadToken) return;
-        if (practice.mono && buffer.numberOfChannels > 1) buffer = practiceToMono(buffer);
-        practice.buffers.set(t.element, buffer);
-        practice.loadState.set(t.element, 'ready');
-        practice.duration = Math.max(practice.duration, buffer.duration);
-      } catch (error) {
-        if (token !== practice.loadToken) return;
-        practice.loadState.set(t.element, 'error');
-        console.warn('Practice track failed', t.element, error);
-      }
+      await practiceDecodeTrack(t, token, blobs.get(t.element));
+      if (token !== practice.loadToken) return;
       renderPracticeMultitrack();
       ptRender();
     }
@@ -5509,7 +5603,6 @@ function practiceTick() {
   practice.raf = requestAnimationFrame(step);
 }
 
-$('#practice-song').addEventListener('change', (event) => practiceOpenSong(event.target.value));
 $('#practice-source').addEventListener('change', (event) => {
   try { localStorage.setItem(PRACTICE_SOURCE_KEY, event.target.value); } catch { /* ignore */ }
   renderPracticePage();
@@ -5520,7 +5613,6 @@ function practiceStepSong(delta) {
   const next = list[Math.max(0, Math.min(list.length - 1, i + delta))];
   if (next && next.id !== practice.songId) practiceOpenSong(next.id);
 }
-$('#practice-prev').addEventListener('click', () => practiceStepSong(-1));
 let practiceMp3EncoderPromise = null;
 function practiceMp3Encoder() {
   if (window.lamejs) return Promise.resolve(window.lamejs);
@@ -5616,9 +5708,8 @@ $('#practice-downloads').addEventListener('click', async (event) => {
   } catch (error) { showNotice(error.message, true); }
   finally { button.disabled = false; button.textContent = `Download all (${tracks.length})`; }
 });
-$('#practice-next').addEventListener('click', () => practiceStepSong(1));
 // Mixer controls (main Multitrack card and the full-screen drop-up share these).
-function practiceMixRefresh() { practiceApplyGains(); renderPracticeMultitrack(); }
+function practiceMixRefresh() { practiceApplyGains(); renderPracticeMultitrack(); ptRender(); }
 function practiceMixClick(event) {
   if (event.target.closest('[data-practice-load]')) { practiceLoadTracks(); return true; }
   if (event.target.closest('[data-practice-reset]')) {
@@ -5626,7 +5717,13 @@ function practiceMixClick(event) {
     practiceMixRefresh(); return true;
   }
   const on = event.target.closest('[data-practice-on]');
-  if (on) { const el = on.dataset.practiceOn; savePracticeTrackSetting(el, { on: !practiceTrackSetting(el).on }); practiceMixRefresh(); return true; }
+  if (on) {
+    const el = on.dataset.practiceOn;
+    const now = !practiceTrackSetting(el).on;
+    savePracticeTrackSetting(el, { on: now });
+    if (now) practiceEnsureTrack(el);
+    practiceMixRefresh(); return true;
+  }
   const solo = event.target.closest('[data-practice-solo]');
   if (solo) {
     const el = solo.dataset.practiceSolo;
@@ -5634,6 +5731,7 @@ function practiceMixClick(event) {
     // Like Ableton: plain click solos only this track; Cmd/Ctrl-click adds to the solo.
     if (now && !(event.metaKey || event.ctrlKey)) practiceMultiTracks().forEach((t) => { if (t.element !== el && practiceTrackSetting(t.element).solo) savePracticeTrackSetting(t.element, { solo: false }); });
     savePracticeTrackSetting(el, { solo: now });
+    if (now) practiceEnsureTrack(el);
     practiceMixRefresh(); return true;
   }
   return false;
@@ -5654,22 +5752,6 @@ function practiceMixInput(event) {
   });
   return true;
 }
-$('#practice-multitrack').addEventListener('click', (event) => { practiceMixClick(event); });
-$('#practice-multitrack').addEventListener('input', (event) => {
-  if (practiceMixInput(event)) return;
-  if (event.target.id === 'practice-seek' && !practice.playing) {
-    practice.offset = Number(event.target.value);
-    const time = $('#practice-time');
-    if (time) time.textContent = `${practiceTime(practice.offset)} / ${practiceTime(practice.duration)}`;
-  }
-});
-$('#practice-multitrack').addEventListener('change', (event) => {
-  if (event.target.id === 'practice-seek') practiceSeek(Number(event.target.value));
-});
-$('#practice-multitrack').addEventListener('dblclick', (event) => {
-  const fader = event.target.closest('[data-practice-vol]');
-  if (fader) { savePracticeTrackSetting(fader.dataset.practiceVol, { vol: 1 }); practiceApplyGains(); renderPracticeMultitrack(); }
-});
 
 // --- Admin upload: drop the TSP Exports folder (or song folders / MP3s). Files
 // named "<SONG ID> - <Element>.mp3" go to R2 and are listed in practice_tracks.
@@ -6826,8 +6908,7 @@ function ptMode() {
   return mode === 'multi' ? 'multi' : 'mix';
 }
 function ptMultiReady() {
-  const tracks = practiceMultiTracks();
-  return tracks.length > 0 && tracks.every((t) => practice.buffers.has(t.element));
+  return practiceMultiLoaded();
 }
 function ptEngine() {
   const audio = $('#practice-mix-audio');
@@ -7616,9 +7697,9 @@ function ptMixerRender() {
   const box = ptMixerEl();
   const tracks = practiceMultiTracks();
   if (!tracks.length) { ptMixerClose(); return; }
-  const loaded = tracks.every((t) => practice.buffers.has(t.element));
+  const loaded = practiceMultiLoaded();
   const loading = tracks.some((t) => practice.loadState.get(t.element) === 'loading');
-  const done = tracks.filter((t) => practice.buffers.has(t.element)).length;
+  const done = practiceEagerTracks().filter((t) => practice.buffers.has(t.element)).length;
   const totalMb = tracks.reduce((sum, t) => sum + (t.bytes || 0), 0) / 1048576;
   const anySolo = tracks.some((t) => practiceTrackSetting(t.element).solo);
   const lock = loaded ? '' : 'disabled';
@@ -7628,7 +7709,7 @@ function ptMixerRender() {
   box.innerHTML = `<header><b>Mixer</b>
       ${loaded ? `<button type="button" class="button quiet" data-practice-reset title="Reset all tracks: on, no solo, 0 dB (stems off)">Reset mix</button>` : ''}
       <button type="button" class="pm-btn pm-x" data-pm-close aria-label="Close mixer">✕</button></header>
-    ${!loaded ? `<div class="pm-note">${loading ? `Downloading tracks… ${done}/${tracks.length}` : `<button type="button" class="button primary" data-practice-load>Load multitrack (${totalMb.toFixed(0)} MB)</button>${failed ? `<span>${failed} track${failed === 1 ? '' : 's'} failed to load. Select Load multitrack to retry.</span>` : ''}`}</div>`
+    ${!loaded ? `<div class="pm-note">${loading ? `Downloading tracks… ${done}/${practiceEagerTracks().length}` : `<button type="button" class="button primary" data-practice-load>Load multitrack (${totalMb.toFixed(0)} MB)</button>${failed ? `<span>${failed} track${failed === 1 ? '' : 's'} failed to load. Select Load multitrack to retry.</span>` : ''}`}</div>`
       : usingMulti ? '' : `<div class="pm-note">Playing the Mixdown. <button type="button" class="button primary" data-pm-use>Use the Multitrack</button></div>`}
     <ul class="ab-tracks pt-mixer-tracks ${loaded ? '' : 'ab-locked'}">${rows}</ul>`;
   box.classList.remove('hidden');
