@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last reconciled: **2026-11-12** · Frontend cache markers: `app.js?v=20261113-room1`, `styles.css?v=20261113-room1` · TSPWork Remote Script **1.30** (repository; check the installed copy's hash before relying on it) · Supabase live ledger: **42 migrations**, latest `20261112173013_guest_ashwin_spelling` · Edge Functions `practice-audio` v7 and `member-access-admin` v8 · Operations and backups: [docs/OPERATIONS.md](docs/OPERATIONS.md)._
+_Last reconciled: **2026-11-13** · Frontend cache markers: `app.js?v=20261113-edit1`, `styles.css?v=20261113-edit1` · TSPWork Remote Script **1.30** (repository; check the installed copy's hash before relying on it) · Supabase live ledger: **42 migrations**, latest `20261112173013_guest_ashwin_spelling` · Edge Functions `practice-audio` v7 and `member-access-admin` v8 · Operations and backups: [docs/OPERATIONS.md](docs/OPERATIONS.md)._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -440,6 +440,7 @@ Aaron is testing whether the export checklist's yellow "changed since upload" fl
 ### 13.2 Lyrics editing and guarded Ableton writeback (built 2026-11-11)
 
 - Practice edits are shared per song and instrument in `song_lyrics_edits`; `song_lyrics` remains the Ableton baseline. Members edit their own instrument track; admins can edit any supported track.
+- **The editor is the lyrics view itself (13 Nov 2026).** Its clips become cells in the same scroller, each still carrying `data-line`/`data-t`/`data-e`, so the playback highlight, the autoscroll and the transport keep running while editing. It opens on the clip that is playing; opening a clip or scrolling away holds the autoscroll, and scrolling the playing clip back into view resumes it. The playback bar stays, without the work-remaining chip and the song picker (`body.lyrics-editing`). Entering the editor leaves full screen. Switching tracks mid-edit closes the editor when nothing changed, and otherwise asks to save or cancel.
 - The editor preserves clip timing/order for ordinary tracks. Drums and Percussion may add or remove clips only in the app’s supported empty-section workflow.
 - Sync writes only to the allowlisted main Ableton set and preflights source text/timing. It changes Live's open in-memory set and never invokes Save. After Aaron manually saves in Live, Sync Ableton Set reads the saved `.als`, verifies pending lyric rows, then updates the Practice baseline and clears only matching overrides. Failed or mismatched readback keeps the shared edit.
 - Practice refreshes lyrics after sync in the active page and other open tabs. The loaded Live session must reload TSPWork 1.27 before using the newest bridge behavior.
@@ -573,6 +574,7 @@ Aaron is testing whether the export checklist's yellow "changed since upload" fl
 ---
 
 ## 17. Changelog of this plan
+- **2026-11-13:** Lyrics editing moved into the lyrics view (`?v=20261113-edit1`): clips edit in place, following playback, with the transport still available. The playback bar is pinned to the visible bottom on iPhone (`--pt-bottom` from `visualViewport`). On the Songs page the Song ID is the Ableton jump; the title only opens the song.
 - **2026-11-12:** Audit follow-up verified end to end: guest policies, sign-up settings, deletion guard, Sync resilience, sign-out clean-up, CSP and bridge 1.28 tests; added the Storage check (R2 files vs upload records) on the Sync page, the CI gate in `deploy.yml`, `tests/audio-inventory.test.js`, and docs/OPERATIONS.md. Header, decision log and known issues refreshed.
 - **2026-11-11:** Saved Practice lyrics now relay automatically from the open Mac app to the guarded Ableton master project; shared, expiring Ableton chip on signed-in devices (`?v=20261111-auto-ableton-lyrics1`).
 - **2026-11-11:** Reconciled frontend cache markers, TSPWork 1.27 source, all 38 migration files and the 32-entry live ledger, deployed Edge Functions, the 26-table Supabase schema, and the 655-object R2 inventory. Confirmed the local Mac-only **Save** label and preserved manual Live edits on clips Practice did not change. No Supabase rows or R2 objects were rewritten.
