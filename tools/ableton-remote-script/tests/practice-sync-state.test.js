@@ -4,7 +4,7 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
-const appPath = path.resolve(__dirname, '../../tsp-band-app-live/app.js');
+const appPath = path.resolve(__dirname, '../../../app.js');
 const appSource = fs.readFileSync(appPath, 'utf8');
 
 function functionSource(name) {
@@ -22,35 +22,9 @@ function functionSource(name) {
   throw new Error(`unterminated ${name}`);
 }
 
-test('clearing a synced override keeps the newly read Ableton baseline visible', () => {
-  const practice = {
-    songId: 'I3',
-    lyrics: {
-      tracks: [{ slug: 'guitar', lines: [{ t: 4, text: 'Old saved line' }] }],
-      sourceTracks: [{ slug: 'guitar', lines: [{ t: 4, text: 'Old saved line' }] }],
-      lyricsEdits: [{ track_slug: 'guitar', lines: [{ t: 4, text: 'Hellooo' }] }],
-    },
-  };
-  const context = {
-    practice,
-    renderPracticeLyrics() {},
-    practiceKeepPlace(render) { render(); },
-  };
-  vm.createContext(context);
-  vm.runInContext([
-    functionSource('applyLyricsEdits'),
-    functionSource('refreshPracticeLyricsFromSnapshot'),
-  ].join('\n'), context);
-
-  context.refreshPracticeLyricsFromSnapshot({ songs: { I3: {
-    lyrics: { tracks: [{ slug: 'guitar', lines: [{ t: 4, text: 'Hello from Ableton' }] }], sections: [], tempo: [] },
-    bars: [], tone: [], duration_seconds: 30,
-  } } });
-  assert.equal(practice.lyrics.tracks[0].lines[0].text, 'Hellooo');
-
-  context.applyLyricsEdits([]); // the Realtime event after clearing the override
-  assert.equal(practice.lyrics.tracks[0].lines[0].text, 'Hello from Ableton');
-});
+// The earlier case for refreshPracticeLyricsFromSnapshot was retired with that
+// function: Practice now reloads the saved baseline from Supabase after a sync
+// (refreshPracticeLyricsAfterSync); the queue rules are covered in tests/lyrics-sync.test.js.
 
 test('a sync notification reloads the matching song in another open Practice page', () => {
   const calls = [];

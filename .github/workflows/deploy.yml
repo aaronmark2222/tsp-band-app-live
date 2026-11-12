@@ -13,7 +13,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+      - name: JavaScript syntax (a broken app.js must never reach the band)
+        run: |
+          cp app.js /tmp/app.mjs && node --check /tmp/app.mjs
+          cp boot.js /tmp/boot.mjs && node --check /tmp/boot.mjs
+          node --check sw.js
+      - name: Published files exist and the cache markers are present
+        run: |
+          for f in index.html app.js boot.js styles.css sw.js apple-touch-icon.png assets/the-string-project-logo.png; do test -s "$f" || { echo "missing $f"; exit 1; }; done
+          grep -q 'app.js?v=' index.html && grep -q 'styles.css?v=' index.html
+          grep -q 'Content-Security-Policy' index.html
+      - name: Frontend tests
+        run: node --test tests/*.test.js tools/ableton-remote-script/tests/*.test.js
+      - name: TSPWork syntax and tests (no Ableton needed)
+        run: |
+          python3 -m py_compile tools/ableton-remote-script/TSPWork/*.py
+          cd tools/ableton-remote-script && python3 -m unittest discover -s tests -p 'test_*.py'
+
   deploy:
+    needs: check
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
