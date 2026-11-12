@@ -4648,7 +4648,7 @@ const practice = {
   songId: '', available: null, tracks: [], loadingSong: false, error: '',
   ctx: null, master: null, buffers: new Map(), nodes: new Map(), loadState: new Map(), eager: null, decodedBytes: 0,
   playing: false, offset: 0, startedAt: 0, duration: 0, raf: null, loadToken: 0, loadingRun: -1,
-  lyricIndex: -2, lyricsTouchedAt: 0, lyricsHold: false,
+  lyricIndex: -2, lyricsTouchedAt: 0, lyricsHold: false, syncedAt: 0,
   upload: { items: [], running: false }
 };
 
@@ -5335,7 +5335,8 @@ function renderPracticePlayersInner() {
     }
     if (!audio.dataset.hooked) {
       audio.dataset.hooked = '1';
-      audio.addEventListener('ended', () => { practice.position = 0; audio.currentTime = 0; ptRender(); });
+      // At the end the playhead stays at the end (Aaron, 13 Nov 2026).
+      audio.addEventListener('ended', () => { practice.position = Number.isFinite(audio.duration) ? audio.duration : practice.position; ptRender(); });
       audio.addEventListener('loadedmetadata', ptRender);
     }
     if (practice.autoplay) {
@@ -5502,9 +5503,14 @@ function practiceAttachTrack(element) {
 }
 // Switching on (or soloing) a track that was left for later: decode it now.
 function practiceEnsureTrack(element) {
-  if (!practice.ctx || practice.buffers.has(element) || practice.loadState.get(element) === 'loading') return;
+  if (!practice.ctx) return;
+  // Already decoded: all it can be missing is a player, which is what a
+  // track switched on mid-playback needs.
+  if (practice.buffers.has(element)) { practiceAttachTrack(element); return; }
+  if (practice.loadState.get(element) === 'loading') { bgFetchUrgent(practice.songId, element); return; }
   const track = practiceMultiTracks().find((t) => t.element === element);
   if (!track) return;
+  bgFetchUrgent(practice.songId, element);
   const token = practice.loadToken;
   practice.loadState.set(element, 'loading');
   renderPracticeMultitrack();
@@ -5514,6 +5520,15 @@ function practiceEnsureTrack(element) {
     renderPracticeMultitrack();
     ptRender();
   });
+}
+// Nothing that should be heard may sit silent: every audible track needs a
+// buffer (or a decode on its way) and, while playing, a player of its own.
+function practiceSyncAudible() {
+  if (!practice.ctx || ptMode() !== 'multi') return;
+  for (const element of practiceAudibleElements()) {
+    if (!practice.buffers.has(element)) { practiceEnsureTrack(element); continue; }
+    if (practice.playing && !practice.nodes.has(element)) practiceAttachTrack(element);
+  }
 }
 // The tracks this song decodes up front, and whether they are all in.
 function practiceEagerTracks() {
@@ -5528,7 +5543,21 @@ function practiceMultiLoaded() {
 }
 // Multitrack downloads run in the background: leaving a song doesn't stop its
 // download, and coming back picks up where it is. At most two files at a time.
-const bgFetch = { files: new Map(), songs: new Map(), active: 0, waiting: [] };
+const bgFetch = { files: new Map(), songs: new Map(), active: 0, waiting: [], urgent: new Set() };
+// A track the member just switched on jumps the download queue, and may run
+// alongside the usual two. Without this it waits behind every other stem of a
+// big song and sits there saying "loading…" while it is plainly on
+// (Aaron's Em7 on the iPhone, 13 Nov 2026).
+function bgFetchNext() {
+  const urgentAt = bgFetch.waiting.findIndex((w) => bgFetch.urgent.has(w.key));
+  const index = urgentAt >= 0 ? urgentAt : (bgFetch.active >= 2 ? -1 : 0);
+  if (index < 0) return;
+  bgFetch.waiting.splice(index, 1)[0].resolve();
+}
+function bgFetchUrgent(songId, element) {
+  bgFetch.urgent.add(`${songId}|${element}`);
+  bgFetchNext();
+}
 const PRACTICE_AUDIO_TIMEOUT_MS = 120000;
 function practiceWithTimeout(promise, label, timeoutMs = PRACTICE_AUDIO_TIMEOUT_MS) {
   let timer;
@@ -5544,15 +5573,16 @@ function bgFetchTrack(songId, track) {
   song.total += 1;
   bgFetch.songs.set(songId, song);
   const run = async () => {
-    while (bgFetch.active >= 2) await new Promise((resolve) => bgFetch.waiting.push(resolve));
+    while (bgFetch.active >= (bgFetch.urgent.has(key) ? 3 : 2)) await new Promise((resolve) => bgFetch.waiting.push({ key, resolve }));
     bgFetch.active += 1;
     try { return await practiceWithTimeout(offlineTrackBlob(songId, track), `Loading ${track.element}`); }
     finally {
       bgFetch.active -= 1;
-      bgFetch.waiting.shift()?.();
+      bgFetchNext();
     }
   };
   const promise = run().finally(() => {
+    bgFetch.urgent.delete(key);
     bgFetch.files.delete(key);
     song.done += 1;
     if (song.done >= song.total) bgFetch.songs.delete(songId);
@@ -5682,7 +5712,14 @@ function practicePlay() {
   practice.playing = true;
   practiceApplyGains();
   const first = [...practice.nodes.values()][0];
-  if (first) first.source.onended = () => { if (practice.playing && practicePosition() >= practice.duration - 0.1) { practicePause(); practice.offset = 0; renderPracticeMultitrack(); } };
+  if (first) first.source.onended = () => {
+    if (!practice.playing || practicePosition() < practice.duration - 0.1) return;
+    practicePause();
+    practice.offset = practice.duration;
+    practice.position = practice.duration; // what a paused transport reads
+    renderPracticeMultitrack();
+    ptRender();
+  };
   renderPracticeMultitrack();
   practiceTick();
 }
@@ -5714,6 +5751,8 @@ function practiceTick() {
   cancelAnimationFrame(practice.raf);
   const step = () => {
     if (!practice.playing) return;
+    // Twice a second, make sure nothing switched on is sitting silent.
+    if (Date.now() - (practice.syncedAt || 0) > 500) { practice.syncedAt = Date.now(); practiceSyncAudible(); }
     const pos = practicePosition();
     const time = $('#practice-time');
     if (time) time.textContent = `${practiceTime(pos)} / ${practiceTime(practice.duration)}`;
@@ -5843,7 +5882,7 @@ $('#practice-downloads').addEventListener('click', async (event) => {
   finally { button.disabled = false; button.textContent = `Download all (${tracks.length})`; }
 });
 // Mixer controls (main Multitrack card and the full-screen drop-up share these).
-function practiceMixRefresh() { practiceApplyGains(); renderPracticeMultitrack(); ptRender(); }
+function practiceMixRefresh() { practiceSyncAudible(); practiceApplyGains(); renderPracticeMultitrack(); ptRender(); }
 function practiceMixClick(event) {
   if (event.target.closest('[data-practice-load]')) { practiceLoadTracks(); return true; }
   if (event.target.closest('[data-practice-reset]')) {
@@ -7219,7 +7258,9 @@ function ptPosition() {
 }
 function ptPlay() {
   if (roomCmd('play')) return;
-  const t = ptPosition();
+  const total = ptDuration();
+  const at = ptPosition();
+  const t = total && at >= total - 0.05 ? 0 : at; // parked at the end: start again
   const engine = ptEngine();
   const audio = $('#practice-mix-audio');
   if (engine === 'multi') {
