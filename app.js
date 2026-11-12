@@ -6502,6 +6502,7 @@ function renderPracticeLyrics() {
   renderPracticeLyricsInner();
   lyricsFit();
   if (typeof lyricsChipsHint === 'function') lyricsChipsHint();
+  if (typeof lyricsChipsReveal === 'function') lyricsChipsReveal();
 }
 window.addEventListener('resize', () => { if (typeof lyricsChipsHint === 'function') lyricsChipsHint(); });
 // Full-screen lyrics (YouTube-style): only the lyrics, with the track/size
@@ -6543,6 +6544,17 @@ function lyricsChipsHint() {
   row.classList.toggle('more-right', more && row.scrollLeft + row.clientWidth < row.scrollWidth - 2);
   row.classList.toggle('more-left', more && row.scrollLeft > 2);
 }
+// The chosen track is brought into view: on a phone the row scrolls sideways,
+// so the one being read must not sit off the edge.
+function lyricsChipsReveal() {
+  const row = document.querySelector('#practice-lyrics .ly-chips');
+  const chip = row?.querySelector('.ly-chip-wrap.on, .ly-chip.on');
+  if (!row || !chip || row.scrollWidth <= row.clientWidth + 2) return;
+  const left = chip.offsetLeft - 12;
+  const right = chip.offsetLeft + chip.offsetWidth + 12;
+  if (left < row.scrollLeft) row.scrollTo({ left: Math.max(0, left), behavior: 'smooth' });
+  else if (right > row.scrollLeft + row.clientWidth) row.scrollTo({ left: right - row.clientWidth, behavior: 'smooth' });
+}
 document.addEventListener('scroll', (event) => {
   if (!event.target?.classList?.contains('ly-chips')) return;
   lyricsChipsHint();
@@ -6564,7 +6576,7 @@ function lyricsFsEnter() {
   renderPracticeLyrics();
   lyricsFsShowControls();
   practice.lyricIndex = -2;
-  setTimeout(() => { lyricsFit(); practiceLyricsTick(true); lyricsChipsHint(); }, 80);
+  setTimeout(() => { lyricsFit(); practiceLyricsTick(true); lyricsChipsHint(); lyricsChipsReveal(); }, 80);
 }
 function lyricsFsExit(skipFade) {
   if (!lyricsFs.on || lyricsFs.leaving) return;

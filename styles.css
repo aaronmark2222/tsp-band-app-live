@@ -1793,3 +1793,11 @@ body.lyrics-fs #practice-lyrics .ly-edit-status { display: none; }
 /* A follower has no audio of its own: the Mixdown/Multitrack switch and its
    mixer belong to the device that is playing. */
 body.room-following #practice-transport .pt-modes { display: none; }
+
+/* The track chip and its edit pencil share one pill, and that pill is the flex
+   item in the chip row — so it is the pill that must keep its size. Without
+   this the labels were squashed to "Gu", "Ke", "Pe" on a phone in full screen
+   instead of the row scrolling sideways. */
+.ly-chip-wrap { flex: 0 0 auto; }
+.ly-chip, .ly-chip-wrap .ly-chip { white-space: nowrap; }
+body.lyrics-fs #practice-lyrics .ly-chips > * { flex: 0 0 auto; }
