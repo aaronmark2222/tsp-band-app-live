@@ -4528,6 +4528,15 @@ const practice = {
   upload: { items: [], running: false }
 };
 
+// Group practice room (the rest of the room code is at the end of this file).
+// It lives here because code that runs while the page loads asks whether this
+// device is following.
+const room = {
+  code: null, role: null, channel: null, members: [], state: null, anchor: null,
+  offset: 0, rtt: null, synced: false, samples: [], pings: new Map(),
+  stateTimer: null, pingTimer: null, songRequest: null, busy: false, mode: '', error: ''
+};
+
 function practiceSettings() {
   try { return JSON.parse(sessionStorage.getItem(PRACTICE_SETTINGS_KEY) || '{}'); } catch { return {}; }
 }
@@ -7934,11 +7943,6 @@ const ROOM_KEY = 'tsp-room-v1';
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I to read out loud
 const ROOM_SAMPLE_LIFE_MS = 120000;
 const roomDeviceId = Math.random().toString(36).slice(2, 10);
-const room = {
-  code: null, role: null, channel: null, members: [], state: null, anchor: null,
-  offset: 0, rtt: null, synced: false, samples: [], pings: new Map(),
-  stateTimer: null, pingTimer: null, songRequest: null, busy: false, mode: '', error: ''
-};
 function roomHosting() { return room.role === 'host' && !!room.channel; }
 function roomFollowing() { return room.role === 'follower' && !!room.channel && !!room.state; }
 function roomNewCode() {
