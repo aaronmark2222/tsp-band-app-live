@@ -6607,12 +6607,29 @@ document.addEventListener('mousemove', (event) => {
   if (!lyricsFs.on || event.movementX === 0 && event.movementY === 0) return;
   lyricsFsShowControls();
 }, { passive: true });
+// A click inside the mixer redraws its rows, which takes the button that was
+// clicked out of the page: by the time the click reaches the handlers below,
+// asking what it sits in would answer "nothing". So it is noted here, in the
+// capture phase, while everything is still in place.
+const ptClickAt = { mixer: false, transport: false, lyricsControls: false };
+document.addEventListener('click', (event) => {
+  const t = event.target;
+  ptClickAt.mixer = !!t.closest?.('#pt-mixer');
+  ptClickAt.transport = !!t.closest?.('#practice-transport');
+  ptClickAt.lyricsControls = !!t.closest?.('#practice-lyrics > header, #practice-lyrics .ly-chips');
+}, true);
+// On the Practice page a click away from the mixer and the playback bar closes
+// the mixer; in full-screen lyrics the handler below does it.
+function ptMixerClickClosesIt(at, { open, fullScreen }) {
+  if (!open || fullScreen) return false;
+  return !at.mixer && !at.transport;
+}
 // Clicking/tapping empty space shows or hides the controls; using a control
 // keeps them up; tapping a line still jumps there.
 document.addEventListener('click', (event) => {
   if (!lyricsFs.on) return;
   const t = event.target;
-  if (t.closest('#practice-transport, #pt-mixer, #practice-lyrics > header, #practice-lyrics .ly-chips')) { lyricsFsShowControls(5000); return; }
+  if (ptClickAt.transport || ptClickAt.mixer || ptClickAt.lyricsControls) { lyricsFsShowControls(5000); return; }
   if (ptMixer.open) { ptMixerClose(); event.stopPropagation(); event.preventDefault(); return; } // first tap outside just closes the mixer
   if (t.closest('.ly-line, .ly-section, button, a, input, select')) return;
   if (!t.closest('#practice-lyrics')) return;
@@ -7046,7 +7063,7 @@ function ptRender() {
     <div class="pt-group pt-modes" role="radiogroup" aria-label="Play from">
       <button type="button" data-pt-mode="mix" class="${engine === 'mix' ? 'on' : ''}" ${$('#practice-mix-audio') ? '' : 'disabled'}>Mixdown</button>
       <button type="button" data-pt-mode="multi" class="pt-multi ${engine === 'multi' ? 'on' : ''}" ${multiAvailable ? '' : 'disabled'} title="${ptMultiReady() ? 'Play from the multitrack' : 'Download the multitrack tracks first'}">Multitrack${multiAvailable && !ptMultiReady() ? (ptMultiLoading() ? ` <span class="pt-spin" aria-label="Downloading"></span><small>${practiceMultiTracks().filter((t) => practice.buffers.has(t.element)).length}/${practiceMultiTracks().length}</small>` : ` <span class="pt-dl" aria-hidden="true">${ptIcons.download}</span>`) : ''}</button>
-      <button type="button" data-pt-mixer class="pt-mixer-btn ${ptMixer.open ? 'open' : ''}" ${multiAvailable ? '' : 'disabled'} title="Multitrack mixer" aria-label="Multitrack mixer" aria-expanded="${ptMixer.open}">${ptIcons.mixer}</button>
+      <button type="button" data-pt-mixer class="pt-mixer-btn ${engine === 'multi' ? 'on' : ''} ${ptMixer.open ? 'open' : ''}" ${multiAvailable ? '' : 'disabled'} title="Multitrack mixer" aria-label="Multitrack mixer" aria-expanded="${ptMixer.open}">${ptIcons.mixer}</button>
     </div>
     <div class="pt-song-wrap">
       <button type="button" class="pt-song" data-pt-songs aria-haspopup="menu" aria-expanded="${ptSongPickerOpen}" title="Choose a song from the current list"><b>${song ? escapeHtml(song.id) : ''}</b> ${song ? escapeHtml(song.name) : ''}${ptQueueLabel()}</button>
@@ -7751,8 +7768,7 @@ document.addEventListener('click', (event) => {
     ptMixer.open ? ptMixerClose() : ptMixerOpen();
     return;
   }
-  // Outside the mixer closes it (in full screen its own handler does this).
-  if (ptMixer.open && !lyricsFs.on && !event.target.closest('#pt-mixer')) ptMixerClose();
+  if (ptMixerClickClosesIt(ptClickAt, { open: ptMixer.open, fullScreen: lyricsFs.on })) ptMixerClose();
 });
 window.addEventListener('resize', () => { if (ptMixer.open) ptMixerPlace(); });
 

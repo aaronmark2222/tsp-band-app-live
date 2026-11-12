@@ -48,3 +48,25 @@ test('closing hides the panel and lets the button open it again', () => {
   ctx.ptMixerOpen();
   assert.equal(ctx.ptMixer.open, true);
 });
+
+// Clicking a row redraws the mixer, so the clicked button leaves the page and
+// "is this click inside the mixer?" has to be answered before that happens.
+const decide = load(['ptMixerClickClosesIt']).ptMixerClickClosesIt;
+const at = (patch = {}) => ({ mixer: false, transport: false, lyricsControls: false, ...patch });
+
+test('a click on a track button inside the mixer leaves it open', () => {
+  assert.equal(decide(at({ mixer: true }), { open: true, fullScreen: false }), false);
+});
+
+test('a click on the playback bar leaves it open', () => {
+  assert.equal(decide(at({ transport: true }), { open: true, fullScreen: false }), false);
+});
+
+test('a click anywhere else on the page closes it', () => {
+  assert.equal(decide(at(), { open: true, fullScreen: false }), true);
+});
+
+test('full screen keeps its own handling, and a shut mixer is left alone', () => {
+  assert.equal(decide(at(), { open: true, fullScreen: true }), false);
+  assert.equal(decide(at(), { open: false, fullScreen: false }), false);
+});
