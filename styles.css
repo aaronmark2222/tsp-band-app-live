@@ -728,18 +728,11 @@ body { background: #292929; color: var(--ink); font-family: var(--sans); font-si
   font:10px var(--mono);
   line-height:1;
 }
-/* Admins only: the Song ID is the Ableton jump control. */
-.song-entry-jump {
-  background:none;
-  border:0;
-  padding:0;
-  margin:0;
-  cursor:pointer;
-  text-decoration:underline;
-  text-decoration-color:rgba(243,154,38,.45);
-  text-underline-offset:2px;
-}
-.song-entry-jump:hover, .song-entry-jump:focus-visible { color:#ffb454; text-decoration-color:#ffb454; }
+/* Admins only: a Song ID anywhere is the Ableton jump control. The reset is
+   in :where() so each place's own Song ID styling still wins. */
+:where(button.song-jump) { display:inline; margin:0; padding:0; border:0; background:none; font:inherit; color:inherit; text-align:left; }
+button.song-jump { cursor:pointer; text-decoration:underline; text-decoration-color:rgba(243,154,38,.45); text-underline-offset:2px; }
+button.song-jump:hover, button.song-jump:focus-visible { text-decoration-color:currentColor; filter:brightness(1.25); outline:none; }
 .song-entry-footer .song-progress {
   display:flex;
   flex:0 0 60px;
@@ -1705,7 +1698,7 @@ body.guest-mode #member-access-open,body.guest-mode #new-song-open{display:none!
 .pt-work-song-heading{min-width:0;width:100%;gap:8px;align-items:center;padding:0 0 9px;border-bottom:1px solid rgba(255,255,255,.14)}
 .pt-work-song-heading .song-id{flex:none;font:11px var(--mono)}
 .pt-work-song-heading .song-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
-.pt-work-song-heading>button{flex:none;margin-left:auto;width:26px;height:26px;padding:0;border:0;border-radius:50%;background:rgba(255,255,255,.1);color:#ddd;font-size:18px}
+.pt-work-song-heading>button[data-pt-work-close]{flex:none;margin-left:auto;width:26px;height:26px;padding:0;border:0;border-radius:50%;background:rgba(255,255,255,.1);color:#ddd;font-size:18px}
 .pt-work-popover .dashboard-work{margin-top:9px;padding-top:8px;border-color:rgba(255,255,255,.14)}
 .pt-work-popover .dashboard-work-heading{gap:8px;align-items:baseline}
 .pt-work-popover .dashboard-work-heading>span{flex:none;color:#aaa;font-size:10px}

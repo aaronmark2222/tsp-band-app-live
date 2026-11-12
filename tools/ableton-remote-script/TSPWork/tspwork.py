@@ -34,7 +34,7 @@ from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
 TLS_PORT = 47711
-VERSION = '1.30'
+VERSION = '1.31'
 DEBUG_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requests.log')
 # https listener for the live site in Safari. Certificate made for 127.0.0.1 /
 # localhost only, trusted once in this Mac's Keychain. Files sit next to this
@@ -371,8 +371,15 @@ class TSPWork(ControlSurface):
         return {'ok': True, 'version': VERSION, 'build': BUILD, 'session': self._session, 'auth': 'supabase-admin', 'https': self._tls is not None, 'songs': count, 'playing': self.song().is_playing,
                 'als_path': path, 'open_als_path': getattr(self.song(), 'file_path', ''), 'als_saved_at': saved}
 
-    def _cmd_jump(self, song_id):
-        self._end_review()
+    def _cmd_jump(self, song_id, review=True):
+        # Never interrupt playback (Aaron, 13 Nov 2026): a Song ID click while
+        # Live is playing leaves the transport exactly where it is.
+        if self.song().is_playing:
+            return {'ok': True, 'skipped': 'playing'}
+        # A plain Song ID click has one job, so a review running on the Ableton
+        # Sync page (with its solos and loop brace) is left as it is.
+        if review:
+            self._end_review()
         region = self._song_region(song_id)
         if region is None:
             return {'ok': False, 'error': 'song_not_found'}
@@ -391,7 +398,9 @@ class TSPWork(ControlSurface):
         else:
             song.current_song_time = start
         # Song review: the bar's prev/next step through the song's sections.
-        sections = self._find_track(None, 'SECTIONS')
+        # Only the Ableton Sync page asks for it; a Song ID click elsewhere in
+        # the app just moves the playhead (Aaron, 13 Nov 2026).
+        sections = self._find_track(None, 'SECTIONS') if review else None
         if sections is not None:
             self._review = {'song_id': song_id, 'task_key': 'song', 'tracks': [sections], 'region': tuple(region)}
         # Nudge Follow so the view scrolls to the new position.
@@ -1166,7 +1175,7 @@ class TSPWork(ControlSurface):
                     finally:
                         self._reading_since = None
                 elif path.startswith('/jump'):
-                    result = self._run_on_main(self._cmd_jump, song_id)
+                    result = self._run_on_main(self._cmd_jump, song_id, payload.get('review', True) is not False)
                 elif path.startswith('/select'):
                     task_key = str(payload.get('task_key', ''))
                     if task_key not in TASK_TRACKS:

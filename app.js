@@ -490,12 +490,16 @@ async function toggleSongDetails(songId, view) {
   });
 }
 
-// The Song ID under a song's title is the Ableton jump control (Aaron,
-// 13 Nov 2026): the title only opens the song in the app. Only an admin can
-// have the TSPWork bridge, so everyone else sees the plain ID.
+// A Song ID anywhere in the app is the Ableton jump control (Aaron, 13 Nov
+// 2026): titles only open the song, and the jump moves the playhead without
+// starting a review session or touching a playing transport. Only an admin
+// can have the TSPWork bridge, so everyone else sees the plain ID.
+function songIdMarkup(songId, cls = 'song-id') {
+  if (!state.member?.is_admin) return `<span class="${cls}">${escapeHtml(songId)}</span>`;
+  return `<button type="button" class="${cls} song-jump" data-song-jump="${escapeHtml(songId)}" title="Jump to ${escapeHtml(songId)} in the open Ableton set (while it is stopped)" aria-label="Jump to ${escapeHtml(songId)} in Ableton">${escapeHtml(songId)}</button>`;
+}
 function songEntryIdMarkup(songId) {
-  if (!state.member?.is_admin) return `<span class="song-entry-id">${escapeHtml(songId)}</span>`;
-  return `<button type="button" class="song-entry-id song-entry-jump" data-song-jump="${escapeHtml(songId)}" title="Jump to ${escapeHtml(songId)} in the open Ableton set" aria-label="Jump to ${escapeHtml(songId)} in Ableton">${escapeHtml(songId)}</button>`;
+  return songIdMarkup(songId, 'song-entry-id');
 }
 
 function songSummaryLeadMarkup(songId) {
@@ -608,7 +612,7 @@ function renderSetlistItems(items, canEditSetlist) {
   const includedSongIds = new Set(items.filter((item) => item.item_type === 'song').map((item) => item.song_id));
   const repertoireRows = canEditSetlist
     ? state.songs.filter((song) => !includedSongIds.has(song.id)).map((song) =>
-      `<li class="setlist-repertoire-row"><span class="setlist-repertoire-id">${escapeHtml(song.id)}</span><span class="setlist-repertoire-name">${escapeHtml(song.name)}</span><button class="add-repertoire-song" type="button" data-song-id="${escapeHtml(song.id)}" aria-label="Add ${escapeHtml(song.id)} · ${escapeHtml(song.name)} to setlist" title="Add to setlist">+</button></li>`
+      `<li class="setlist-repertoire-row">${songIdMarkup(song.id, 'setlist-repertoire-id')}<span class="setlist-repertoire-name">${escapeHtml(song.name)}</span><button class="add-repertoire-song" type="button" data-song-id="${escapeHtml(song.id)}" aria-label="Add ${escapeHtml(song.id)} · ${escapeHtml(song.name)} to setlist" title="Add to setlist">+</button></li>`
     ).join('')
     : '';
   $('#setlist-items').innerHTML = items.map((item, index) => {
@@ -620,7 +624,7 @@ function renderSetlistItems(items, canEditSetlist) {
     const canDrag = canEditSetlist && !filters.active;
     const summary = isSong
       ? canEditSetlist
-        ? `<div class="setlist-song-edit-summary"><span class="song-id">${escapeHtml(item.song_id)}</span>${songTitleMarkup(title, 'item-title song-title')}</div>`
+        ? `<div class="setlist-song-edit-summary">${songIdMarkup(item.song_id)}${songTitleMarkup(title, 'item-title song-title')}</div>`
         : `<button type="button" class="song-summary-toggle setlist-song-toggle ${expanded ? 'song-expanded' : ''}" data-song-id="${escapeHtml(item.song_id)}" data-view="setlists" aria-expanded="${expanded}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${escapeHtml(item.song_id)} ${escapeHtml(title)}">${songTitleMarkup(title, 'item-title song-title')}<span class="song-entry-footer"><span class="song-entry-id">${escapeHtml(item.song_id)}</span><span class="song-progress">${songProgress(item.song_id, title)}</span></span></button>`
       : `<div><div class="item-title">${escapeHtml(title)}</div><div class="item-detail">${escapeHtml(detail)}</div></div>`;
     const controls = canEditSetlist ? `<div class="item-controls">${canDrag ? `<button class="drag-handle" type="button" data-id="${item.id}" aria-label="Drag ${escapeHtml(title)} to reorder" title="Drag to reorder">⠿</button>` : ''}<button class="icon-button remove-item" data-id="${item.id}" title="Remove item" aria-label="Remove ${escapeHtml(title)}" >×</button></div>` : '';
@@ -1469,7 +1473,7 @@ function renderNewSetlistSongChoices() {
   $('#new-setlist-selected').innerHTML = state.newSetlistSongIds.map((songId, index) => {
     const song = state.songs.find((item) => item.id === songId);
     if (!song) return '';
-    return `<li><span class="position">${String(index + 1).padStart(2, '0')}</span><span class="song-id">${escapeHtml(song.id)}</span><span>${escapeHtml(song.name)}</span><span class="selected-song-controls"><button type="button" data-new-setlist-move="${escapeHtml(songId)}" data-direction="-1" aria-label="Move ${escapeHtml(song.name)} up" ${index === 0 ? 'disabled' : ''}>↑</button><button type="button" data-new-setlist-move="${escapeHtml(songId)}" data-direction="1" aria-label="Move ${escapeHtml(song.name)} down" ${index === state.newSetlistSongIds.length - 1 ? 'disabled' : ''}>↓</button><button type="button" data-new-setlist-remove="${escapeHtml(songId)}" aria-label="Remove ${escapeHtml(song.name)}">×</button></span></li>`;
+    return `<li><span class="position">${String(index + 1).padStart(2, '0')}</span>${songIdMarkup(song.id)}<span>${escapeHtml(song.name)}</span><span class="selected-song-controls"><button type="button" data-new-setlist-move="${escapeHtml(songId)}" data-direction="-1" aria-label="Move ${escapeHtml(song.name)} up" ${index === 0 ? 'disabled' : ''}>↑</button><button type="button" data-new-setlist-move="${escapeHtml(songId)}" data-direction="1" aria-label="Move ${escapeHtml(song.name)} down" ${index === state.newSetlistSongIds.length - 1 ? 'disabled' : ''}>↓</button><button type="button" data-new-setlist-remove="${escapeHtml(songId)}" aria-label="Remove ${escapeHtml(song.name)}">×</button></span></li>`;
   }).join('');
 }
 function openNewSetlistDialog() {
@@ -2709,12 +2713,18 @@ const ABLETON_ERRORS = {
   zoom_disabled: 'Selected in Ableton, but zoom was unavailable. Press Z.'
 };
 
-async function sendAbletonCommand(path, body) {
+// A Song ID click only moves the playhead: no review player, and nothing at
+// all while Live is playing, so a stray tap can never stop playback.
+async function songIdJump(songId) {
+  const result = await sendAbletonCommand('/jump', { song_id: songId, review: false }, { review: false });
+  if (result?.skipped === 'playing') showNotice('Ableton is playing, so the playhead was left where it is. Stop it to jump to ' + songId + '.');
+}
+async function sendAbletonCommand(path, body, { review = true } = {}) {
   if (abletonBridge.busy) return;
   abletonBridge.busy = true;
   try {
     const result = await abletonRequest(path, body);
-    if (result?.review) showReviewBar(result.review, result);
+    if (review && result?.review) showReviewBar(result.review, result);
     if (result?.ok) return result;
     const error = String(result?.error || '');
     if (error === 'accessibility_needed') {
@@ -2743,7 +2753,8 @@ document.addEventListener('click', (event) => {
   const songJump = event.target.closest('[data-song-jump]');
   if (songJump) {
     event.preventDefault();
-    sendAbletonCommand('/jump', { song_id: songJump.dataset.songJump });
+    event.stopPropagation(); // the ID is its own control, whatever it sits in
+    songIdJump(songJump.dataset.songJump);
     return;
   }
   const title = event.target.closest('.song-summary-toggle, .dashboard-open-song');
@@ -7388,7 +7399,7 @@ function ptWorkPopoverHtml(song) {
   const optional = songWorkItems(song.id, true).filter((item) => item.category === 'part' && !isWorkItemDone(item));
   const waitingForMix = song.backing_track_manual === 'Sent to Mix';
   return `<div class="pt-work-popover" role="dialog" aria-label="Remaining work for ${escapeHtml(song.id)}">
-    <div class="dashboard-open-song pt-work-song-heading"><span class="song-id">${escapeHtml(song.id)}</span><strong class="song-title">${escapeHtml(song.name)}</strong><button type="button" data-pt-work-close aria-label="Close work remaining">×</button></div>
+    <div class="dashboard-open-song pt-work-song-heading">${songIdMarkup(song.id)}<strong class="song-title">${escapeHtml(song.name)}</strong><button type="button" data-pt-work-close aria-label="Close work remaining">×</button></div>
     <div class="dashboard-work">
       <div class="dashboard-work-heading"><h3>Required work</h3><span>${required.length} ${required.length === 1 ? 'task' : 'tasks'} remaining</span></div>
       ${ptWorkOwnerGroups(required, song)}
