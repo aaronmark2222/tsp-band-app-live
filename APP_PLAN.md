@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last reconciled: **2026-11-12** · Frontend cache markers: `app.js?v=20261112-relay2`, `styles.css?v=20261112-relay2` · TSPWork Remote Script **1.29** (repository; check the installed copy's hash before relying on it) · Supabase live ledger: **38 migrations**, latest `20261112025420_lyrics_edit_relay_error` · Edge Functions `practice-audio` v7 and `member-access-admin` v8 · Operations and backups: [docs/OPERATIONS.md](docs/OPERATIONS.md)._
+_Last reconciled: **2026-11-12** · Frontend cache markers: `app.js?v=20261112-relay3`, `styles.css?v=20261112-relay2` · TSPWork Remote Script **1.29** (repository; check the installed copy's hash before relying on it) · Supabase live ledger: **39 migrations**, latest `20261112073555_lyrics_edit_applied_at` · Edge Functions `practice-audio` v7 and `member-access-admin` v8 · Operations and backups: [docs/OPERATIONS.md](docs/OPERATIONS.md)._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -451,6 +451,7 @@ Aaron is testing whether the export checklist's yellow "changed since upload" fl
   - **Two devices editing one track** are merged line by line on save: lines this editor changed win, untouched lines take the other device's text. Only a clip added or removed elsewhere (Drums/Percussion) still asks the editor to reopen.
   - **Every device sees where its edit is** under the track chips: saved and waiting for the Mac, sending, in Ableton (pending manual save), or not applied with the reason.
   - TSPWork **1.29** adds `session` to `/status`; nothing else changed from 1.28.
+  - **After Aaron's device test (same day):** a re-check of an edit believed to be in Live is described to the bridge against the **saved set first** (against the applied state nothing differs, so a Live reopened without saving was left unchanged); new work goes against the applied state first; the other description is the fallback. The editor is **never blocked** while edits wait for a manual save. Practice also checks the open song's edits every 6 s with a small query (`applied_at`, `updated_at`, `relay_error`) in case Realtime dropped. **Clicking a song title no longer moves Ableton** (Aaron's decision); review clicks on work titles and the Sync page are unchanged.
 
 - **2026-11-12 (audit follow-up, verified against live services)**
   - **Guests are restricted in the database, not only in the UI.** `is_band_member()` gates every read policy except songs, `song_lyrics`, `song_lyrics_edits`, the guest's own `members` row and the `practice_track_colors` row of `app_meta`. Checked with the guest's, a member's and the admin's identity: the guest reads nothing else and cannot write.

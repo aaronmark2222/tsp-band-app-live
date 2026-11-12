@@ -2735,11 +2735,8 @@ document.addEventListener('click', (event) => {
   // Songs-page title clicks only expand/collapse their details; they should not
   // start an Ableton review session or display its transport bar.
   if (title?.matches('.song-summary-toggle[data-view="songs"]')) return;
-  const collapsing = title?.getAttribute('aria-expanded') === 'true';
-  if (title?.dataset.songId && !collapsing && !(title.dataset.view === 'setlists' && state.setlistEditMode)) {
-    hideReviewBar(); // TSPWork ends the review (and un-solos) on a song jump
-    sendAbletonCommand('/jump', { song_id: title.dataset.songId });
-  }
+  // Clicking a song title no longer moves Ableton (Aaron, 12 Nov 2026): it only
+  // opens the song in the app. Review clicks on work titles are unchanged.
 }, true);
 
 // ---------------------------------------------------------------------------
@@ -3406,7 +3403,7 @@ async function persistAppliedLyricsRelayState(rows) {
     const applied = lyricsRelayStateLines(row.source_lines || row.lines);
     if (lyricsRelayStateMatches(row.applied_lines, applied) && !row.relay_error) continue;
     const { error } = await db.from('song_lyrics_edits')
-      .update({ applied_lines: applied, relay_error: null })
+      .update({ applied_lines: applied, applied_at: new Date().toISOString(), relay_error: null })
       .eq('song_id', row.song_id)
       .eq('track_slug', row.track_slug);
     if (error) throw error;
@@ -3454,19 +3451,30 @@ function lyricsRelayPlan(updates, options) {
 // baseline (Live's memory may have been reset); if it still conflicts it is set
 // aside, and the others are sent again. Returns what was applied and refused.
 async function relayLyricsRows(rows, request) {
-  let batch = rows.map((row) => ({ row, base_lines: row.base_lines, lines: row.lines, usedSaved: !row.saved_lines }));
+  // Each edit can be described to the bridge against two baselines: what the
+  // relay last put into Live ("applied") or the saved set ("saved"). The bridge
+  // only changes a clip whose text differs between baseline and edit, so:
+  // - new work on a track already in Live goes against "applied" first;
+  // - a re-check of a track believed to be in Live goes against "saved" first,
+  //   otherwise nothing would differ and a Live that was reopened without
+  //   saving would be left unchanged.
+  // The other baseline is the fallback when the bridge reports a mismatch.
+  let batch = rows.map((row) => {
+    const applied = { base_lines: row.base_lines, lines: row.lines };
+    if (!row.saved_lines) return { row, variants: [applied] };
+    const saved = { base_lines: row.saved_base_lines, lines: row.saved_lines };
+    const recheck = lyricsRelayStateMatches(row.applied_lines, row.source_lines || row.lines);
+    return { row, variants: recheck ? [saved, applied] : [applied, saved] };
+  });
   const refused = []; const applied = [];
   for (let attempt = 0; attempt <= rows.length * 2 && batch.length; attempt += 1) {
-    const write = await request(batch.map((item) => ({ song_id: item.row.song_id, track_slug: item.row.track_slug, base_lines: item.base_lines, lines: item.lines })));
+    const write = await request(batch.map((item) => ({ song_id: item.row.song_id, track_slug: item.row.track_slug, ...item.variants[0] })));
     if (write?.ok) { applied.push(...batch.map((item) => item.row)); batch = []; break; }
     if (write?.error === 'busy') return { applied, refused, busy: true, remaining: batch.map((item) => item.row) };
     const index = batch.findIndex((item) => item.row.song_id === write?.song_id && item.row.track_slug === write?.track_slug);
     if (index < 0) throw new Error(write?.message || write?.detail || write?.error || 'Ableton could not apply the saved lyric edits.');
     const item = batch[index];
-    if (!item.usedSaved) {
-      batch[index] = { row: item.row, base_lines: item.row.saved_base_lines, lines: item.row.saved_lines, usedSaved: true };
-      continue;
-    }
+    if (item.variants.length > 1) { batch[index] = { row: item.row, variants: item.variants.slice(1) }; continue; }
     refused.push({ song_id: item.row.song_id, track_slug: item.row.track_slug, updated_at: item.row.updated_at, error: write.error || 'refused' });
     batch.splice(index, 1);
   }
@@ -5723,7 +5731,7 @@ function applyLyricsEdits(rows) {
   ly.lyricsEdits = rows || [];
 }
 async function readLyricsEdits(songId) {
-  const { data, error } = await db.from('song_lyrics_edits').select('song_id,track_slug,lines,updated_at,applied_lines,relay_error').eq('song_id', songId);
+  const { data, error } = await db.from('song_lyrics_edits').select('song_id,track_slug,lines,updated_at,applied_lines,applied_at,relay_error').eq('song_id', songId);
   if (error) throw error;
   return data || [];
 }
@@ -5766,6 +5774,30 @@ async function refreshPracticeLyricsFromRealtime(songId) {
     } catch (error) { console.warn('Could not refresh shared Practice lyrics', error); }
   }, 150);
 }
+// Realtime can drop quietly on phones and tablets (sleep, network change). As
+// a safety net the open Practice song is checked every few seconds with a tiny
+// query, and reloaded only when something about its lyric edits changed.
+function lyricsEditsSignature(edits, baselineUpdatedAt) {
+  return [baselineUpdatedAt || '', ...(edits || []).map((row) => `${row.track_slug}|${row.updated_at}|${row.relay_error || ''}|${row.applied_at || ''}`).sort()].join(';');
+}
+let lyricsPollBusy = false;
+async function pollPracticeLyrics() {
+  const songId = practice.songId;
+  if (lyricsPollBusy || document.hidden || state.view !== 'practice' || !songId || !practice.lyrics || practice.lyrics.error || navigator.onLine === false) return;
+  if (lyricsEditDraft && $('#lyrics-edit-dialog')?.open) return;
+  lyricsPollBusy = true;
+  try {
+    const [{ data: edits, error }, { data: base }] = await Promise.all([
+      db.from('song_lyrics_edits').select('track_slug,updated_at,relay_error,applied_at').eq('song_id', songId),
+      db.from('song_lyrics').select('updated_at').eq('song_id', songId).maybeSingle()
+    ]);
+    if (error || practice.songId !== songId) return;
+    const remote = lyricsEditsSignature(edits, base?.updated_at);
+    const local = lyricsEditsSignature(practice.lyrics.lyricsEdits, practice.lyrics.updated_at);
+    if (remote !== local) refreshPracticeLyricsFromRealtime(songId);
+  } catch { /* offline or busy: the next tick tries again */ } finally { lyricsPollBusy = false; }
+}
+setInterval(pollPracticeLyrics, 6000);
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && state.view === 'practice' && practice.songId && practice.lyrics && !practice.lyrics.error) refreshPracticeLyricsFromRealtime(practice.songId);
 });
@@ -5888,7 +5920,7 @@ function lyricsEditorDialog() {
   d.addEventListener('close', () => {
     const songId = lyricsEditDraft?.songId;
     lyricsEditDraft = null;
-    if (songId && practiceLyricsRefreshQueued.has(songId)) refreshPracticeLyricsFromRealtime(songId);
+    if (songId) refreshPracticeLyricsFromRealtime(songId);
   });
   return d;
 }
@@ -6004,9 +6036,9 @@ function renderLyricsEditor({ focus = false } = {}) {
       ? `<textarea class="lyrics-edit-input" data-edit-line="${item.i}" rows="3" aria-label="${clipLabel} text">${escapeHtml(lyricsClipTextForEditor(line.text))}</textarea><div class="lyrics-edit-cell-tools"><span>${clipLabel} · original MIDI clip text</span><button type="button" class="lyrics-edit-undo" data-edit-undo="${item.i}" ${changed ? '' : 'disabled'}>Undo</button></div>`
       : `<div class="lyrics-edit-cell-preview">${lyricLineHtml(line.text)}</div><div class="lyrics-edit-cell-tools"><span>${clipLabel}</span>${changed ? `<button type="button" class="lyrics-edit-undo" data-edit-undo="${item.i}">Undo</button>` : ''}</div>`}</div>`;
   }).join('') || '<p class="lyrics-edit-empty">No lyric clips on this track.</p>';
-  d.querySelector('[data-edit-message]').textContent = draft.message || (abletonPresence.awaitingSave ? 'A lyric edit is in Live memory. Save the set manually and choose Sync Ableton Set before making another change.' : draft.restoreAbleton ? 'Ableton version is selected. Choose Save Lyrics to remove the saved edits.' : '');
-  d.querySelector('[data-edit-restore]').disabled = draft.saving || draft.restoreAbleton || abletonPresence.awaitingSave || (!draft.hasOverride && lyricsEditorMatchesAbleton());
-  d.querySelector('[data-edit-save]').disabled = draft.saving || abletonPresence.awaitingSave || !lyricsEditorHasChanges() || draft.lines.some((line) => !String(line.text || '').trim());
+  d.querySelector('[data-edit-message]').textContent = draft.message || (draft.restoreAbleton ? 'Ableton version is selected. Choose Save Lyrics to remove the saved edits.' : '');
+  d.querySelector('[data-edit-restore]').disabled = draft.saving || draft.restoreAbleton || (!draft.hasOverride && lyricsEditorMatchesAbleton());
+  d.querySelector('[data-edit-save]').disabled = draft.saving || !lyricsEditorHasChanges() || draft.lines.some((line) => !String(line.text || '').trim());
   canvas.scrollTop = scrollTop;
   if (focus) {
     const input = canvas.querySelector(`[data-edit-line="${draft.activeIndex}"]`);

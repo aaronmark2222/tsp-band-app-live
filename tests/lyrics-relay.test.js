@@ -98,3 +98,44 @@ test('status line: queued, sending, in Ableton, needs attention', () => {
   assert.equal(ctx.lyricsEditStatus({ ...edit, applied_lines: [L(0, 'older')] }, { available: true }).state, 'sending');
   assert.equal(ctx.lyricsEditStatus({ ...edit, relay_error: 'source_changed' }, { available: true }).state, 'attention');
 });
+
+test('re-check of an edit believed to be in Live goes against the saved set first (Live reopened without saving)', async () => {
+  const saved = [L(0, 'saved')];
+  const r = row('E3', 'chords', [L(0, 'edited')], [L(0, 'edited')], { saved });
+  const seen = [];
+  const out = await ctx.relayLyricsRows([r], async (edits) => { seen.push(edits[0].base_lines[0].text); return { ok: true }; });
+  assert.deepEqual(seen, ['saved']); // the bridge sees saved -> edited and renames the clip
+  assert.equal(out.applied.length, 1);
+});
+
+test('re-check falls back to the applied state when the saved-set description does not fit Live', async () => {
+  const r = row('E2', 'drums', [L(0, 'fill')], [L(0, 'fill')], { saved: [] });
+  const seen = [];
+  const out = await ctx.relayLyricsRows([r], async (edits) => {
+    seen.push(edits[0].base_lines.length);
+    return edits[0].base_lines.length === 0 ? { ok: false, error: 'clip_count_mismatch', song_id: 'E2', track_slug: 'drums' } : { ok: true };
+  });
+  assert.deepEqual(seen, [0, 1]);
+  assert.equal(out.applied.length, 1);
+  assert.equal(out.refused.length, 0);
+});
+
+test('four queued tracks after a Live restart: each is re-described against the saved set and all apply', async () => {
+  const rows = ['I1', 'E2', 'E3', 'H1'].map((id) => row(id, 'chords', [L(0, 'edited ' + id)], [L(0, 'edited ' + id)], { saved: [L(0, 'saved ' + id)] }));
+  let calls = 0;
+  const out = await ctx.relayLyricsRows(rows, async (edits) => { calls += 1; return edits.every((e) => e.base_lines[0].text.startsWith('saved')) ? { ok: true } : { ok: false, error: 'source_changed', song_id: edits[0].song_id, track_slug: 'chords' }; });
+  assert.equal(calls, 1);
+  assert.equal(out.applied.length, 4);
+});
+
+const sig = load(['lyricsEditsSignature']);
+test('the small poll notices a new edit, an apply, a refusal and a new baseline', () => {
+  const base = [{ track_slug: 'chords', updated_at: 'u1', relay_error: null, applied_at: null }];
+  const s0 = sig.lyricsEditsSignature(base, 'b1');
+  assert.equal(s0, sig.lyricsEditsSignature([{ ...base[0], lines: [1], applied_lines: null }], 'b1'));
+  assert.notEqual(s0, sig.lyricsEditsSignature([{ ...base[0], updated_at: 'u2' }], 'b1'));
+  assert.notEqual(s0, sig.lyricsEditsSignature([{ ...base[0], applied_at: 't' }], 'b1'));
+  assert.notEqual(s0, sig.lyricsEditsSignature([{ ...base[0], relay_error: 'source_changed' }], 'b1'));
+  assert.notEqual(s0, sig.lyricsEditsSignature(base, 'b2'));
+  assert.notEqual(s0, sig.lyricsEditsSignature([], 'b1'));
+});
