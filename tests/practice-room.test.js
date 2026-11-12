@@ -74,16 +74,28 @@ function host({ playing = true, position = 0 } = {}) {
   const practice = { songId: 'E5' };
   const room = { role: 'host', channel: {}, anchor: null };
   const live = { playing, position };
-  const ctx = load(['roomHostAnchor'], { room, practice, ptIsPlaying: () => live.playing, ptPosition: () => live.position });
+  const ctx = load(['roomHostAnchor'], { room, practice, ptIsPlaying: () => live.playing, ptPosition: () => live.position, ROOM_ANCHOR_SNAP: 0.25, ROOM_ANCHOR_EASE: 0.25 });
   return { ctx, room, live, practice };
 }
 
-test('small wobble in the reported position keeps the same anchor', () => {
+test('small wobble is eased into the anchor, not jumped to', () => {
   const { ctx, room, live } = host({ position: 10 });
   const first = ctx.roomHostAnchor();
+  assert.equal(first.pos, 10);
   live.position = 10.08; // a coarse reading a moment later
-  assert.equal(ctx.roomHostAnchor(), first, 'the follower keeps gliding');
-  assert.equal(room.anchor, first);
+  const next = ctx.roomHostAnchor();
+  // The anchor moves a quarter of the way to the new reading, so a follower
+  // glides to it instead of stepping.
+  assert.ok(next.pos > 10 && next.pos < 10.08, `eased, got ${next.pos}`);
+  assert.ok(Math.abs(next.pos - 10.02) < 0.01, `a quarter of the error, got ${next.pos}`);
+});
+
+test('a steady clock leaves the anchor where it is', () => {
+  const { ctx, live } = host({ position: 10 });
+  ctx.roomHostAnchor();
+  live.position = 10; // no time has passed in the test's clock either
+  const next = ctx.roomHostAnchor();
+  assert.ok(Math.abs(next.pos - 10) < 0.001);
 });
 
 test('a real jump (a seek), a pause or a new song makes a new anchor', () => {
@@ -99,4 +111,22 @@ test('a real jump (a seek), a pause or a new song makes a new anchor', () => {
   live.playing = true;
   practice.songId = 'H2';
   assert.equal(ctx.roomHostAnchor().songId, 'H2');
+});
+
+test('the host anchor is corrected a little on every send, not left to drift', () => {
+  const { appSource } = require('./helpers');
+  assert.match(appSource, /const ROOM_ANCHOR_SNAP = 0\.25;/);
+  assert.match(appSource, /room\.anchor = \{ at: now, pos: predicted \+ error \* ROOM_ANCHOR_EASE, playing, songId: practice\.songId \};/);
+});
+
+test('state goes out twice a second and the clocks are re-checked every ten', () => {
+  const { appSource } = require('./helpers');
+  assert.match(appSource, /room\.stateTimer = setInterval\(roomSendState, 500\);/);
+  assert.match(appSource, /room\.pingTimer = setInterval\(\(\) => roomPingBurst\(3\), 10000\);/);
+});
+
+test('a clock that really moved is taken at once', () => {
+  const { appSource } = require('./helpers');
+  assert.match(appSource, /else if \(Math\.abs\(delta\) > 120\) room\.offset \+= delta;/);
+  assert.match(appSource, /if \(!document\.hidden && room\.role === 'follower'\) roomPingBurst\(5\)/);
 });

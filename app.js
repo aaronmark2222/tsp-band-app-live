@@ -8261,6 +8261,13 @@ function roomHostName() {
 // The host's own clock: an anchor that only moves when playback really drifts
 // from it, so followers get a smooth line instead of the coarse steps some
 // browsers report for an <audio> element's position.
+// The anchor the followers extrapolate from. A player's own clock (the audio
+// element's currentTime especially) is coarse and drifts against wall time, so
+// the anchor is corrected a little on every send instead of being left alone
+// until the error is big enough to notice: the error decays smoothly and
+// never sits at the old quarter-second tolerance (Aaron, 13 Nov 2026).
+const ROOM_ANCHOR_SNAP = 0.25; // a seek or a stall: move at once
+const ROOM_ANCHOR_EASE = 0.25; // otherwise take a quarter of the error each send
 function roomHostAnchor() {
   const playing = ptIsPlaying();
   const pos = ptPosition();
@@ -8268,7 +8275,11 @@ function roomHostAnchor() {
   const a = room.anchor;
   if (playing && a && a.playing && a.songId === practice.songId) {
     const predicted = a.pos + (now - a.at) / 1000;
-    if (Math.abs(predicted - pos) < 0.25) return a;
+    const error = pos - predicted;
+    if (Math.abs(error) < ROOM_ANCHOR_SNAP) {
+      room.anchor = { at: now, pos: predicted + error * ROOM_ANCHOR_EASE, playing, songId: practice.songId };
+      return room.anchor;
+    }
   }
   room.anchor = { at: now, pos, playing, songId: practice.songId };
   return room.anchor;
@@ -8352,8 +8363,10 @@ function roomOnPong(payload) {
   room.samples = [...room.samples.filter((x) => now - x.at < ROOM_SAMPLE_LIFE_MS), { rtt, offset, at: now }].slice(-10);
   const best = room.samples.reduce((a, b) => (b.rtt < a.rtt ? b : a));
   room.rtt = best.rtt;
+  const delta = best.offset - room.offset;
   if (!room.synced) { room.offset = best.offset; room.synced = true; }
-  else room.offset += (best.offset - room.offset) * 0.35; // ease, so lyrics never jump
+  else if (Math.abs(delta) > 120) room.offset += delta; // the clocks really moved (sleep, network change)
+  else room.offset += delta * 0.35; // ease, so lyrics never jump
   renderRoomUi();
 }
 
@@ -8393,8 +8406,8 @@ async function roomOpen(code, role) {
     });
   try { sessionStorage.setItem(ROOM_KEY, JSON.stringify({ code, role })); } catch { /* private mode */ }
   clearInterval(room.stateTimer); clearInterval(room.pingTimer);
-  if (role === 'host') room.stateTimer = setInterval(roomSendState, 1000);
-  else room.pingTimer = setInterval(() => roomPingBurst(3), 20000);
+  if (role === 'host') room.stateTimer = setInterval(roomSendState, 500);
+  else room.pingTimer = setInterval(() => roomPingBurst(3), 10000);
   renderRoomUi();
   ptRender();
 }
@@ -8520,4 +8533,9 @@ document.addEventListener('click', (event) => {
   const start = () => { if (state.member) roomOpen(saved.code, saved.role); else setTimeout(start, 500); };
   setTimeout(start, 1200);
 })();
+// A device that was asleep or changed network comes back with a clock that
+// moved: re-measure at once rather than waiting for the next round.
+document.addEventListener('visibilitychange', () => { if (!document.hidden && room.role === 'follower') roomPingBurst(5); });
+window.addEventListener('focus', () => { if (room.role === 'follower') roomPingBurst(3); });
+window.addEventListener('online', () => { if (room.role === 'follower') roomPingBurst(5); });
 window.addEventListener('pagehide', () => { if (room.channel) { try { room.channel.send({ type: 'broadcast', event: 'bye', payload: { role: room.role, name: state.member?.name || '' } }); } catch { /* leaving */ } } });
