@@ -1,31 +1,47 @@
-// iPhone Safari can leave a bottom-pinned bar floating above the screen edge.
+// iPhone Safari can leave a bottom-pinned bar floating above the screen edge,
+// most often after the keyboard closes. The fix measures where the bar landed
+// rather than guessing why, so one pass puts it back.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { load } = require('./helpers');
+const { load, appSource } = require('./helpers');
 
-function fit(innerHeight, viewport) {
+function fit({ innerHeight = 844, viewport = { offsetTop: 0, height: 844 }, barBottom = 844, barHeight = 60, gap = 0 }) {
   const set = [];
   const ctx = load(['ptBarFit'], {
     window: { innerHeight, visualViewport: viewport },
-    document: { documentElement: { style: { setProperty: (name, value) => set.push([name, value]) } } },
-    ptBarGap: 0
+    document: {
+      documentElement: { style: { setProperty: (name, value) => set.push([name, value]) } },
+      getElementById: () => (barHeight ? { getBoundingClientRect: () => ({ bottom: barBottom, height: barHeight }) } : null)
+    },
+    ptBarGap: gap
   });
   ctx.ptBarFit();
   return set;
 }
 
-test('a normal layout is left alone', () => {
-  assert.deepEqual(fit(844, { offsetTop: 0, height: 844 }), []);
+test('a bar already on the edge is left alone', () => {
+  assert.deepEqual(fit({}), []);
 });
 
-test('a gap under the bar is closed', () => {
-  assert.deepEqual(fit(800, { offsetTop: 0, height: 844 }), [['--pt-bottom', '-40px']]);
+test('a bar left floating above the edge is pushed back down', () => {
+  // What the keyboard leaves behind: the bar's bottom is 24px short.
+  assert.deepEqual(fit({ barBottom: 820 }), [['--pt-bottom', '-24px']]);
+});
+
+test('a correction already in place is adjusted, not restarted', () => {
+  assert.deepEqual(fit({ barBottom: 820, gap: 10 }), [['--pt-bottom', '-14px']]);
 });
 
 test('the keyboard lifts the bar above itself', () => {
-  assert.deepEqual(fit(844, { offsetTop: 0, height: 500 }), [['--pt-bottom', '344px']]);
+  assert.deepEqual(fit({ viewport: { offsetTop: 0, height: 500 } }), [['--pt-bottom', '344px']]);
 });
 
-test('a browser without a visual viewport changes nothing', () => {
-  assert.deepEqual(fit(844, undefined), []);
+test('a hidden bar and a browser without a visual viewport are skipped', () => {
+  assert.deepEqual(fit({ barHeight: 0 }), []);
+  assert.deepEqual(fit({ viewport: undefined }), []);
+});
+
+test('the bar is re-measured while the keyboard animation settles', () => {
+  assert.match(appSource, /window\.addEventListener\('focusout', ptBarSettle\)/);
+  assert.match(appSource, /\[60, 180, 340, 550, 900\]\.map/);
 });
