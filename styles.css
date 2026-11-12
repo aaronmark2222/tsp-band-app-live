@@ -1859,3 +1859,14 @@ body.lyrics-fs .ly-scroll .lyrics-edit-input { font:inherit; line-height:1.25; }
 /* A Song ID is a jump control only for someone who may use it, while the
    Ableton Master Project is open on Aaron's Mac; otherwise it is plain text. */
 body:not(.ableton-jumpable) button.song-jump { pointer-events:none; cursor:default; text-decoration:none; }
+
+/* Group practice: the room code with its QR, and the scanner square. */
+.room-code-row { display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; }
+.room-code-row .room-code { margin:0; }
+.room-qr { flex:0 0 auto; border-radius:8px; background:#fff; padding:6px; box-shadow:0 2px 12px rgba(0,0,0,.35); }
+.room-or { margin:10px 0 0; }
+.room-scan-open { width:100%; }
+.room-scan { position:relative; width:min(240px,70vw); aspect-ratio:1; margin:10px auto; border-radius:14px; overflow:hidden; background:#000; }
+.room-scan video { width:100%; height:100%; object-fit:cover; display:block; }
+.room-scan-frame { position:absolute; inset:12%; border:2px solid rgba(255,255,255,.85); border-radius:10px; box-shadow:0 0 0 100vmax rgba(0,0,0,.25); pointer-events:none; }
+#room-scan-note { text-align:center; }

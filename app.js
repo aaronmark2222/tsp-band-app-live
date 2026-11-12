@@ -8236,6 +8236,276 @@ ptMediaHandlers();
 // between the two clocks from round trips, then runs that anchor forward with
 // its own clock, so the lyrics never wait for the next message. Followers send
 // commands; only the host ever touches audio.
+// ---------------------------------------------------------------------------
+// QR codes for the practice rooms. Version 1, error correction level M, byte
+// mode: a 21x21 symbol holding a short room token and nothing else, which
+// keeps the encoder small and the symbol easy to read across a room. Checked
+// module for module against a reference encoder, and read back with the same
+// decoder the scanner uses (tests/qr.test.js).
+function qrGaloisTables() {
+  const exp = new Uint8Array(512);
+  const log = new Uint8Array(256);
+  let x = 1;
+  for (let i = 0; i < 255; i += 1) {
+    exp[i] = x;
+    log[x] = i;
+    x <<= 1;
+    if (x & 0x100) x ^= 0x11d;
+  }
+  for (let i = 255; i < 512; i += 1) exp[i] = exp[i - 255];
+  return { exp, log };
+}
+function qrEcCodewords(data, count) {
+  const { exp, log } = qrGaloisTables();
+  let gen = [1];
+  for (let i = 0; i < count; i += 1) {
+    const next = new Array(gen.length + 1).fill(0);
+    for (let j = 0; j < gen.length; j += 1) {
+      next[j] ^= gen[j];
+      next[j + 1] ^= gen[j] ? exp[(log[gen[j]] + i) % 255] : 0;
+    }
+    gen = next;
+  }
+  const out = new Array(count).fill(0);
+  for (const byte of data) {
+    const factor = byte ^ out[0];
+    out.shift();
+    out.push(0);
+    if (factor) for (let j = 0; j < count; j += 1) out[j] ^= exp[(log[factor] + log[gen[j + 1]]) % 255];
+  }
+  return out;
+}
+const QR_SIZE = 21;
+function qrReserved() {
+  const r = Array.from({ length: QR_SIZE }, () => new Array(QR_SIZE).fill(false));
+  const block = (row, col) => { for (let i = -1; i <= 7; i += 1) for (let j = -1; j <= 7; j += 1) {
+    const y = row + i; const x = col + j;
+    if (y >= 0 && y < QR_SIZE && x >= 0 && x < QR_SIZE) r[y][x] = true;
+  } };
+  block(0, 0); block(0, QR_SIZE - 7); block(QR_SIZE - 7, 0);
+  for (let i = 0; i < QR_SIZE; i += 1) { r[6][i] = true; r[i][6] = true; }
+  for (let i = 0; i < 9; i += 1) { r[8][i] = true; r[i][8] = true; }
+  for (let i = 0; i < 8; i += 1) { r[8][QR_SIZE - 1 - i] = true; r[QR_SIZE - 1 - i][8] = true; }
+  return r;
+}
+function qrPatterns(m) {
+  const finder = (row, col) => {
+    for (let i = 0; i < 7; i += 1) for (let j = 0; j < 7; j += 1) {
+      const edge = i === 0 || i === 6 || j === 0 || j === 6;
+      const core = i >= 2 && i <= 4 && j >= 2 && j <= 4;
+      m[row + i][col + j] = edge || core;
+    }
+  };
+  finder(0, 0); finder(0, QR_SIZE - 7); finder(QR_SIZE - 7, 0);
+  for (let i = 8; i < QR_SIZE - 8; i += 1) { m[6][i] = i % 2 === 0; m[i][6] = i % 2 === 0; }
+}
+const QR_MASKS = [
+  (r, c) => (r + c) % 2 === 0,
+  (r) => r % 2 === 0,
+  (r, c) => c % 3 === 0,
+  (r, c) => (r + c) % 3 === 0,
+  (r, c) => (Math.floor(r / 2) + Math.floor(c / 3)) % 2 === 0,
+  (r, c) => ((r * c) % 2) + ((r * c) % 3) === 0,
+  (r, c) => (((r * c) % 2) + ((r * c) % 3)) % 2 === 0,
+  (r, c) => (((r + c) % 2) + ((r * c) % 3)) % 2 === 0
+];
+function qrFormatBits(mask) {
+  const data = (0 << 3) | mask; // 00 = error correction level M
+  let value = data << 10;
+  for (let i = 4; i >= 0; i -= 1) if (value & (1 << (i + 10))) value ^= 0b10100110111 << i;
+  return ((data << 10) | value) ^ 0b101010000010010;
+}
+function qrPlaceFormat(m, mask) {
+  const bits = qrFormatBits(mask);
+  const bit = (i) => ((bits >> (14 - i)) & 1) === 1; // the first bit written is the most significant
+  for (let i = 0; i <= 5; i += 1) m[8][i] = bit(i);
+  m[8][7] = bit(6);
+  m[8][8] = bit(7);
+  m[7][8] = bit(8);
+  for (let i = 9; i <= 14; i += 1) m[14 - i][8] = bit(i);
+  for (let i = 0; i <= 7; i += 1) m[QR_SIZE - 1 - i][8] = bit(i);
+  for (let i = 8; i <= 14; i += 1) m[8][QR_SIZE - 15 + i] = bit(i);
+  m[QR_SIZE - 8][8] = true; // the dark module, which the loop above writes over
+}
+function qrPenalty(m) {
+  let score = 0;
+  const run = (get) => {
+    for (let a = 0; a < QR_SIZE; a += 1) {
+      let last = null; let length = 0;
+      for (let b = 0; b < QR_SIZE; b += 1) {
+        const v = get(a, b);
+        if (v === last) { length += 1; if (length === 5) score += 3; else if (length > 5) score += 1; }
+        else { last = v; length = 1; }
+      }
+    }
+  };
+  run((a, b) => m[a][b]);
+  run((a, b) => m[b][a]);
+  for (let r = 0; r < QR_SIZE - 1; r += 1) for (let c = 0; c < QR_SIZE - 1; c += 1) {
+    const v = m[r][c];
+    if (v === m[r][c + 1] && v === m[r + 1][c] && v === m[r + 1][c + 1]) score += 3;
+  }
+  const pattern = [true, false, true, true, true, false, true, false, false, false, false];
+  const hit = (cells) => {
+    for (let i = 0; i + 11 <= cells.length; i += 1) {
+      let ok = true;
+      for (let j = 0; j < 11; j += 1) if (cells[i + j] !== pattern[j]) { ok = false; break; }
+      if (ok) score += 40;
+      ok = true;
+      for (let j = 0; j < 11; j += 1) if (cells[i + j] !== pattern[10 - j]) { ok = false; break; }
+      if (ok) score += 40;
+    }
+  };
+  for (let a = 0; a < QR_SIZE; a += 1) {
+    hit(m[a]);
+    hit(m.map((row) => row[a]));
+  }
+  const dark = m.flat().filter(Boolean).length;
+  score += Math.floor(Math.abs((dark * 100) / (QR_SIZE * QR_SIZE) - 50) / 5) * 10;
+  return score;
+}
+function qrEncode(text) {
+  const bytes = [...new TextEncoder().encode(text)];
+  if (bytes.length > 14) throw new Error('too long for a version 1 symbol');
+  const bits = [];
+  const push = (value, length) => { for (let i = length - 1; i >= 0; i -= 1) bits.push((value >> i) & 1); };
+  push(0b0100, 4);
+  push(bytes.length, 8);
+  bytes.forEach((b) => push(b, 8));
+  for (let i = 0; i < 4 && bits.length < 128; i += 1) bits.push(0);
+  while (bits.length % 8) bits.push(0);
+  const data = [];
+  for (let i = 0; i < bits.length; i += 8) data.push(parseInt(bits.slice(i, i + 8).join(''), 2));
+  for (let pad = 0; data.length < 16; pad += 1) data.push(pad % 2 ? 0x11 : 0xec);
+  const codewords = [...data, ...qrEcCodewords(data, 10)];
+
+  const reserved = qrReserved();
+  const base = Array.from({ length: QR_SIZE }, () => new Array(QR_SIZE).fill(false));
+  qrPatterns(base);
+  // Data goes in two-module columns, bottom to top then top to bottom.
+  let bit = 0;
+  const stream = codewords.flatMap((b) => [7, 6, 5, 4, 3, 2, 1, 0].map((i) => ((b >> i) & 1) === 1));
+  let row = QR_SIZE - 1;
+  let up = true;
+  for (let col = QR_SIZE - 1; col > 0; col -= 2) {
+    if (col === 6) col -= 1; // the timing column is skipped
+    for (;;) {
+      for (const c of [col, col - 1]) {
+        if (!reserved[row][c]) {
+          base[row][c] = bit < stream.length ? stream[bit] : false;
+          bit += 1;
+        }
+      }
+      row += up ? -1 : 1;
+      if (row < 0 || row >= QR_SIZE) { row = up ? 0 : QR_SIZE - 1; up = !up; break; }
+    }
+  }
+  let best = null;
+  for (let mask = 0; mask < 8; mask += 1) {
+    const m = base.map((row) => [...row]);
+    for (let r = 0; r < QR_SIZE; r += 1) for (let c = 0; c < QR_SIZE; c += 1) {
+      if (!reserved[r][c] && QR_MASKS[mask](r, c)) m[r][c] = !m[r][c];
+    }
+    qrPlaceFormat(m, mask);
+    const score = qrPenalty(m);
+    if (!best || score < best.score) best = { score, m };
+  }
+  return best.m;
+}
+
+// The symbol as a crisp SVG: one path of black squares on white.
+function qrSvg(text, { size = 132, label = '' } = {}) {
+  const m = qrEncode(text);
+  const quiet = 2;
+  const span = QR_SIZE + quiet * 2;
+  let path = '';
+  for (let r = 0; r < QR_SIZE; r += 1) {
+    for (let c = 0; c < QR_SIZE; c += 1) if (m[r][c]) path += `M${c + quiet} ${r + quiet}h1v1h-1z`;
+  }
+  return `<svg class="room-qr" width="${size}" height="${size}" viewBox="0 0 ${span} ${span}" role="img" aria-label="${escapeHtml(label || text)}" shape-rendering="crispEdges">`
+    + `<rect width="${span}" height="${span}" fill="#fff"/><path d="${path}" fill="#000"/></svg>`;
+}
+const roomScan = { stream: null, raf: 0, note: '', loading: null, busy: false };
+// jsQR is vendored and only fetched when the scanner is opened, so it costs
+// nothing until someone actually scans.
+function roomScanLoadDecoder() {
+  if (window.jsQR) return Promise.resolve(window.jsQR);
+  if (roomScan.loading) return roomScan.loading;
+  roomScan.loading = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'vendor/jsqr.js?v=1';
+    script.onload = () => resolve(window.jsQR);
+    script.onerror = () => reject(new Error('decoder'));
+    document.head.append(script);
+  }).finally(() => { roomScan.loading = null; });
+  return roomScan.loading;
+}
+function roomScanStop() {
+  cancelAnimationFrame(roomScan.raf);
+  roomScan.raf = 0;
+  roomScan.stream?.getTracks().forEach((track) => track.stop());
+  roomScan.stream = null;
+  roomScan.busy = false;
+}
+function roomScanNote(text) {
+  roomScan.note = text;
+  const note = document.getElementById('room-scan-note');
+  if (note) note.textContent = text;
+}
+async function roomScanStart() {
+  const video = document.getElementById('room-scan-video');
+  if (!video || roomScan.busy) return;
+  roomScan.busy = true;
+  try {
+    const decode = await roomScanLoadDecoder();
+    if (room.mode !== 'scan') { roomScan.busy = false; return; }
+    roomScan.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    if (room.mode !== 'scan') { roomScanStop(); return; }
+    video.srcObject = roomScan.stream;
+    await video.play().catch(() => {});
+    roomScanNote('Looking for a code…');
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    let last = 0;
+    const look = (now) => {
+      if (room.mode !== 'scan' || !roomScan.stream) return;
+      roomScan.raf = requestAnimationFrame(look);
+      if (now - last < 120 || video.readyState < 2) return; // about eight looks a second
+      last = now;
+      const side = Math.min(video.videoWidth, video.videoHeight);
+      if (!side) return;
+      canvas.width = canvas.height = Math.min(480, side);
+      ctx.drawImage(video, (video.videoWidth - side) / 2, (video.videoHeight - side) / 2, side, side, 0, 0, canvas.width, canvas.height);
+      const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const found = decode(image.data, image.width, image.height, { inversionAttempts: 'dontInvert' });
+      const code = found && roomCodeFromScan(found.data);
+      if (!code) return;
+      roomScanStop();
+      roomScanNote(`Joining ${code}…`);
+      room.mode = '';
+      room.busy = true;
+      renderRoomDialog();
+      roomOpen(code, 'follower').finally(() => { room.busy = false; renderRoomDialog(); });
+    };
+    roomScan.raf = requestAnimationFrame(look);
+  } catch (error) {
+    roomScanStop();
+    roomScanNote(error?.name === 'NotAllowedError'
+      ? 'This device would not give the camera. Allow camera access for this app, or type the code instead.'
+      : 'The camera could not be started here. Type the code instead.');
+  }
+}
+const ROOM_QR_PREFIX = 'TSP:';
+// What a scanned code means: our own token, a bare four-character code, or a
+// link with the code in it (so a phone's own camera app works too).
+function roomCodeFromScan(text) {
+  const raw = String(text || '').trim().toUpperCase();
+  const fromLink = /[?#&]ROOM=([A-Z0-9]{4})/.exec(raw);
+  if (fromLink) return fromLink[1];
+  const token = raw.startsWith(ROOM_QR_PREFIX) ? raw.slice(ROOM_QR_PREFIX.length) : raw;
+  return /^[A-Z0-9]{4}$/.test(token) ? token : null;
+}
+
 const ROOM_KEY = 'tsp-room-v1';
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I to read out loud
 const ROOM_SAMPLE_LIFE_MS = 120000;
@@ -8440,9 +8710,11 @@ function roomDialogEl() {
     const act = event.target.closest('[data-room-action]')?.dataset.roomAction;
     if (!act) { if (event.target === d) d.close(); return; }
     if (act === 'close') { d.close(); return; }
+    if (act === 'close') roomScanStop();
     if (act === 'make') { room.busy = true; renderRoomDialog(); await roomOpen(roomNewCode(), 'host'); room.busy = false; renderRoomDialog(); return; }
-    if (act === 'join-form') { room.mode = 'join'; renderRoomDialog(); d.querySelector('#room-code-input')?.focus(); return; }
-    if (act === 'back') { room.mode = ''; room.error = ''; renderRoomDialog(); return; }
+    if (act === 'join-form') { roomScanStop(); room.mode = 'join'; renderRoomDialog(); d.querySelector('#room-code-input')?.focus(); return; }
+    if (act === 'scan') { room.mode = 'scan'; room.error = ''; roomScan.note = ''; renderRoomDialog(); return; }
+    if (act === 'back') { roomScanStop(); room.mode = room.mode === 'scan' ? 'join' : ''; room.error = ''; renderRoomDialog(); return; }
     if (act === 'leave') { await roomLeave(''); room.mode = ''; renderRoomDialog(); return; }
   });
   d.addEventListener('submit', async (event) => {
@@ -8454,7 +8726,7 @@ function roomDialogEl() {
     room.busy = false; room.mode = '';
     renderRoomDialog();
   });
-  d.addEventListener('close', () => { room.mode = ''; room.error = ''; });
+  d.addEventListener('close', () => { roomScanStop(); room.mode = ''; room.error = ''; });
   return d;
 }
 function renderRoomDialog() {
@@ -8467,8 +8739,8 @@ function renderRoomDialog() {
   const error = room.error ? `<p class="error">${escapeHtml(room.error)}</p>` : '';
   if (roomHosting()) {
     body.innerHTML = `${head('Group practice')}
-      <p class="muted">Read this code out to the others. They open Group practice and choose <b>Join a room</b>.</p>
-      <p class="room-code">${escapeHtml(room.code)}</p>
+      <p class="muted">Read this code out, or let them scan it. They open Group practice and choose <b>Join a room</b>.</p>
+      <div class="room-code-row"><p class="room-code">${escapeHtml(room.code)}</p>${qrSvg(ROOM_QR_PREFIX + room.code, { label: `Room ${room.code}` })}</div>
       <p class="muted">This device plays the audio. ${devices > 1 ? `${devices} devices connected${others.length ? `: ${escapeHtml(others.map((m) => m.name || 'someone').join(', '))}` : ''}.` : 'Waiting for someone to join…'}</p>
       <p class="muted">On an iPhone or iPad, press play here once yourself — Safari only lets the others start the sound after that.</p>
       ${error}<div class="room-actions"><button type="button" class="button" data-room-action="leave">Close the room</button></div>`;
@@ -8482,10 +8754,20 @@ function renderRoomDialog() {
       ${error}<div class="room-actions"><button type="button" class="button" data-room-action="leave">Leave the room</button></div>`;
     return;
   }
+  if (room.mode === 'scan') {
+    body.innerHTML = `${head('Scan the room code')}
+      <p class="muted">Point the camera at the code on the device that is playing.</p>
+      <div class="room-scan"><video id="room-scan-video" playsinline muted autoplay></video><div class="room-scan-frame"></div></div>
+      <p class="muted" id="room-scan-note">${escapeHtml(roomScan.note || 'Starting the camera…')}</p>
+      ${error}<div class="room-actions"><button type="button" class="button" data-room-action="back">Back</button></div>`;
+    roomScanStart();
+    return;
+  }
   if (room.mode === 'join') {
     body.innerHTML = `${head('Join a room')}
-      <form><p class="muted">Type the four characters from the device that is playing.</p>
+      <form><p class="muted">Type the four characters from the device that is playing, or scan its code.</p>
       <input id="room-code-input" class="room-input" type="text" inputmode="latin" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="4" placeholder="ABCD" aria-label="Room code">
+      <p class="room-or"><button type="button" class="button quiet room-scan-open" data-room-action="scan">Scan a QR code</button></p>
       ${error}<div class="room-actions"><button type="submit" class="button primary" ${room.busy ? 'disabled' : ''}>${room.busy ? 'Joining…' : 'Join'}</button><button type="button" class="button quiet" data-room-action="back">Back</button></div></form>`;
     return;
   }

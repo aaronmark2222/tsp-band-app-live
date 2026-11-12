@@ -25,7 +25,7 @@ jobs:
           node --check sw.js
       - name: Published files exist and the cache markers are present
         run: |
-          for f in index.html app.js boot.js styles.css sw.js apple-touch-icon.png assets/the-string-project-logo.png; do test -s "$f" || { echo "missing $f"; exit 1; }; done
+          for f in index.html app.js boot.js styles.css sw.js apple-touch-icon.png assets/the-string-project-logo.png vendor/jsqr.js; do test -s "$f" || { echo "missing $f"; exit 1; }; done
           grep -q 'app.js?v=' index.html && grep -q 'styles.css?v=' index.html
           grep -q 'Content-Security-Policy' index.html
       - name: Frontend tests
