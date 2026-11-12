@@ -12,8 +12,8 @@
     <meta name="theme-color" content="#292929">
     <title>TSP Work · The String Project</title>
     <link rel="icon" href="assets/the-string-project-logo.png?v=20261019" type="image/png">
-    <link rel="stylesheet" href="styles.css?v=20261112-mixer2">
-    <script type="module" src="app.js?v=20261112-mixer2"></script>
+    <link rel="stylesheet" href="styles.css?v=20261113-room1">
+    <script type="module" src="app.js?v=20261113-room1"></script>
   </head>
   <body>
     <main id="app" class="shell">
@@ -212,6 +212,8 @@
           <div class="hero-row practice-hero"><div><p class="eyebrow">PLAY ALONG</p><h1>Practice</h1><p class="muted">Play along with the bar at the bottom: the Mixdown, or the Multitrack with its mixer to switch parts on and off, solo and set levels. Your settings stay the same as you change songs.</p></div></div>
           <div class="practice-pick">
             <select id="practice-source" class="wide-select" aria-label="Practise songs from"></select>
+            <button type="button" id="room-button" class="room-btn" title="Group practice" aria-label="Group practice"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"></circle><circle cx="17" cy="9.5" r="2.4"></circle><path d="M3.5 18.5c0-3 2.5-5 5.5-5s5.5 2 5.5 5"></path><path d="M16 14.2c2.6.2 4.5 2 4.5 4.3"></path></svg></button>
+            <span id="room-chip" class="room-chip hidden"></span>
             <span id="practice-song-note" class="muted"></span>
           </div>
             <div class="practice-main">

@@ -1775,3 +1775,21 @@ body.lyrics-fs #practice-lyrics .ly-edit-status { display: none; }
 /* Practice: status for the open song sits beside the list picker. */
 #practice-song-note.error { color: #ff9e80; }
 .ab-lazy { opacity: .6; }
+
+/* ---------- Group practice (rooms) ---------- */
+.room-btn { flex: none; width: 38px; height: 38px; display: inline-grid; place-items: center; padding: 0; border-radius: 999px; }
+.room-btn svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
+.room-btn.on { background: var(--glass-accent) !important; border-color: var(--glass-accent-edge) !important; color: #1b1206 !important; }
+.room-chip { font-size: 12px; padding: 5px 11px; border-radius: 999px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); cursor: pointer; }
+.room-chip.hidden { display: none; }
+.room-dialog { width: min(420px, 92vw); border: 1px solid rgba(255,255,255,.14); border-radius: 18px; background: #1d1d1f; color: #f2f2f2; padding: 16px 18px 18px; }
+.room-dialog::backdrop { background: rgba(0,0,0,.55); }
+.room-head { display: flex; align-items: center; gap: 10px; }
+.room-head h2 { flex: 1; margin: 0; font-size: 17px; }
+.room-dialog p { margin: 8px 0; }
+.room-code { font-size: 38px; letter-spacing: .22em; text-align: center; font-weight: 700; color: #f39a26; margin: 14px 0 !important; }
+.room-input { width: 100%; box-sizing: border-box; font-size: 28px; letter-spacing: .22em; text-align: center; text-transform: uppercase; padding: 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,.18); background: #141414; color: #fff; }
+.room-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+/* A follower has no audio of its own: the Mixdown/Multitrack switch and its
+   mixer belong to the device that is playing. */
+body.room-following #practice-transport .pt-modes { display: none; }

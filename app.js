@@ -5045,6 +5045,7 @@ async function practiceOpenSong(songId) {
   practice.duration = 0;
   practice.offset = 0;
   practice.position = 0;
+  roomPulse(); // a room hears about the new song at once
   // The Mixdown/Multitrack choice carries over to the next song.
   practice.error = '';
   practice.lyrics = null;
@@ -5101,7 +5102,7 @@ async function practiceOpenSong(songId) {
   }
   // Load the multitrack straight away only when it's already on this device
   // (or in memory); downloading is always the member's choice.
-  if (practice.songId === songId && practice.loadToken === songToken && practiceMultiTracks().length
+  if (practice.songId === songId && practice.loadToken === songToken && !roomFollowing() && practiceMultiTracks().length
     && (practiceMultiSaved(songId) || practiceMultiInMemory(songId) || bgFetchActive(songId))) practiceLoadTracks();
 }
 function practiceMultiInMemory(songId) {
@@ -6737,6 +6738,7 @@ function practiceCheckLyricsLength() {
   const audio = $('#practice-mix-audio');
   const set = practice.lyrics?.duration_seconds;
   box?.querySelector('.ly-drift')?.remove();
+  if (roomFollowing()) { practice.lyricsUnsynced = false; return; } // the host's clock drives them
   if (!box || !audio || !set) return;
   const check = () => {
     if (!Number.isFinite(audio.duration)) return;
@@ -6928,25 +6930,30 @@ function ptMultiReady() {
   return practiceMultiLoaded();
 }
 function ptEngine() {
+  if (roomFollowing()) return 'room'; // the host plays; this device shows and steers
   const audio = $('#practice-mix-audio');
   if (ptMode() === 'multi' && ptMultiReady()) return 'multi';
   return audio ? 'mix' : (ptMultiReady() ? 'multi' : null);
 }
 function ptDuration() {
+  if (roomFollowing()) return room.state.duration || Number(state.songs.find((x) => x.id === practice.songId)?.duration_seconds) || 0;
   const audio = $('#practice-mix-audio');
   return Math.max(practice.duration || 0, Number.isFinite(audio?.duration) ? audio.duration : 0);
 }
 function ptIsPlaying() {
+  if (roomFollowing()) return !!room.state.playing;
   const audio = $('#practice-mix-audio');
   return practice.playing || (audio && !audio.paused && !audio.ended);
 }
 function ptPosition() {
+  if (roomFollowing()) return roomPosition();
   const audio = $('#practice-mix-audio');
   if (practice.playing) return practicePosition();
   if (audio && !audio.paused) return audio.currentTime || 0;
   return practice.position || 0;
 }
 function ptPlay() {
+  if (roomCmd('play')) return;
   const t = ptPosition();
   const engine = ptEngine();
   const audio = $('#practice-mix-audio');
@@ -6961,19 +6968,24 @@ function ptPlay() {
   }
   ptRender();
   ptMediaUpdate(true);
+  roomPulse();
 }
 function ptPause() {
+  if (roomCmd('pause')) return;
   practice.position = ptPosition();
   practicePause();
   $('#practice-mix-audio')?.pause();
   ptRender();
   ptMediaUpdate(true);
+  roomPulse();
 }
 function ptStop() {
+  if (roomCmd('stop')) return;
   ptPause();
   ptSeek(0);
 }
 function ptSeek(t) {
+  if (roomCmd('seek', Math.max(0, t))) return;
   const target = Math.max(0, Math.min(ptDuration() || t, t));
   const audio = $('#practice-mix-audio');
   practice.position = target;
@@ -6985,6 +6997,7 @@ function ptSeek(t) {
   practice.lyricIndex = -2;
   ptRender();
   ptMediaUpdate(true);
+  roomPulse();
 }
 function ptMultiLoading() {
   return practiceMultiTracks().some((tr) => practice.loadState.get(tr.element) === 'loading');
@@ -7012,6 +7025,7 @@ function ptSetMode(mode) {
   ptRefreshPicks();
   if (wasPlaying) ptPlay(); else ptSeek(t);
 }
+function roomPulse() { if (roomHosting()) roomSendState(true); }
 function ptRefreshPicks() {
   const engine = ptEngine();
   document.querySelectorAll('#practice-view .pt-pick').forEach((btn) => {
@@ -7450,6 +7464,7 @@ document.addEventListener('click', (event) => {
   if (songChoice) {
     const songId = songChoice.dataset.ptSongId;
     ptSongPickerOpen = false;
+    if (roomCmd('song', songId)) { ptRender(); return; } // the host changes song; this device follows
     if (songId !== practice.songId) {
       practice.autoplay = ptIsPlaying();
       ptPause();
@@ -7471,6 +7486,7 @@ document.addEventListener('click', (event) => {
   else if (action === 'start') ptSeek(0);
   else if (action === 'prev' || action === 'next') {
     // Next/previous song in the chosen list (repertoire or setlist); keeps playing if it was.
+    if (roomCmd(action)) return;
     practice.autoplay = ptIsPlaying();
     ptPause();
     practiceStepSong(action === 'next' ? 1 : -1);
@@ -7905,3 +7921,301 @@ function ptMediaUpdate(force) {
 setInterval(() => { if (ptIsPlaying()) ptMediaUpdate(); }, 2000);
 // Register the controls straight away (iOS can ignore handlers added after playback starts).
 ptMediaHandlers();
+
+
+// ---------------------------------------------------------------------------
+// Group practice. One device (the host) plays; the others follow its lyrics and
+// drive its playback bar. The host broadcasts a clock anchor — where it was at
+// a given moment by its own clock — and each follower works out the difference
+// between the two clocks from round trips, then runs that anchor forward with
+// its own clock, so the lyrics never wait for the next message. Followers send
+// commands; only the host ever touches audio.
+const ROOM_KEY = 'tsp-room-v1';
+const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I to read out loud
+const ROOM_SAMPLE_LIFE_MS = 120000;
+const roomDeviceId = Math.random().toString(36).slice(2, 10);
+const room = {
+  code: null, role: null, channel: null, members: [], state: null, anchor: null,
+  offset: 0, rtt: null, synced: false, samples: [], pings: new Map(),
+  stateTimer: null, pingTimer: null, songRequest: null, busy: false, mode: '', error: ''
+};
+function roomHosting() { return room.role === 'host' && !!room.channel; }
+function roomFollowing() { return room.role === 'follower' && !!room.channel && !!room.state; }
+function roomNewCode() {
+  return Array.from({ length: 4 }, () => ROOM_ALPHABET[Math.floor(Math.random() * ROOM_ALPHABET.length)]).join('');
+}
+// Where the host is now, by this device's reckoning of the host's clock.
+function roomPosition() {
+  const s = room.state;
+  if (!s) return 0;
+  if (!s.playing) return s.position || 0;
+  return Math.max(0, (s.position || 0) + (Date.now() + room.offset - s.at) / 1000);
+}
+// How far off the shared clock could be: half the shortest round trip.
+function roomAccuracy() { return room.synced && room.rtt != null ? Math.max(1, Math.round(room.rtt / 2)) : null; }
+function roomHostName() {
+  return room.members.find((m) => m.role === 'host')?.name || room.state?.host || 'the other device';
+}
+
+// The host's own clock: an anchor that only moves when playback really drifts
+// from it, so followers get a smooth line instead of the coarse steps some
+// browsers report for an <audio> element's position.
+function roomHostAnchor() {
+  const playing = ptIsPlaying();
+  const pos = ptPosition();
+  const now = Date.now();
+  const a = room.anchor;
+  if (playing && a && a.playing && a.songId === practice.songId) {
+    const predicted = a.pos + (now - a.at) / 1000;
+    if (Math.abs(predicted - pos) < 0.25) return a;
+  }
+  room.anchor = { at: now, pos, playing, songId: practice.songId };
+  return room.anchor;
+}
+function roomSendState() {
+  if (!roomHosting()) return;
+  const a = roomHostAnchor();
+  room.channel.send({ type: 'broadcast', event: 'state', payload: {
+    songId: practice.songId, position: a.pos, at: a.at, playing: a.playing,
+    duration: ptDuration() || 0, host: state.member?.name || ''
+  } });
+}
+function roomApplyState(payload) {
+  if (!payload || room.role !== 'follower') return;
+  const first = !room.state;
+  room.state = payload;
+  if (payload.songId && payload.songId !== practice.songId && room.songRequest !== payload.songId) {
+    room.songRequest = payload.songId;
+    practice.autoplay = false;
+    Promise.resolve(practiceOpenSong(payload.songId)).finally(() => { room.songRequest = null; });
+  }
+  if (first) { renderRoomUi(); ptRender(); }
+}
+// Called by the transport on a follower: true means "sent to the host instead".
+function roomCmd(action, value) {
+  if (room.role !== 'follower' || !room.channel) return false;
+  room.channel.send({ type: 'broadcast', event: 'cmd', payload: { action, value, from: roomDeviceId, name: state.member?.name || '' } });
+  return true;
+}
+function roomHandleCmd(payload) {
+  if (!roomHosting() || !payload) return;
+  switch (payload.action) {
+    case 'hello': break; // just asking for the current state
+    case 'play': if (!ptIsPlaying()) ptPlay(); break;
+    case 'pause': if (ptIsPlaying()) ptPause(); break;
+    case 'stop': ptStop(); break;
+    case 'seek': ptSeek(Number(payload.value) || 0); break;
+    case 'prev': case 'next': {
+      practice.autoplay = ptIsPlaying();
+      ptPause();
+      practiceStepSong(payload.action === 'next' ? 1 : -1);
+      break;
+    }
+    case 'song': {
+      const songId = String(payload.value || '');
+      if (songId && songId !== practice.songId) {
+        practice.autoplay = ptIsPlaying();
+        ptPause();
+        practiceOpenSong(songId);
+      }
+      break;
+    }
+    default: return;
+  }
+  roomSendState();
+}
+
+// Clock: several round trips, and the one that came back quickest is kept —
+// it is the least likely to have been held up in one direction only.
+function roomPingBurst(times = 3) {
+  if (room.role !== 'follower' || !room.channel) return;
+  let sent = 0;
+  const send = () => {
+    if (room.role !== 'follower' || !room.channel) return;
+    const id = Math.random().toString(36).slice(2, 10);
+    room.pings.set(id, Date.now());
+    if (room.pings.size > 24) room.pings.delete(room.pings.keys().next().value);
+    room.channel.send({ type: 'broadcast', event: 'ping', payload: { id, from: roomDeviceId } });
+    sent += 1;
+    if (sent < times) setTimeout(send, 250);
+  };
+  send();
+}
+function roomOnPong(payload) {
+  const t0 = room.pings.get(payload.id);
+  if (!t0) return;
+  room.pings.delete(payload.id);
+  const now = Date.now();
+  const rtt = now - t0;
+  const offset = payload.t1 - (t0 + rtt / 2);
+  room.samples = [...room.samples.filter((x) => now - x.at < ROOM_SAMPLE_LIFE_MS), { rtt, offset, at: now }].slice(-10);
+  const best = room.samples.reduce((a, b) => (b.rtt < a.rtt ? b : a));
+  room.rtt = best.rtt;
+  if (!room.synced) { room.offset = best.offset; room.synced = true; }
+  else room.offset += (best.offset - room.offset) * 0.35; // ease, so lyrics never jump
+  renderRoomUi();
+}
+
+async function roomOpen(code, role) {
+  if (room.channel) await roomLeave('', true);
+  Object.assign(room, { code, role, state: null, anchor: null, members: [], samples: [], pings: new Map(), offset: 0, rtt: null, synced: false, error: '' });
+  const channel = db.channel('tsp-room-' + code, { config: { broadcast: { self: false }, presence: { key: roomDeviceId } } });
+  room.channel = channel;
+  channel
+    .on('broadcast', { event: 'state' }, ({ payload }) => roomApplyState(payload))
+    .on('broadcast', { event: 'cmd' }, ({ payload }) => roomHandleCmd(payload))
+    .on('broadcast', { event: 'ping' }, ({ payload }) => {
+      if (roomHosting()) channel.send({ type: 'broadcast', event: 'pong', payload: { id: payload.id, to: payload.from, t1: Date.now() } });
+    })
+    .on('broadcast', { event: 'pong' }, ({ payload }) => { if (payload?.to === roomDeviceId) roomOnPong(payload); })
+    .on('broadcast', { event: 'bye' }, ({ payload }) => {
+      if (payload?.role === 'host' && room.role === 'follower') roomLeave(`${payload.name || 'The other device'} closed the room.`);
+    })
+    .on('presence', { event: 'sync' }, () => {
+      room.members = Object.values(channel.presenceState()).flat();
+      if (room.role === 'follower' && room.members.length && !room.members.some((m) => m.role === 'host')) {
+        roomLeave('The room ended: the device that was playing left.');
+        return;
+      }
+      renderRoomUi();
+    })
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        room.error = '';
+        channel.track({ id: roomDeviceId, role, name: state.member?.name || '', member_id: state.member?.id || null });
+        if (role === 'host') roomSendState();
+        else { roomPingBurst(5); roomCmd('hello'); }
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        room.error = 'Lost the connection to the room; trying again…';
+      }
+      renderRoomUi();
+    });
+  try { sessionStorage.setItem(ROOM_KEY, JSON.stringify({ code, role })); } catch { /* private mode */ }
+  clearInterval(room.stateTimer); clearInterval(room.pingTimer);
+  if (role === 'host') room.stateTimer = setInterval(roomSendState, 1000);
+  else room.pingTimer = setInterval(() => roomPingBurst(3), 20000);
+  renderRoomUi();
+  ptRender();
+}
+async function roomLeave(message, quiet) {
+  clearInterval(room.stateTimer); clearInterval(room.pingTimer);
+  room.stateTimer = null; room.pingTimer = null;
+  const channel = room.channel;
+  const role = room.role;
+  Object.assign(room, { code: null, role: null, channel: null, members: [], state: null, anchor: null, samples: [], pings: new Map(), synced: false, rtt: null, offset: 0, songRequest: null });
+  if (channel) {
+    try { channel.send({ type: 'broadcast', event: 'bye', payload: { role, name: state.member?.name || '' } }); } catch { /* going anyway */ }
+    try { await db.removeChannel(channel); } catch { /* going anyway */ }
+  }
+  try { sessionStorage.removeItem(ROOM_KEY); } catch { /* private mode */ }
+  if (!quiet) {
+    renderRoomUi();
+    ptRender();
+    if (state.view === 'practice') practiceKeepPlace(renderPracticeLyrics);
+    if (message) showNotice(message);
+  }
+}
+
+// ---- the group button, the chip beside it and the dialog --------------------
+function roomDialogEl() {
+  let d = document.getElementById('room-dialog');
+  if (d) return d;
+  document.body.insertAdjacentHTML('beforeend', '<dialog id="room-dialog" class="room-dialog"><div data-room-body></div></dialog>');
+  d = document.getElementById('room-dialog');
+  d.addEventListener('click', async (event) => {
+    const act = event.target.closest('[data-room-action]')?.dataset.roomAction;
+    if (!act) { if (event.target === d) d.close(); return; }
+    if (act === 'close') { d.close(); return; }
+    if (act === 'make') { room.busy = true; renderRoomDialog(); await roomOpen(roomNewCode(), 'host'); room.busy = false; renderRoomDialog(); return; }
+    if (act === 'join-form') { room.mode = 'join'; renderRoomDialog(); d.querySelector('#room-code-input')?.focus(); return; }
+    if (act === 'back') { room.mode = ''; room.error = ''; renderRoomDialog(); return; }
+    if (act === 'leave') { await roomLeave(''); room.mode = ''; renderRoomDialog(); return; }
+  });
+  d.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const code = (d.querySelector('#room-code-input')?.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
+    if (code.length !== 4) { room.error = 'Enter the four-character code.'; renderRoomDialog(); return; }
+    room.busy = true; renderRoomDialog();
+    await roomOpen(code, 'follower');
+    room.busy = false; room.mode = '';
+    renderRoomDialog();
+  });
+  d.addEventListener('close', () => { room.mode = ''; room.error = ''; });
+  return d;
+}
+function renderRoomDialog() {
+  const d = document.getElementById('room-dialog');
+  if (!d || !d.open) return;
+  const body = d.querySelector('[data-room-body]');
+  const others = room.members.filter((m) => m.id !== roomDeviceId);
+  const devices = room.members.length || 1;
+  const head = (title) => `<header class="room-head"><h2>${escapeHtml(title)}</h2><button type="button" class="pm-btn pm-x" data-room-action="close" aria-label="Close">✕</button></header>`;
+  const error = room.error ? `<p class="error">${escapeHtml(room.error)}</p>` : '';
+  if (roomHosting()) {
+    body.innerHTML = `${head('Group practice')}
+      <p class="muted">Read this code out to the others. They open Group practice and choose <b>Join a room</b>.</p>
+      <p class="room-code">${escapeHtml(room.code)}</p>
+      <p class="muted">This device plays the audio. ${devices > 1 ? `${devices} devices connected${others.length ? `: ${escapeHtml(others.map((m) => m.name || 'someone').join(', '))}` : ''}.` : 'Waiting for someone to join…'}</p>
+      <p class="muted">On an iPhone or iPad, press play here once yourself — Safari only lets the others start the sound after that.</p>
+      ${error}<div class="room-actions"><button type="button" class="button" data-room-action="leave">Close the room</button></div>`;
+    return;
+  }
+  if (room.role === 'follower') {
+    const acc = roomAccuracy();
+    body.innerHTML = `${head('Group practice')}
+      <p class="muted">Following <b>${escapeHtml(roomHostName())}</b> in room <b>${escapeHtml(room.code)}</b>. The lyrics follow their playback, and the buttons at the bottom drive it.</p>
+      <p class="muted">${acc ? `Clocks agree to about ±${acc} ms (round trip ${Math.round(room.rtt)} ms).` : 'Measuring the connection…'}</p>
+      ${error}<div class="room-actions"><button type="button" class="button" data-room-action="leave">Leave the room</button></div>`;
+    return;
+  }
+  if (room.mode === 'join') {
+    body.innerHTML = `${head('Join a room')}
+      <form><p class="muted">Type the four characters from the device that is playing.</p>
+      <input id="room-code-input" class="room-input" type="text" inputmode="latin" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="4" placeholder="ABCD" aria-label="Room code">
+      ${error}<div class="room-actions"><button type="submit" class="button primary" ${room.busy ? 'disabled' : ''}>${room.busy ? 'Joining…' : 'Join'}</button><button type="button" class="button quiet" data-room-action="back">Back</button></div></form>`;
+    return;
+  }
+  body.innerHTML = `${head('Group practice')}
+    <p class="muted">Practise together on one device's audio: it plays, and everyone else sees the lyrics in time with it and can work its playback.</p>
+    ${error}<div class="room-actions">
+      ${isGuest() ? '' : `<button type="button" class="button primary" data-room-action="make" ${room.busy ? 'disabled' : ''}>${room.busy ? 'Making…' : 'Make a room'}</button>`}
+      <button type="button" class="button" data-room-action="join-form">Join a room</button>
+    </div>`;
+}
+function roomOpenDialog() {
+  const d = roomDialogEl();
+  if (!d.open) d.showModal();
+  renderRoomDialog();
+}
+function renderRoomUi() {
+  const chip = document.getElementById('room-chip');
+  const btn = document.getElementById('room-button');
+  document.body.classList.toggle('room-following', roomFollowing());
+  document.body.classList.toggle('room-hosting', roomHosting());
+  if (btn) btn.classList.toggle('on', !!room.channel);
+  if (chip) {
+    if (roomHosting()) {
+      const devices = room.members.length || 1;
+      chip.textContent = `Room ${room.code} · ${devices} device${devices === 1 ? '' : 's'}`;
+    } else if (room.role === 'follower') {
+      const acc = roomAccuracy();
+      chip.textContent = room.state
+        ? `Following ${roomHostName()}${acc ? ` · synced ±${acc} ms` : ' · measuring…'}`
+        : `Room ${room.code} · waiting for the other device…`;
+    } else chip.textContent = '';
+    chip.classList.toggle('hidden', !room.channel);
+  }
+  renderRoomDialog();
+}
+document.addEventListener('click', (event) => {
+  if (event.target.closest('#room-button, #room-chip')) roomOpenDialog();
+});
+// Back after a reload: rejoin the room this device was in.
+(function roomRestore() {
+  let saved = null;
+  try { saved = JSON.parse(sessionStorage.getItem(ROOM_KEY) || 'null'); } catch { /* ignore */ }
+  if (!saved?.code || !saved?.role) return;
+  const start = () => { if (state.member) roomOpen(saved.code, saved.role); else setTimeout(start, 500); };
+  setTimeout(start, 1200);
+})();
+window.addEventListener('pagehide', () => { if (room.channel) { try { room.channel.send({ type: 'broadcast', event: 'bye', payload: { role: room.role, name: state.member?.name || '' } }); } catch { /* leaving */ } } });
