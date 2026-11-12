@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last reconciled: **2026-11-12** · Frontend cache markers: `app.js?v=20261112-practice1`, `styles.css?v=20261112-practice1` · TSPWork Remote Script **1.30** (repository; check the installed copy's hash before relying on it) · Supabase live ledger: **40 migrations**, latest `20261112090228_lyrics_edit_relay_conflicts` · Edge Functions `practice-audio` v7 and `member-access-admin` v8 · Operations and backups: [docs/OPERATIONS.md](docs/OPERATIONS.md)._
+_Last reconciled: **2026-11-12** · Frontend cache markers: `app.js?v=20261112-practice1`, `styles.css?v=20261112-practice1` · TSPWork Remote Script **1.30** (repository; check the installed copy's hash before relying on it) · Supabase live ledger: **41 migrations**, latest `20261112172833_guest_ashwyn` · Edge Functions `practice-audio` v7 and `member-access-admin` v8 · Operations and backups: [docs/OPERATIONS.md](docs/OPERATIONS.md)._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -52,7 +52,7 @@ The app's visible name is **TSP Work**. The repo and Supabase project keep their
 | Gautham | `gautham` | Percussion | no | **not linked yet** |
 | Nishanth | `nishanth` | Drums | no | yes |
 
-**Guests** (`members.role = 'guest'`, since 2026-11-09): non-band people who only get the **Practice** page. Currently **Kenneth Shalom** (`kenneth`, login to be created by Aaron from Member access). Guests own no tasks, are left out of band member lists (dashboard picker, owners), and the app hides every tab except Practice (`body.guest-mode`, `isGuest()`; `setView` forces `practice`). Database reads are the same as members' (RLS is `current_member_id() is not null`), so the restriction is in the app; they cannot write anything (no tasks, not admin). Their activity is logged like members'.
+**Guests** (`members.role = 'guest'`, since 2026-11-09): non-band people who only get the **Practice** page. Currently **Kenneth Shalom** (`kenneth`, linked) and **Ashwyn** (`ashwyn`, added 2026-11-12; its login is created by Aaron from Member access, which is also where the sign-in email is entered — a guest's email is never put in this public repository). Guests own no tasks, are left out of band member lists (dashboard picker, owners), and the app hides every tab except Practice (`body.guest-mode`, `isGuest()`; `setView` forces `practice`). Database reads are the same as members' (RLS is `current_member_id() is not null`), so the restriction is in the app; they cannot write anything (no tasks, not admin). Their activity is logged like members'.
 
 Aaron is the owner and the only person who runs Ableton Sync and exports. He mostly uses the app on iPhone (home-screen web app) and on his MacBook in Safari. He is not a programmer: explain things simply, and do the work rather than handing him steps, except steps only he can do (passwords, keys, GUI permission prompts).
 
@@ -127,7 +127,7 @@ Aaron is the owner and the only person who runs Ableton Sync and exports. He mos
 
 | Table | Rows (verified 2026-11-11) | Purpose |
 |---|---|---|
-| `members` | 8 (7 band + 1 guest) | id, name, slug, instrument, is_admin, user_id (Auth link), must_change_password, sort_order, **role** (`member` / `guest`) |
+| `members` | 9 (7 band + 2 guests) | id, name, slug, instrument, is_admin, user_id (Auth link), must_change_password, sort_order, **role** (`member` / `guest`) |
 | `member_emails` | 5 | admin-only email mapping for onboarding |
 | `languages` / `song_languages` | 6 / 71 | language catalogue (E, H, K, T, Kn, Ml) and song links |
 | `songs` | 62 | id (`E5`, `EM7`, …), name, type, is_medley, **keys text[]**, **key_segments jsonb**, tempo_start/end/change, **tempo_segments jsonb**, duration_seconds, backing_track_manual (`null`=Auto / `Sent to Mix` / `Mixed`), sort_order |
