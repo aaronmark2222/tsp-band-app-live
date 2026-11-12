@@ -34,7 +34,7 @@ from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
 TLS_PORT = 47711
-VERSION = '1.31'
+VERSION = '1.32'
 DEBUG_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requests.log')
 # https listener for the live site in Safari. Certificate made for 127.0.0.1 /
 # localhost only, trusted once in this Mac's Keychain. Files sit next to this
@@ -562,6 +562,19 @@ class TSPWork(ControlSurface):
         self._set_clip_loop(False)
         self._review = None
 
+    # Which song the arrangement playhead is inside, as (song_id, start, end)
+    # in beats. Follow Ableton uses it to put every device on the same song.
+    def _song_at(self, beat):
+        track = self._find_track(None, 'SONG ID')
+        if track is None:
+            return None
+        for clip in track.arrangement_clips:
+            if clip.muted or not SONG_ID_RE.match(clip.name or ''):
+                continue
+            if clip.start_time - 0.01 <= beat < clip.end_time:
+                return (clip.name, float(clip.start_time), float(clip.end_time))
+        return None
+
     def _review_state(self, pos=None):
         song = self.song()
         rv = self._review
@@ -573,9 +586,14 @@ class TSPWork(ControlSurface):
         for i, c in enumerate(clips):
             if c[0] - 0.01 <= pos:
                 index = i
+        live_beat = float(song.current_song_time)
+        at = self._song_at(live_beat)
         return {'ok': True, 'active': bool(rv), 'song_id': rv and rv['song_id'], 'task_key': rv and rv['task_key'],
                 'playing': song.is_playing, 'beat': pos, 'clip': None if index is None else index + 1,
-                'clips': len(clips), 'solo': bool(self._solo_saved), 'loop': self._loop_saved is not None}
+                'clips': len(clips), 'solo': bool(self._solo_saved), 'loop': self._loop_saved is not None,
+                # The live arrangement playhead, for Follow Ableton (1.32).
+                'live_beat': live_beat, 'live_song': at and at[0], 'live_start': at and at[1], 'live_end': at and at[2],
+                'tempo': float(getattr(song, 'tempo', 0) or 0)}
 
     def _cmd_transport(self, action):
         song = self.song()

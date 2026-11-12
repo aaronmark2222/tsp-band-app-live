@@ -511,7 +511,11 @@ function songJumpLive() {
   return (abletonBridge.connected && abletonMainProjectOpen()) || abletonPresence.available;
 }
 function updateSongJumpAvailability() {
-  try { document.body.classList.toggle('ableton-jumpable', songJumpAllowed() && songJumpLive()); } catch { /* too early in the page's life */ }
+  try {
+    document.body.classList.toggle('ableton-jumpable', songJumpAllowed() && songJumpLive());
+    if (follow.on && !songJumpLive()) followStop();
+    renderFollowUi();
+  } catch { /* too early in the page's life */ }
 }
 // Only TSPWork 1.31 and later check the transport before moving the playhead.
 // Without that check a jump could move Live while it is playing, so the app
@@ -2796,6 +2800,18 @@ function abletonRemoteChannel() {
     channel
       .on('broadcast', { event: 'jump' }, ({ payload }) => abletonRemoteRunJump(payload))
       .on('broadcast', { event: 'jumped' }, ({ payload }) => abletonRemoteResult(payload))
+      // Follow Ableton: the playhead going out, and who wants it.
+      .on('broadcast', { event: 'ableton' }, ({ payload }) => followApply(payload))
+      .on('broadcast', { event: 'follow' }, ({ payload }) => {
+        if (!payload?.device) return;
+        if (payload.on) follow.claims.set(payload.device, Date.now());
+        else follow.claims.delete(payload.device);
+        if (abletonBridge.connected) followStartServing();
+      })
+      .on('broadcast', { event: 'fping' }, ({ payload }) => {
+        if (abletonBridge.connected && payload?.id) channel.send({ type: 'broadcast', event: 'fpong', payload: { id: payload.id, to: payload.from, t1: Date.now() } });
+      })
+      .on('broadcast', { event: 'fpong' }, ({ payload }) => { if (payload?.to === roomDeviceId) followOnPong(payload); })
       .subscribe((status) => { if (status === 'SUBSCRIBED') resolve(true); });
   });
   return channel;
@@ -6994,7 +7010,7 @@ function practiceCheckLyricsLength() {
   const audio = $('#practice-mix-audio');
   const set = practice.lyrics?.duration_seconds;
   box?.querySelector('.ly-drift')?.remove();
-  if (roomFollowing()) { practice.lyricsUnsynced = false; return; } // the host's clock drives them
+  if (roomFollowing() || followOn()) { practice.lyricsUnsynced = false; return; } // another clock drives them
   if (!box || !audio || !set) return;
   const check = () => {
     if (!Number.isFinite(audio.duration)) return;
@@ -7240,23 +7256,33 @@ function ptEngine() {
   return audio ? 'mix' : (ptMultiReady() ? 'multi' : null);
 }
 function ptDuration() {
+  if (followOn()) return Number(practice.lyrics?.duration_seconds) || Number(state.songs.find((x) => x.id === practice.songId)?.duration_seconds) || 0;
   if (roomFollowing()) return room.state.duration || Number(state.songs.find((x) => x.id === practice.songId)?.duration_seconds) || 0;
   const audio = $('#practice-mix-audio');
   return Math.max(practice.duration || 0, Number.isFinite(audio?.duration) ? audio.duration : 0);
 }
 function ptIsPlaying() {
+  if (followOn()) return !!follow.state?.playing;
   if (roomFollowing()) return !!room.state.playing;
   const audio = $('#practice-mix-audio');
   return practice.playing || (audio && !audio.paused && !audio.ended);
 }
 function ptPosition() {
+  if (followOn()) return followPosition();
   if (roomFollowing()) return roomPosition();
   const audio = $('#practice-mix-audio');
   if (practice.playing) return practicePosition();
   if (audio && !audio.paused) return audio.currentTime || 0;
   return practice.position || 0;
 }
+// Following Ableton is read-only: the transport belongs to Live.
+function ptPauseEverything() {
+  practicePause();
+  $('#practice-mix-audio')?.pause();
+  ptRender();
+}
 function ptPlay() {
+  if (followOn()) return;
   if (roomCmd('play')) return;
   const total = ptDuration();
   const at = ptPosition();
@@ -7277,6 +7303,7 @@ function ptPlay() {
   roomPulse();
 }
 function ptPause() {
+  if (followOn()) return;
   if (roomCmd('pause')) return;
   practice.position = ptPosition();
   practicePause();
@@ -7286,11 +7313,13 @@ function ptPause() {
   roomPulse();
 }
 function ptStop() {
+  if (followOn()) return;
   if (roomCmd('stop')) return;
   ptPause();
   ptSeek(0);
 }
 function ptSeek(t) {
+  if (followOn()) return;
   if (roomCmd('seek', Math.max(0, t))) return;
   const target = Math.max(0, Math.min(ptDuration() || t, t));
   const audio = $('#practice-mix-audio');
@@ -8506,6 +8535,184 @@ function roomCodeFromScan(text) {
   return /^[A-Z0-9]{4}$/.test(token) ? token : null;
 }
 
+// ---------------------------------------------------------------------------
+// Follow Ableton. The Mac that has the bridge reads Live's arrangement
+// playhead and relays it; every following device opens the song the playhead
+// is in and runs its lyrics against that timecode. Nothing plays any audio
+// while following: this is only about reading the right line at the right
+// moment (Aaron, 13 Nov 2026).
+const FOLLOW_MIN_VERSION = [1, 32];
+const FOLLOW_POLL_MS = 250;
+const FOLLOW_CLAIM_MS = 30000;
+const follow = {
+  on: false, state: null, offset: 0, rtt: null, samples: [], pings: new Map(),
+  songRequest: null, note: '', timer: null, pingTimer: null, claims: new Map(), serving: false
+};
+function followOn() { return follow.on; }
+function followSupported() {
+  const parts = String(abletonBridge.status?.version || '').split('.').map(Number);
+  if (!abletonBridge.connected) return true; // a relaying Mac vouches for its own version
+  const [major, minor] = FOLLOW_MIN_VERSION;
+  return Number.isFinite(parts[0]) && (parts[0] > major || (parts[0] === major && (parts[1] || 0) >= minor));
+}
+function followAvailable() {
+  return songJumpLive() && !room.code;
+}
+// Seconds into the song for a beat count from its start, using the tempo map
+// the lyrics themselves were timed with.
+function lyricsSecondsForBeats(beats) {
+  if (!(beats > 0)) return 0;
+  const map = Array.isArray(practice.lyrics?.tempo) && practice.lyrics.tempo.length ? practice.lyrics.tempo : null;
+  const song = state.songs.find((row) => row.id === practice.songId);
+  if (!map) return (beats * 60) / (Number(song?.tempo_start) || 120);
+  let acc = 0;
+  for (let i = 0; i < map.length; i += 1) {
+    const from = Math.max(0, Number(map[i][0]) || 0);
+    const bpm = Number(map[i][1]) || 120;
+    const to = i + 1 < map.length ? Math.max(from, Number(map[i + 1][0]) || from) : Infinity;
+    const span = to - from;
+    const segment = span === Infinity ? Infinity : (span * bpm) / 60;
+    if (acc + segment >= beats) return from + ((beats - acc) * 60) / bpm;
+    acc += segment;
+  }
+  return 0;
+}
+function followPosition() {
+  const s = follow.state;
+  if (!s || s.seconds == null) return 0;
+  if (!s.playing) return s.seconds;
+  return Math.max(0, s.seconds + (Date.now() + follow.offset - s.at) / 1000);
+}
+// A relayed playhead becomes a position in this device's open song.
+function followApply(payload) {
+  if (!follow.on || !payload) return;
+  const songId = payload.songId || null;
+  follow.state = { songId, beat: payload.beat, start: payload.start, playing: !!payload.playing, at: payload.at, seconds: null };
+  if (songId && songId !== practice.songId && follow.songRequest !== songId) {
+    follow.songRequest = songId;
+    follow.note = `Opening ${songId}…`;
+    practice.autoplay = false;
+    Promise.resolve(practiceOpenSong(songId)).finally(() => { follow.songRequest = null; renderFollowUi(); });
+  }
+  if (songId && songId === practice.songId && practice.lyrics && !practice.lyrics.error) {
+    follow.state.seconds = lyricsSecondsForBeats(Number(payload.beat) - Number(payload.start));
+    follow.note = '';
+  } else if (!songId) {
+    follow.note = 'Ableton is between songs.';
+  }
+  renderFollowUi();
+}
+// --- the Mac's side: read Live and relay ----------------------------------
+function followWanted() {
+  if (follow.on && abletonBridge.connected) return true;
+  const now = Date.now();
+  for (const [device, at] of follow.claims) if (now - at > FOLLOW_CLAIM_MS) follow.claims.delete(device);
+  return follow.claims.size > 0;
+}
+async function followServe() {
+  if (follow.serving || !abletonBridge.connected || !abletonMainProjectOpen() || !followWanted()) return;
+  follow.serving = true;
+  try {
+    const result = await abletonRequest('/transport', { action: 'state' }, 1500);
+    if (!result?.ok) return;
+    const payload = { songId: result.live_song || null, beat: Number(result.live_beat) || 0,
+      start: Number(result.live_start) || 0, playing: !!result.playing, at: Date.now() };
+    if (follow.claims.size) abletonRemoteChannel().send({ type: 'broadcast', event: 'ableton', payload });
+    if (follow.on) followApply(payload); // this Mac does not hear its own broadcast
+  } catch { /* the bridge answers again in a moment */ }
+  finally { follow.serving = false; }
+}
+function followStartServing() {
+  if (follow.timer) return;
+  follow.timer = setInterval(followServe, FOLLOW_POLL_MS);
+}
+// --- the following device's side ------------------------------------------
+function followClaim() {
+  if (!follow.on || abletonBridge.connected) return;
+  abletonRemoteChannel().send({ type: 'broadcast', event: 'follow', payload: { device: roomDeviceId, on: true } });
+}
+function followOnPong(payload) {
+  const t0 = follow.pings.get(payload.id);
+  if (!t0) return;
+  follow.pings.delete(payload.id);
+  const now = Date.now();
+  const rtt = now - t0;
+  follow.samples = [...follow.samples.filter((x) => now - x.at < 120000), { rtt, offset: payload.t1 - (t0 + rtt / 2), at: now }].slice(-10);
+  const best = follow.samples.reduce((a, b) => (b.rtt < a.rtt ? b : a));
+  follow.rtt = best.rtt;
+  const delta = best.offset - follow.offset;
+  if (!follow.samples.length || follow.rtt == null) follow.offset = best.offset;
+  else if (Math.abs(delta) > 120) follow.offset += delta;
+  else follow.offset += delta * 0.35;
+}
+function followPing(times = 3) {
+  if (!follow.on || abletonBridge.connected) return;
+  let sent = 0;
+  const send = () => {
+    if (!follow.on) return;
+    const id = Math.random().toString(36).slice(2, 10);
+    follow.pings.set(id, Date.now());
+    if (follow.pings.size > 24) follow.pings.delete(follow.pings.keys().next().value);
+    abletonRemoteChannel().send({ type: 'broadcast', event: 'fping', payload: { id, from: roomDeviceId } });
+    sent += 1;
+    if (sent < times) setTimeout(send, 250);
+  };
+  send();
+}
+async function followStart() {
+  if (!followAvailable()) return;
+  if (abletonBridge.connected && !followSupported()) { showNotice('Reload TSPWork in Live first: this version cannot report the playhead.', true); return; }
+  follow.on = true;
+  follow.samples = [];
+  follow.offset = 0;
+  follow.state = null;
+  follow.note = 'Finding Ableton…';
+  document.body.classList.add('ableton-following');
+  ptPauseEverything();
+  abletonRemoteChannel();
+  followStartServing();
+  if (!abletonBridge.connected) {
+    followClaim();
+    followPing(5);
+    clearInterval(follow.pingTimer);
+    follow.pingTimer = setInterval(() => { followClaim(); followPing(3); }, 10000);
+  }
+  renderFollowUi();
+  ptRender();
+}
+function followStop() {
+  follow.on = false;
+  follow.state = null;
+  follow.note = '';
+  follow.songRequest = null;
+  clearInterval(follow.pingTimer);
+  follow.pingTimer = null;
+  if (!abletonBridge.connected) abletonRemoteChannel().send({ type: 'broadcast', event: 'follow', payload: { device: roomDeviceId, on: false } });
+  document.body.classList.remove('ableton-following');
+  renderFollowUi();
+  ptRender();
+  practiceLyricsTick(true);
+}
+function followToggle() { if (follow.on) followStop(); else followStart(); }
+function renderFollowUi() {
+  const button = document.getElementById('follow-ableton');
+  if (button) {
+    button.classList.toggle('hidden', !songJumpLive());
+    button.classList.toggle('on', follow.on);
+    button.disabled = !!room.code;
+    button.setAttribute('aria-pressed', follow.on ? 'true' : 'false');
+    button.title = room.code ? 'Leave the practice room to follow Ableton' : follow.on ? 'Stop following Ableton' : 'Follow Ableton';
+  }
+  const roomButton = document.getElementById('room-button');
+  if (roomButton) {
+    roomButton.disabled = follow.on;
+    if (follow.on) roomButton.title = 'Stop following Ableton to practise in a room';
+  }
+  const note = document.getElementById('practice-song-note');
+  if (note && follow.on) note.textContent = follow.note || (follow.state?.playing ? 'Following Ableton' : 'Following Ableton (stopped)');
+  else if (note && note.textContent.startsWith('Following Ableton')) note.textContent = '';
+}
+
 const ROOM_KEY = 'tsp-room-v1';
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I to read out loud
 const ROOM_SAMPLE_LIFE_MS = 120000;
@@ -8790,6 +8997,7 @@ function renderRoomUi() {
   document.body.classList.toggle('room-hosting', roomHosting());
   updateSongJumpAvailability(); // sharing a room with Aaron allows Song ID jumps
   if (btn) btn.classList.toggle('on', !!room.channel);
+  renderFollowUi();
   if (chip) {
     if (roomHosting()) {
       const devices = room.members.length || 1;
@@ -8805,7 +9013,8 @@ function renderRoomUi() {
   renderRoomDialog();
 }
 document.addEventListener('click', (event) => {
-  if (event.target.closest('#room-button, #room-chip')) roomOpenDialog();
+  if (event.target.closest('#follow-ableton')) { followToggle(); return; }
+  if (event.target.closest('#room-button, #room-chip')) { if (follow.on) return; roomOpenDialog(); }
 });
 // Back after a reload: rejoin the room this device was in.
 (function roomRestore() {
