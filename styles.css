@@ -1850,3 +1850,7 @@ body.lyrics-fs:not(.lyrics-fs-controls) #practice-lyrics .ly-edit-bar { opacity:
 body.lyrics-fs.lyrics-editing #practice-lyrics .ly-scroll { padding-top:calc(env(safe-area-inset-top) + 104px)!important; }
 body.lyrics-fs .ly-scroll .lyrics-edit-cell { width:auto; }
 body.lyrics-fs .ly-scroll .lyrics-edit-input { font:inherit; line-height:1.25; }
+
+/* A Song ID is a jump control only for someone who may use it, while the
+   Ableton Master Project is open on Aaron's Mac; otherwise it is plain text. */
+body:not(.ableton-jumpable) button.song-jump { pointer-events:none; cursor:default; text-decoration:none; }

@@ -495,8 +495,33 @@ async function toggleSongDetails(songId, view) {
 // starting a review session or touching a playing transport. Only an admin
 // can have the TSPWork bridge, so everyone else sees the plain ID.
 function songIdMarkup(songId, cls = 'song-id') {
-  if (!state.member?.is_admin) return `<span class="${cls}">${escapeHtml(songId)}</span>`;
   return `<button type="button" class="${cls} song-jump" data-song-jump="${escapeHtml(songId)}" title="Jump to ${escapeHtml(songId)} in the open Ableton set (while it is stopped)" aria-label="Jump to ${escapeHtml(songId)} in Ableton">${escapeHtml(songId)}</button>`;
+}
+// Who may move the playhead, and when. Admins from any of their devices, and
+// anyone sharing a practice room with an admin; only while the Ableton Master
+// Project is open on Aaron's Mac (Aaron, 13 Nov 2026). The body class means
+// availability follows the heartbeat and the room without a re-render.
+function roomHasAdmin() {
+  return !!room.code && room.members.some((m) => m.admin);
+}
+function songJumpAllowed() {
+  return !!state.member?.is_admin || roomHasAdmin();
+}
+function songJumpLive() {
+  return (abletonBridge.connected && abletonMainProjectOpen()) || abletonPresence.available;
+}
+function updateSongJumpAvailability() {
+  try { document.body.classList.toggle('ableton-jumpable', songJumpAllowed() && songJumpLive()); } catch { /* too early in the page's life */ }
+}
+// Only TSPWork 1.31 and later check the transport before moving the playhead.
+// Without that check a jump could move Live while it is playing, so the app
+// refuses rather than risk it (Aaron, 13 Nov 2026).
+const ABLETON_JUMP_MIN_VERSION = [1, 31];
+function abletonJumpGuardReady() {
+  const parts = String(abletonBridge.status?.version || '').split('.').map(Number);
+  if (!Number.isFinite(parts[0])) return false;
+  const [major, minor] = ABLETON_JUMP_MIN_VERSION;
+  return parts[0] > major || (parts[0] === major && (parts[1] || 0) >= minor);
 }
 function songEntryIdMarkup(songId) {
   return songIdMarkup(songId, 'song-entry-id');
@@ -2531,6 +2556,7 @@ function setAbletonConnected(connected) {
     : localMasterOpen ? 'Ableton Master Project is open on this Mac. Click song/work names to control Live.'
       : abletonPresence.available ? 'Ableton Master Project is open on Aaron’s Mac.' : 'Ableton Master Project is not connected.';
   if (!connected) abletonBridge.status = null;
+  updateSongJumpAvailability();
 }
 
 async function publishAbletonPresence(available) {
@@ -2583,6 +2609,7 @@ function scheduleAutoLyricsSync(delay = 700) {
 function startAutoLyricsSync() {
   if (!abletonBridgeEligible() || autoLyricsSync.started) return;
   autoLyricsSync.started = true;
+  abletonRemoteChannel(); // this Mac takes jump requests from Aaron's other devices
   autoLyricsSync.channel = db.channel('mac-auto-ableton-lyrics')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'song_lyrics_edits' }, () => scheduleAutoLyricsSync())
     .subscribe((status) => {
@@ -2714,10 +2741,23 @@ const ABLETON_ERRORS = {
 };
 
 // A Song ID click only moves the playhead: no review player, and nothing at
-// all while Live is playing, so a stray tap can never stop playback.
+// all while Live is playing, so a stray tap can never stop playback. On a
+// device without the bridge (Aaron's phone, or a bandmate in his practice
+// room) the request is relayed to the Mac that has it.
+const ABLETON_JUMP_OLD_BRIDGE = 'Reload TSPWork in Live first: the installed version cannot check whether Ableton is playing, and a jump must never move a playing transport.';
+function songJumpPlayingNotice(songId) {
+  showNotice('Ableton is playing, so the playhead was left where it is. Stop it to jump to ' + songId + '.');
+}
 async function songIdJump(songId) {
-  const result = await sendAbletonCommand('/jump', { song_id: songId, review: false }, { review: false });
-  if (result?.skipped === 'playing') showNotice('Ableton is playing, so the playhead was left where it is. Stop it to jump to ' + songId + '.');
+  if (!songJumpAllowed()) return;
+  if (!songJumpLive()) { showNotice('The Ableton Master Project is not open on Aaron’s Mac right now.'); return; }
+  if (abletonBridge.connected && abletonMainProjectOpen()) {
+    if (!abletonJumpGuardReady()) { showNotice(ABLETON_JUMP_OLD_BRIDGE, true); return; }
+    const result = await sendAbletonCommand('/jump', { song_id: songId, review: false }, { review: false });
+    if (result?.skipped === 'playing') songJumpPlayingNotice(songId);
+    return;
+  }
+  abletonRemoteSendJump(songId);
 }
 async function sendAbletonCommand(path, body, { review = true } = {}) {
   if (abletonBridge.busy) return;
@@ -2740,6 +2780,71 @@ async function sendAbletonCommand(path, body, { review = true } = {}) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Remote Ableton jumps. The Mac with the bridge listens on one broadcast
+// channel; a phone (or a bandmate in the same practice room) asks it to move
+// the playhead. The Mac checks who is asking against the member list and its
+// own room before it does anything, and the bridge still refuses to move a
+// playing transport.
+const abletonRemote = { channel: null, ready: null, pending: null };
+function abletonRemoteChannel() {
+  if (abletonRemote.channel) return abletonRemote.channel;
+  const channel = db.channel('tsp-ableton', { config: { broadcast: { self: false } } });
+  abletonRemote.channel = channel;
+  abletonRemote.ready = new Promise((resolve) => {
+    setTimeout(() => resolve(false), 6000);
+    channel
+      .on('broadcast', { event: 'jump' }, ({ payload }) => abletonRemoteRunJump(payload))
+      .on('broadcast', { event: 'jumped' }, ({ payload }) => abletonRemoteResult(payload))
+      .subscribe((status) => { if (status === 'SUBSCRIBED') resolve(true); });
+  });
+  return channel;
+}
+function abletonRemoteAllowed(payload) {
+  const id = payload?.member_id;
+  if (!id) return false;
+  if ((state.members || []).find((member) => member.id === id)?.is_admin) return true;
+  return !!room.code && payload.room === room.code && room.members.some((member) => member.member_id === id);
+}
+async function abletonRemoteRunJump(payload) {
+  if (!abletonBridge.connected || !abletonMainProjectOpen()) return;
+  const songId = String(payload?.song_id || '');
+  if (!state.songs.some((song) => song.id === songId)) return;
+  if (!abletonRemoteAllowed(payload)) return;
+  const reply = (extra) => abletonRemoteChannel().send({ type: 'broadcast', event: 'jumped', payload: { to: payload.device, song_id: songId, ...extra } });
+  if (!abletonJumpGuardReady()) { reply({ ok: false, reason: 'bridge_old' }); return; }
+  const result = await sendAbletonCommand('/jump', { song_id: songId, review: false }, { review: false });
+  reply({ skipped: result?.skipped || null, ok: !!result?.ok });
+}
+function abletonRemoteResult(payload) {
+  if (payload?.to !== roomDeviceId) return;
+  clearTimeout(abletonRemote.pending);
+  abletonRemote.pending = null;
+  if (payload.skipped === 'playing') songJumpPlayingNotice(payload.song_id);
+  else if (payload.reason === 'bridge_old') showNotice(ABLETON_JUMP_OLD_BRIDGE, true);
+  else if (!payload.ok) showNotice('Ableton could not jump to ' + payload.song_id + '.', true);
+}
+async function abletonRemoteSendJump(songId) {
+  abletonRemoteChannel();
+  if (!(await abletonRemote.ready)) { showNotice('Could not reach Aaron’s Mac. Check the connection and try again.', true); return; }
+  await abletonRemote.channel.send({ type: 'broadcast', event: 'jump',
+    payload: { song_id: songId, member_id: state.member?.id || null, name: state.member?.name || '', device: roomDeviceId, room: room.code || null } });
+  clearTimeout(abletonRemote.pending);
+  abletonRemote.pending = setTimeout(() => {
+    abletonRemote.pending = null;
+    showNotice('No answer from Aaron’s Mac. Is the TSP Work app open on it?', true);
+  }, 4000);
+}
+
+document.addEventListener('click', (event) => {
+  const songJump = event.target.closest('[data-song-jump]');
+  if (songJump) {
+    event.preventDefault();
+    event.stopPropagation(); // the ID is its own control, whatever it sits in
+    songIdJump(songJump.dataset.songJump);
+  }
+}, true);
+
 document.addEventListener('click', (event) => {
   if (!abletonBridge.connected || event.target.closest('select, input, option')) return;
   const workLabel = event.target.closest('.task-detail .task-label, .dashboard-task-row > span:first-child, .dashboard-member-task-row > span:first-child');
@@ -2748,13 +2853,6 @@ document.addEventListener('click', (event) => {
     if (!select?.dataset.song || !select.dataset.task) return;
     event.preventDefault(); // keep the label from opening the status menu
     sendAbletonCommand('/select', { song_id: select.dataset.song, task_key: select.dataset.task, review: true });
-    return;
-  }
-  const songJump = event.target.closest('[data-song-jump]');
-  if (songJump) {
-    event.preventDefault();
-    event.stopPropagation(); // the ID is its own control, whatever it sits in
-    songIdJump(songJump.dataset.songJump);
     return;
   }
   const title = event.target.closest('.song-summary-toggle, .dashboard-open-song');
@@ -8262,7 +8360,7 @@ async function roomOpen(code, role) {
     .subscribe((status) => {
       if (status === 'SUBSCRIBED') {
         room.error = '';
-        channel.track({ id: roomDeviceId, role, name: state.member?.name || '', member_id: state.member?.id || null });
+        channel.track({ id: roomDeviceId, role, name: state.member?.name || '', member_id: state.member?.id || null, admin: !!state.member?.is_admin });
         if (role === 'host') roomSendState();
         else { roomPingBurst(5); roomCmd('hello'); }
       } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
@@ -8372,6 +8470,7 @@ function renderRoomUi() {
   const btn = document.getElementById('room-button');
   document.body.classList.toggle('room-following', roomFollowing());
   document.body.classList.toggle('room-hosting', roomHosting());
+  updateSongJumpAvailability(); // sharing a room with Aaron allows Song ID jumps
   if (btn) btn.classList.toggle('on', !!room.channel);
   if (chip) {
     if (roomHosting()) {
