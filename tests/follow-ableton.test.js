@@ -110,3 +110,16 @@ test('the transport state objects are declared before the transport reads them',
     assert.ok(appSource.indexOf(name) < appSource.indexOf('function ptPosition('), `${name} must come before the transport`);
   }
 });
+
+test('the button stacks the Ableton mark over the follow glyph, inside the circle', () => {
+  const html = require('node:fs').readFileSync(require('node:path').resolve(__dirname, '../index.html'), 'utf8');
+  const css = require('node:fs').readFileSync(require('node:path').resolve(__dirname, '../styles.css'), 'utf8');
+  const button = html.slice(html.indexOf('id="follow-ableton"'), html.indexOf('id="room-button"'));
+  assert.ok(button.indexOf('class="sync-logo"') < button.indexOf('class="follow-glyph"'), 'the mark sits above the glyph');
+  assert.match(button, /viewBox="0 0 24 10"/);
+  // 38px button: 21x10 mark + 2px gap + 19x8 glyph leaves a margin all round.
+  assert.match(css, /\.room-btn \{ flex: none; width: 38px; height: 38px;/);
+  assert.match(css, /\.follow-btn \.sync-logo \{ display:block; flex:none; width:21px; height:10px;/);
+  assert.match(css, /\.follow-btn \.follow-glyph \{ flex:none; width:19px; height:8px; fill:currentColor; stroke:none; \}/);
+  assert.match(css, /\.follow-btn \{ display:inline-flex; flex-direction:column;/);
+});
