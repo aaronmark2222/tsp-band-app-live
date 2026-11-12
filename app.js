@@ -7728,12 +7728,12 @@ function ptMixerPlace() {
   box.style.width = `${width}px`;
   box.style.left = `${left}px`;
   box.style.bottom = `${Math.max(8, window.innerHeight - b.top + 10)}px`;
-  const topBar = document.querySelector('#practice-lyrics > header')?.getBoundingClientRect().bottom || 0;
-  box.style.maxHeight = `${Math.max(160, b.top - 10 - topBar - 10)}px`;
+  const topBar = lyricsFs.on ? (document.querySelector('#practice-lyrics > header')?.getBoundingClientRect().bottom || 0) : 12;
+  box.style.maxHeight = `${Math.max(160, Math.min(b.top - 20 - topBar, window.innerHeight * 0.7))}px`;
   box.style.setProperty('--pm-tail', `${Math.max(14, Math.min(width - 14, b.left + b.width / 2 - left))}px`);
 }
 function ptMixerOpen() {
-  if (!lyricsFs.on || !practiceMultiTracks().length) return;
+  if (!practiceMultiTracks().length) return;
   ptMixer.open = true;
   ptMixerRender();
   document.querySelector('#practice-transport .pt-mixer-btn')?.classList.add('open');
@@ -7747,8 +7747,12 @@ function ptMixerClose() {
   if (btn) { btn.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); }
 }
 document.addEventListener('click', (event) => {
-  if (!event.target.closest('#practice-transport [data-pt-mixer]')) return;
-  ptMixer.open ? ptMixerClose() : ptMixerOpen();
+  if (event.target.closest('#practice-transport [data-pt-mixer]')) {
+    ptMixer.open ? ptMixerClose() : ptMixerOpen();
+    return;
+  }
+  // Outside the mixer closes it (in full screen its own handler does this).
+  if (ptMixer.open && !lyricsFs.on && !event.target.closest('#pt-mixer')) ptMixerClose();
 });
 window.addEventListener('resize', () => { if (ptMixer.open) ptMixerPlace(); });
 
