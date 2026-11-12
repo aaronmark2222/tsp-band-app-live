@@ -490,6 +490,14 @@ async function toggleSongDetails(songId, view) {
   });
 }
 
+// The Song ID under a song's title is the Ableton jump control (Aaron,
+// 13 Nov 2026): the title only opens the song in the app. Only an admin can
+// have the TSPWork bridge, so everyone else sees the plain ID.
+function songEntryIdMarkup(songId) {
+  if (!state.member?.is_admin) return `<span class="song-entry-id">${escapeHtml(songId)}</span>`;
+  return `<button type="button" class="song-entry-id song-entry-jump" data-song-jump="${escapeHtml(songId)}" title="Jump to ${escapeHtml(songId)} in the open Ableton set" aria-label="Jump to ${escapeHtml(songId)} in Ableton">${escapeHtml(songId)}</button>`;
+}
+
 function songSummaryLeadMarkup(songId) {
   return '<span class="song-id-cue" aria-hidden="true"><span class="song-disclosure"></span><span class="song-id">' + escapeHtml(songId) + '</span></span>';
 }
@@ -533,7 +541,7 @@ function renderSongs() {
   body.innerHTML = sorted.map((song) => {
     const expanded = state.expandedSongIds.has(song.id);
     const detailId = `song-detail-${song.id}`;
-    return `<tr class="song-overview"><td><div class="song-entry"><button type="button" class="song-summary-toggle ${expanded ? 'song-expanded' : ''}" data-song-id="${escapeHtml(song.id)}" data-view="songs" aria-expanded="${expanded}" aria-controls="${detailId}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${escapeHtml(song.id)} ${escapeHtml(song.name)}">${songTitleMarkup(song.name, 'song-name')}</button><div class="song-entry-footer"><span class="song-entry-id">${escapeHtml(song.id)}</span><span class="song-progress">${songProgress(song.id, song.name)}</span></div></div></td></tr><tr id="${detailId}" class="song-detail-row ${expanded ? '' : 'hidden'}"><td colspan="1">${renderSongDetails(song.id)}</td></tr>`;
+    return `<tr class="song-overview"><td><div class="song-entry"><button type="button" class="song-summary-toggle ${expanded ? 'song-expanded' : ''}" data-song-id="${escapeHtml(song.id)}" data-view="songs" aria-expanded="${expanded}" aria-controls="${detailId}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${escapeHtml(song.id)} ${escapeHtml(song.name)}">${songTitleMarkup(song.name, 'song-name')}</button><div class="song-entry-footer">${songEntryIdMarkup(song.id)}<span class="song-progress">${songProgress(song.id, song.name)}</span></div></div></td></tr><tr id="${detailId}" class="song-detail-row ${expanded ? '' : 'hidden'}"><td colspan="1">${renderSongDetails(song.id)}</td></tr>`;
   }).join('');
   if (!sorted.length) body.innerHTML = '<tr><td colspan="1" class="empty-state">No songs match these filters.</td></tr>';
   requestAnimationFrame(() => { updateSongTitleAbbreviations(); observeSongTitleAbbreviations(); });
@@ -2730,6 +2738,12 @@ document.addEventListener('click', (event) => {
     if (!select?.dataset.song || !select.dataset.task) return;
     event.preventDefault(); // keep the label from opening the status menu
     sendAbletonCommand('/select', { song_id: select.dataset.song, task_key: select.dataset.task, review: true });
+    return;
+  }
+  const songJump = event.target.closest('[data-song-jump]');
+  if (songJump) {
+    event.preventDefault();
+    sendAbletonCommand('/jump', { song_id: songJump.dataset.songJump });
     return;
   }
   const title = event.target.closest('.song-summary-toggle, .dashboard-open-song');
