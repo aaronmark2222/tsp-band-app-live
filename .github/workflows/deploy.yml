@@ -52,8 +52,9 @@ jobs:
         uses: actions/configure-pages@v5
       - name: Stage only the public app
         run: |
-          mkdir -p _site/assets
+          mkdir -p _site/assets _site/vendor
           cp index.html app.js boot.js styles.css sw.js apple-touch-icon.png _site/
+          cp vendor/jsqr.js _site/vendor/
           cp assets/the-string-project-logo.png _site/assets/
           cp assets/ableton-sync-logo.* _site/assets/ 2>/dev/null || true
           touch _site/.nojekyll
