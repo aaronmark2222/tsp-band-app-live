@@ -171,3 +171,16 @@ test('full screen keeps the editor, with its buttons as their own row', () => {
   assert.match(css, /body\.lyrics-fs #practice-lyrics \.ly-edit-bar \{/);
   assert.match(css, /body\.lyrics-fs\.lyrics-editing #practice-lyrics \.ly-scroll \{ padding-top:/);
 });
+
+test('in full screen the editor buttons are a second row of the top bar', () => {
+  const css = require('node:fs').readFileSync(require('node:path').resolve(__dirname, '../styles.css'), 'utf8');
+  assert.match(css, /body\.lyrics-fs\.lyrics-editing #practice-lyrics > header \{ padding-bottom:50px; \}/);
+  assert.match(css, /body\.lyrics-fs #practice-lyrics \.ly-edit-bar \[data-edit-close\] \{ margin-left:auto; \}/);
+  assert.match(css, /\.ly-edit-bar \.button\.primary, body\.lyrics-fs \.ly-edit-btn\.primary \{\n  background:#f5c542;/);
+});
+
+test('the toolbar order puts Restore first and Save last', () => {
+  const bar = appSource.slice(appSource.indexOf('function lyricsEditBarHtml'), appSource.indexOf('function renderLyricsEditBar'));
+  assert.ok(bar.indexOf('data-edit-restore') < bar.indexOf('data-edit-close'));
+  assert.ok(bar.indexOf('data-edit-close') < bar.indexOf('data-edit-save'));
+});
