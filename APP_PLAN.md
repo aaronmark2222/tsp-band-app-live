@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last reconciled: **2026-11-11** · Frontend cache markers: `app.js?v=20261111-manual-save7`, `styles.css?v=20261111-manual-save4` · TSPWork Remote Script **1.27** · Supabase live ledger: **32 migrations**, latest `20261110191303_admin_edit_all_lyrics_tracks` · Edge Functions `practice-audio` v7 and `member-access-admin` v8 (deployed source matches this repository)._
+_Last reconciled: **2026-11-12** · Frontend cache markers: `app.js?v=20261112-storagecheck1`, `styles.css?v=20261112-lyricsrt1` · TSPWork Remote Script **1.28 in this repository; 1.27 (with the hand-edit fix, commit `f43ac53`) installed on the Mac** · Supabase live ledger: **37 migrations**, latest `20261111194231_lyrics_track_relay_state` · Edge Functions `practice-audio` v7 and `member-access-admin` v8 · Operations and backups: [docs/OPERATIONS.md](docs/OPERATIONS.md)._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -392,6 +392,9 @@ The live ledger currently has **32 applied entries** through `20261110191303_adm
 
 ## 12. Quality bar and testing habits
 
+- **Automatic gate:** `.github/workflows/deploy.yml` runs `node --check` on `app.js`/`boot.js`/`sw.js`, `node --test tests/*.test.js tools/ableton-remote-script/tests/*.test.js`, `py_compile` and the Python unit tests before the Pages deploy. Run the same commands locally before pushing.
+- **Database tests** (`tests/sql/`) run by hand inside a transaction that always rolls back; never in CI.
+
 - Syntax-check every JS change; `py_compile` every Python change.
 - Render UI changes headless (Playwright in the workspace) at 360/390 px and 1280+ px, and check the live site after deploys.
 - For lyrics work, render the real `song_lyrics` shape (`/tmp/lytest.html` harness: extract the lyrics section of `app.js`, stub `state/practice/$`).
@@ -439,6 +442,17 @@ Aaron is testing whether the export checklist's yellow "changed since upload" fl
 ---
 
 ## 14. Decision log (newest first)
+
+- **2026-11-12 (audit follow-up, verified against live services)**
+  - **Guests are restricted in the database, not only in the UI.** `is_band_member()` gates every read policy except songs, `song_lyrics`, `song_lyrics_edits`, the guest's own `members` row and the `practice_track_colors` row of `app_meta`. Checked with the guest's, a member's and the admin's identity: the guest reads nothing else and cannot write.
+  - **Accounts are linked only by the admin's Member access function.** The sign-up trigger no longer links by email. Public sign-ups are disabled (checked).
+  - **Sync Ableton Set never stops for one lyric edit.** An edit that is not in the saved set stays queued and is listed; its track keeps the baseline it was made against so a real conflict is still detected; everything else saves. Edits are cleared only after the saved file confirms them and only if the row has not changed since.
+  - **Deleting a song is refused while it, or any song that would be renumbered, has practice audio.** History tables follow a renumbered song; a deleted song's history is kept under a retired key.
+  - **Sign-out clears band data from the device** (asks whether to keep saved practice audio). Signing in as someone else clears the previous member's data.
+  - **TSPWork 1.28**: every command needs the signed-in admin's short-lived Supabase token, which TSPWork confirms with Supabase (`rpc/is_admin`); export uploads must point at the `tsp-practice` bucket. The bridge stays on `127.0.0.1`. The app already sends the token and works with 1.27.
+  - **Content-Security-Policy is live** (meta tag in `index.html`; inline script moved to `boot.js`). Checked in the published page: Supabase, Realtime, R2 audio, saved (blob) audio and the bridge are allowed; other hosts, inline scripts and inline handlers are blocked.
+  - **Every push is checked before it deploys**: syntax, tests and required files run in GitHub Actions; a failure stops the deploy.
+  - Guests no longer see the Ready chip on Practice (they cannot read task data, so it was misleading).
 
 - **2026-11-11**
   - Main-project lyrics writeback is the active target; the test copy is historical. Preserve the allowlisted path, preflight, save/readback verification, and retain-on-error behavior.
@@ -491,8 +505,12 @@ Aaron is testing whether the export checklist's yellow "changed since upload" fl
 
 ## 15. Known issues, caveats, warnings
 
+- **Installed bridge is one version behind on purpose (2026-11-12):** the Mac runs TSPWork 1.27 with the hand-edit fix; 1.28 (token check, R2-only uploads) is in the repository but must be installed only when no lyric edit is pending and the Live set is saved, then TSPWork reselected. Until then the bridge still relies on the Origin check alone.
+- **Not yet checked by a person:** real playback on iPhone/Safari under the Content-Security-Policy, the sign-out dialog on a phone, and the guest account in the app after the database change. R2 public-access, CORS and lifecycle settings need the Cloudflare dashboard (docs/OPERATIONS.md).
+- **No automatic database backups** (Free plan). Follow docs/OPERATIONS.md before database changes.
+
 - **Read set needed:** after any alsreader change, nothing new (colours, tone, bars, keys) reaches the app until Aaron clicks **Read set**.
-- **Song-ID renumbering orphans R2 audio:** deleting a song shifts IDs in its family, but R2 files stay under the old IDs. Re-export the affected songs and delete the stale keys.
+- **Deleting a song with practice audio is refused** (it, or any song that would be renumbered). To delete such a song: remove the affected songs' R2 files and `practice_audio_state` rows (exact keys from the Storage check), delete, then export the renumbered songs again.
 - **Web MIDI** works only in Chrome/Edge. Rowen must use one of them.
 - **Safari caching:** GitHub Pages caches `index.html` ~10 min. Open apps now show a "new version is ready — Update" bar; otherwise bump `?v` and reload.
 - **Deploying to the Mac with `device_commit_files`:** it can write an *older* upload with the same file name (happened 2026-11-08: TSPWork 1.20 landed as 1.19). Stage each upload under a unique name (e.g. `alsreader-<md5>.py`) and always check the Mac's md5 afterwards.
@@ -523,6 +541,7 @@ Aaron is testing whether the export checklist's yellow "changed since upload" fl
 ---
 
 ## 17. Changelog of this plan
+- **2026-11-12:** Audit follow-up verified end to end: guest policies, sign-up settings, deletion guard, Sync resilience, sign-out clean-up, CSP and bridge 1.28 tests; added the Storage check (R2 files vs upload records) on the Sync page, the CI gate in `deploy.yml`, `tests/audio-inventory.test.js`, and docs/OPERATIONS.md. Header, decision log and known issues refreshed.
 - **2026-11-11:** Saved Practice lyrics now relay automatically from the open Mac app to the guarded Ableton master project; shared, expiring Ableton chip on signed-in devices (`?v=20261111-auto-ableton-lyrics1`).
 - **2026-11-11:** Reconciled frontend cache markers, TSPWork 1.27 source, all 38 migration files and the 32-entry live ledger, deployed Edge Functions, the 26-table Supabase schema, and the 655-object R2 inventory. Confirmed the local Mac-only **Save** label and preserved manual Live edits on clips Practice did not change. No Supabase rows or R2 objects were rewritten.
 - **2026-11-08:** Activity logging for statistics (`?v=20261108-act1`): `app_sessions`, `page_visits`, `practice_plays` (+ summary views). Members write/read their own rows; admin reads all. Code: `activity*` functions at the end of `app.js`.

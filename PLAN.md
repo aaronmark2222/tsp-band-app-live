@@ -1,5 +1,7 @@
 # TSP Band App — Agenda & Plan
 
+> **Historical plan (October 2026).** Kept for background only. Use [APP_PLAN.md](APP_PLAN.md) and live service state for current behaviour.
+
 _Living document. Updated at every step._
 
 ## Goal

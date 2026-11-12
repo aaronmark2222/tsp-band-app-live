@@ -1,5 +1,7 @@
 # TSP Work — Project Summary
 
+> **Historical summary (26 October 2026).** Kept for background only. Use [APP_PLAN.md](APP_PLAN.md) and live service state for current behaviour.
+
 *Official project summary for **TSP Work**, the band workspace for The String Project. Updated 26 Oct 2026 using the user’s clarifications, the live frontend repository (`aaronmark2222/tsp-band-app-live`), the connected Supabase project (`hzvfrvjuqvmkeqbrgmqu`), and the Ableton master project. The detailed current reference for app ↔ database ↔ Ableton behavior is [the cross-system map](docs/SYSTEM_MAP.md); older dated status notes below are historical where they conflict with that map or later user decisions. Treat the live repository and database as implementation truth; user-confirmed decisions define intended behavior. Keep this file synchronized after meaningful changes.*
 
 ---

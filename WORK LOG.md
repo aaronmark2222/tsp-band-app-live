@@ -1,17 +1,14 @@
 # TSP Work — public project status
 
-_Last reconciled: 11 November 2026._ This public status page summarizes the project. Machine-specific paths, member activity details, and operational history remain in the private local handover log.
+_Last reconciled: 12 November 2026._ This public status page summarizes the project. Machine-specific paths, member activity details, and operational history remain in the private local handover log.
 
 ## Current state
 
-- GitHub Pages serves the static frontend from `main`; the app requires a linked Supabase Auth account.
-- Supabase is healthy. The live ledger has 32 migrations through `20261110191303_admin_edit_all_lyrics_tracks`; the public schema inspection returned 26 tables with RLS enabled.
-- The active Edge Functions are `practice-audio` v7 and `member-access-admin` v8. Their deployed source matches the repository.
-- The private Cloudflare R2 bucket `tsp-practice` contains 655 practice-audio objects. The app accesses them through signed links; public bucket access is disabled.
-- The Ableton bridge is local to the band administrator's Mac. The current source is TSPWork 1.26 and targets the main set through a guarded workflow.
+- GitHub Pages serves the static frontend from `main`. Every push is syntax-checked and tested in GitHub Actions before it is published. The page carries a Content-Security-Policy.
+- Supabase is healthy. The live ledger has 37 migrations through `20261111194231_lyrics_track_relay_state`; all 27 public tables have row-level security. Guests can read only Practice data; public sign-ups are disabled.
+- The active Edge Functions are `practice-audio` v7 and `member-access-admin` v8.
+- Practice audio lives in the private Cloudflare R2 bucket `tsp-practice` and is reached only through signed links. The admin's Sync page compares the bucket's files with the upload records.
+- The Ableton bridge (TSPWork) is local to the band administrator's Mac and listens on the loopback address only. Repository source is 1.28 (commands require the signed-in admin's short-lived token); the installed copy is 1.27 until it can be updated safely.
+- The app never saves the Live set; lyric edits change clip names in Live's memory and are confirmed only after a manual save.
 
-## Reconciliation note — 11 November 2026
-
-The local frontend copies now match GitHub `main` commit `9ab342c5e4a8760f30619626325d21098e7f6d35`, including the service worker and deployed assets. TSPWork 1.27 is in the repository, including guarded handling that preserves independent Live edits on clips Practice did not change. Supabase has 32 applied migrations, 27 public tables with RLS, and the deployed `practice-audio` v7 / `member-access-admin` v8 functions match repository source. The private R2 bucket has 655 objects (3,137,519,522 bytes), matching `practice_audio_state`. The Save suffix is local to the Mac app connected to the master project. No Supabase data or R2 objects were rewritten.
-
-Use `APP_PLAN.md` and live service state for future work. Review historical documents before relying on dates, counts, roadmap items, or implementation status recorded there.
+Use `APP_PLAN.md`, `docs/OPERATIONS.md` and live service state for future work. Other documents in this repository are historical.
