@@ -3859,6 +3859,7 @@ function renderExportPanel(opts = {}) {
       ${running ? '<button id="export-cancel" class="button quiet" type="button" title="Stop right away (the current song is left unfinished) and put Ableton back">Cancel now</button>' : ''}
     </div>
     <p class="muted export-legend"><span class="export-up">●</span> on the band app${practice.available ? ` (${practice.available.size} songs)` : ''} · <span class="export-changed">●</span> changed in Ableton since its upload${exportChangedIds().length ? ` (${exportChangedIds().length})` : ''}${exportJob.preparing ? ` · <b>${escapeHtml(exportJob.preparing)}</b>` : ''}</p>
+    ${audioInventoryHtml()}
     <ul class="export-pick">${songs.map((song) => {
       const up = practice.available?.get(song.id);
       const changes = up ? audioChanges(song.id) : [];
@@ -3967,6 +3968,43 @@ async function exportLoadRate() {
   exportJob.logCount = data.length;
 }
 // ---- Practice audio freshness --------------------------------------------
+// Storage check (admin): the files in the R2 bucket against the upload records
+// in practice_audio_state, by exact song and element (not just counts).
+function audioInventoryCheck(available, audioState, songIds) {
+  const known = new Set(songIds || []);
+  const inR2 = new Set(); const inState = new Set(); const legacy = []; const unknownSongs = new Set();
+  for (const [songId, files] of available || []) {
+    if (!known.has(songId)) unknownSongs.add(songId);
+    for (const file of files || []) {
+      inR2.add(`${songId}|${file.element}`);
+      if (file.ext === 'mp3') legacy.push(`${songId} ${file.element}`);
+    }
+  }
+  for (const [songId, elements] of audioState || []) {
+    for (const element of Object.keys(elements || {})) inState.add(`${songId}|${element}`);
+  }
+  const label = (key) => key.replace('|', ' ');
+  return {
+    files: inR2.size, records: inState.size,
+    noRecord: [...inR2].filter((key) => !inState.has(key)).map(label).sort(),
+    noFile: [...inState].filter((key) => !inR2.has(key)).map(label).sort(),
+    legacy: legacy.sort(), unknownSongs: [...unknownSongs].sort()
+  };
+}
+function audioInventoryHtml() {
+  if (!practice.available || practice.availableFromDevice || !exportJob.audioState) return '';
+  const c = audioInventoryCheck(practice.available, exportJob.audioState, (state.songs || []).map((song) => song.id));
+  const list = (items) => escapeHtml(items.slice(0, 8).join(', ')) + (items.length > 8 ? ` and ${items.length - 8} more` : '');
+  const problems = [];
+  if (c.noFile.length) problems.push(`${c.noFile.length} upload record${c.noFile.length === 1 ? '' : 's'} with no file (${list(c.noFile)})`);
+  if (c.noRecord.length) problems.push(`${c.noRecord.length} file${c.noRecord.length === 1 ? '' : 's'} with no upload record (${list(c.noRecord)})`);
+  if (c.unknownSongs.length) problems.push(`files for song IDs that are not in the app (${list(c.unknownSongs)})`);
+  const legacy = c.legacy.length ? ` ${c.legacy.length} older MP3 file${c.legacy.length === 1 ? '' : 's'} (${list(c.legacy)}).` : '';
+  return problems.length
+    ? `<p class="muted export-inventory"><span class="error">Storage check: ${problems.join('; ')}.</span>${legacy}</p>`
+    : `<p class="muted export-inventory">Storage check: ${c.files} files on Cloudflare match the ${c.records} upload records.${legacy}</p>`;
+}
+
 // practice_audio_state: per uploaded file, the fingerprint of its Ableton
 // tracks at export. app_meta 'audio_fingerprints': the set as last read.
 // A difference = that song's upload is out of date (yellow in the checklist).
@@ -6818,7 +6856,7 @@ function ptInfoHtml(song) {
     : `<span class="pt-work-anchor"><button type="button" class="pt-chip pt-ready pt-work-toggle ${ptWorkOpen ? 'open' : ''}" data-status="${escapeHtml(workLabel)}" data-pt-work aria-haspopup="dialog" aria-expanded="${ptWorkOpen}">${workLabel}</button>${ptWorkOpen ? ptWorkPopoverHtml(song) : ''}</span>`;
   return `<span class="pt-chip pt-readonly" aria-label="Key, read only">Key <b id="pt-key">${escapeHtml(live.key)}</b></span>
     <span class="pt-chip pt-readonly" aria-label="Tempo, read only"><b id="pt-bpm">${escapeHtml(live.bpm)}</b></span>
-    ${workStatus}`;
+    ${isGuest() ? '' : workStatus}`;
 }
 function ptQueueLabel() {
   const list = practice.songList || state.songs;
