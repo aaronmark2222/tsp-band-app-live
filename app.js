@@ -4671,6 +4671,15 @@ const practice = {
 // Group practice room (the rest of the room code is at the end of this file).
 // It lives here because code that runs while the page loads asks whether this
 // device is following.
+// Follow Ableton's state lives here, beside the room's: the transport reads
+// both while the page is still loading, so neither may be declared later.
+const FOLLOW_MIN_VERSION = [1, 32];
+const FOLLOW_POLL_MS = 250;
+const FOLLOW_CLAIM_MS = 30000;
+const follow = {
+  on: false, state: null, offset: 0, rtt: null, samples: [], pings: new Map(),
+  songRequest: null, note: '', timer: null, pingTimer: null, claims: new Map(), serving: false
+};
 const room = {
   code: null, role: null, channel: null, members: [], state: null, anchor: null,
   offset: 0, rtt: null, synced: false, samples: [], pings: new Map(),
@@ -8541,13 +8550,6 @@ function roomCodeFromScan(text) {
 // is in and runs its lyrics against that timecode. Nothing plays any audio
 // while following: this is only about reading the right line at the right
 // moment (Aaron, 13 Nov 2026).
-const FOLLOW_MIN_VERSION = [1, 32];
-const FOLLOW_POLL_MS = 250;
-const FOLLOW_CLAIM_MS = 30000;
-const follow = {
-  on: false, state: null, offset: 0, rtt: null, samples: [], pings: new Map(),
-  songRequest: null, note: '', timer: null, pingTimer: null, claims: new Map(), serving: false
-};
 function followOn() { return follow.on; }
 function followSupported() {
   const parts = String(abletonBridge.status?.version || '').split('.').map(Number);

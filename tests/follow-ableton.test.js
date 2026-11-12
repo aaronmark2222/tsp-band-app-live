@@ -100,3 +100,13 @@ test('an older bridge cannot report the playhead and is refused', () => {
   const ok = load(['followSupported'], { abletonBridge: { connected: true, status: { version: '1.32' } }, FOLLOW_MIN_VERSION: [1, 32] });
   assert.equal(ok.followSupported(), true);
 });
+
+// A const used by code that runs while the page loads must be declared before
+// it: this is how "Cannot access 'room' before initialization" got out once.
+test('the transport state objects are declared before the transport reads them', () => {
+  for (const name of ['const practice = {', 'const room = {', 'const follow = {']) {
+    assert.ok(appSource.indexOf(name) > 0, `${name} is missing`);
+    assert.ok(appSource.indexOf(name) < appSource.indexOf('function ptIsPlaying('), `${name} must come before the transport`);
+    assert.ok(appSource.indexOf(name) < appSource.indexOf('function ptPosition('), `${name} must come before the transport`);
+  }
+});
