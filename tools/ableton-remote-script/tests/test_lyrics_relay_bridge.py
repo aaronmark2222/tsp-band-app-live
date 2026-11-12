@@ -124,6 +124,50 @@ class RelayBridgeTests(unittest.TestCase):
         self.assertEqual(out['error'], 'wrong_open_set')
         self.assertEqual(self.names(), ['saved one', 'saved two', 'saved three'])
 
+    # ---- 1.30: accept lists, conflict details, per-clip decision ----
+    def A(self, t, text, accept, untouched=False, **extra):
+        return dict({'t': t, 'e': t + 2, 'text': text, 'accept': accept, 'untouched': untouched}, **extra)
+
+    def test_conflict_reports_every_clip_with_all_three_texts_and_changes_nothing(self):
+        self.chords.arrangement_clips[1].name = 'hand two'
+        self.chords.arrangement_clips[2].name = 'hand three'
+        out = self.send(self.SAVED, [self.A(0, 'EDIT one', ['saved one']), self.A(2, 'EDIT two', ['saved two']), self.A(4, 'EDIT three', ['saved three'])])
+        self.assertEqual(out['error'], 'source_changed')
+        self.assertEqual([(c['line'], c['base_text'], c['practice_text'], c['live_text']) for c in out['conflicts']],
+                         [(2, 'saved two', 'EDIT two', 'hand two'), (3, 'saved three', 'EDIT three', 'hand three')])
+        self.assertEqual(self.names(), ['saved one', 'hand two', 'hand three'])
+
+    def test_hand_change_after_the_edit_was_applied_is_a_conflict(self):
+        self.chords.arrangement_clips[1].name = 'hand two'
+        out = self.send(self.SAVED, [self.A(0, 'saved one', ['saved one'], True), self.A(2, 'EDIT two', ['saved two', 'EDIT two']), self.A(4, 'saved three', ['saved three'], True)])
+        self.assertEqual(out['error'], 'source_changed')
+        self.assertEqual(out['conflicts'][0]['live_text'], 'hand two')
+
+    def test_reopened_live_with_accept_list_gets_the_edit_back_in_one_request(self):
+        applied = [L(0, 'saved one'), L(2, 'EDIT two'), L(4, 'saved three')]
+        out = self.send(applied, [self.A(0, 'saved one', ['saved one'], True), self.A(2, 'EDIT two', ['saved two', 'EDIT two']), self.A(4, 'saved three', ['saved three'], True)])
+        self.assertTrue(out['ok'])
+        self.assertEqual(self.names(), ['saved one', 'EDIT two', 'saved three'])
+
+    def test_decision_use_practice_overwrites_the_hand_edit(self):
+        self.chords.arrangement_clips[1].name = 'hand two'
+        out = self.send(self.SAVED, [self.A(0, 'saved one', ['saved one'], True), self.A(2, 'EDIT two', ['saved two'], force=True), self.A(4, 'saved three', ['saved three'], True)])
+        self.assertTrue(out['ok'])
+        self.assertEqual(self.names(), ['saved one', 'EDIT two', 'saved three'])
+
+    def test_decision_keep_ableton_leaves_live_alone(self):
+        self.chords.arrangement_clips[1].name = 'hand two'
+        out = self.send(self.SAVED, [self.A(0, 'EDIT one', ['saved one']), self.A(2, 'hand two', ['saved two']), self.A(4, 'saved three', ['saved three'], True)])
+        self.assertTrue(out['ok'])
+        self.assertEqual(self.names(), ['EDIT one', 'hand two', 'saved three'])
+
+    def test_restore_to_the_saved_text_undoes_an_applied_edit_but_not_a_hand_edit(self):
+        self.chords.arrangement_clips[0].name = 'EDIT one'      # applied earlier by the relay
+        self.chords.arrangement_clips[2].name = 'hand three'    # typed in Live
+        out = self.send(self.SAVED, [self.A(0, 'saved one', ['saved one', 'EDIT one'], True), self.A(2, 'saved two', ['saved two'], True), self.A(4, 'saved three', ['saved three'], True)])
+        self.assertTrue(out['ok'])
+        self.assertEqual(self.names(), ['saved one', 'saved two', 'hand three'])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -53,7 +53,7 @@ test('a real conflict is set aside and the other tracks still apply', async () =
   const out = await ctx.relayLyricsRows(rows, async (edits) =>
     edits.some((e) => e.track_slug === 'guitar') ? { ok: false, error: 'source_changed', song_id: 'E1', track_slug: 'guitar' } : { ok: true });
   assert.deepEqual(plain(out.applied.map((r) => r.track_slug)), ['keyboard', 'chords']);
-  assert.deepEqual(plain(out.refused), [{ song_id: 'E1', track_slug: 'guitar', updated_at: 'u1', error: 'source_changed' }]);
+  assert.deepEqual(plain(out.refused), [{ song_id: 'E1', track_slug: 'guitar', updated_at: 'u1', error: 'source_changed', conflicts: null }]);
 });
 
 test('a busy bridge is reported for a quick retry, not as a conflict', async () => {
@@ -96,7 +96,9 @@ test('status line: queued, sending, in Ableton, needs attention', () => {
   assert.equal(ctx.lyricsEditStatus(edit, { available: true }).state, 'sending');
   assert.equal(ctx.lyricsEditStatus({ ...edit, applied_lines: [L(0, 'a')] }, { available: true }).state, 'applied');
   assert.equal(ctx.lyricsEditStatus({ ...edit, applied_lines: [L(0, 'older')] }, { available: true }).state, 'sending');
-  assert.equal(ctx.lyricsEditStatus({ ...edit, relay_error: 'source_changed' }, { available: true }).state, 'attention');
+  assert.equal(ctx.lyricsEditStatus({ ...edit, relay_error: 'source_changed' }, { available: true }).state, 'sending');
+  assert.match(ctx.lyricsEditStatus({ ...edit, relay_error: 'source_changed' }, {}).text, /decision/);
+  assert.equal(ctx.lyricsEditStatus({ ...edit, relay_error: 'song_not_found' }, { available: true }).state, 'attention');
 });
 
 test('re-check of an edit believed to be in Live goes against the saved set first (Live reopened without saving)', async () => {
@@ -138,4 +140,48 @@ test('the small poll notices a new edit, an apply, a refusal and a new baseline'
   assert.notEqual(s0, sig.lyricsEditsSignature([{ ...base[0], relay_error: 'source_changed' }], 'b1'));
   assert.notEqual(s0, sig.lyricsEditsSignature(base, 'b2'));
   assert.notEqual(s0, sig.lyricsEditsSignature([], 'b1'));
+});
+
+const mm = load(['lyricsRelayAnnotate', 'lyricsConflictResolution', 'lyricsRelayStateLines', 'lyricsRelayStateMatches', 'relayLyricsRows']);
+test('each clip is sent with the texts Practice itself put there, and whether Practice left it alone', () => {
+  const saved = [L(0, 'one'), L(4, 'two')];
+  const out = plain(mm.lyricsRelayAnnotate([L(0, 'one'), L(4, 'TWO v2'), { ...L(8, 'new'), is_new_clip: true }], saved, [L(0, 'one'), L(4, 'TWO v1')]));
+  assert.deepEqual(out[0].accept, ['one']);
+  assert.equal(out[0].untouched, true);
+  assert.deepEqual(out[1].accept, ['two', 'TWO v1']);
+  assert.equal(out[1].untouched, false);
+  assert.ok(!('accept' in out[2]));
+});
+
+test('a mismatch reported by the bridge is passed on with the saved text, without trying the other baseline', async () => {
+  const r = row('E5', 'guitar', [L(0, 'practice')], [L(0, 'practice')], { saved: [L(0, 'saved')] });
+  let calls = 0;
+  const out = await mm.relayLyricsRows([r], async () => { calls += 1; return { ok: false, error: 'source_changed', song_id: 'E5', track_slug: 'guitar', conflicts: [{ line: 1, t: 0, base_text: 'practice', practice_text: 'practice', live_text: 'hand' }] }; });
+  assert.equal(calls, 1);
+  assert.deepEqual(plain(out.refused[0].conflicts), [{ line: 1, t: 0, base_text: 'saved', practice_text: 'practice', live_text: 'hand' }]);
+});
+
+test('decision "Use Practice edit": that clip is forced once, other lines untouched', () => {
+  const lines = [L(0, 'a'), L(4, 'practice')];
+  const conflicts = [{ line: 2, t: 4, base_text: 'saved', practice_text: 'practice', live_text: 'hand' }];
+  const out = plain(mm.lyricsConflictResolution(lines, conflicts, 4, 'practice'));
+  assert.deepEqual(out.lines, [L(0, 'a'), { ...L(4, 'practice'), force: true }]);
+  assert.deepEqual(out.conflicts, []);
+  // the forced flag is not part of the applied state, so it does not look like a new edit
+  assert.ok(mm.lyricsRelayStateMatches(out.lines, lines));
+});
+
+test('decision "Keep Ableton": the queue adopts the text now in Live', () => {
+  const conflicts = [{ line: 1, t: 0, base_text: 's1', practice_text: 'p1', live_text: 'hand1' }, { line: 2, t: 4, base_text: 's2', practice_text: 'p2', live_text: 'hand2' }];
+  const out = plain(mm.lyricsConflictResolution([L(0, 'p1'), L(4, 'p2')], conflicts, 0, 'ableton'));
+  assert.deepEqual(out.lines.map((l) => l.text), ['hand1', 'p2']);
+  assert.equal(out.conflicts.length, 1); // the other clip still waits for a decision
+});
+
+test('keeping a clip Practice had removed puts it back with the Ableton text; unknown clips give null', () => {
+  const conflicts = [{ line: 1, t: 0, base_text: 'fill', practice_text: null, live_text: 'hand fill' }];
+  const out = plain(mm.lyricsConflictResolution([], conflicts, 0, 'ableton', L(0, 'fill')));
+  assert.deepEqual(out.lines, [L(0, 'hand fill')]);
+  assert.equal(mm.lyricsConflictResolution([L(0, 'x')], conflicts, 99, 'ableton'), null);
+  assert.equal(mm.lyricsConflictResolution([], conflicts, 0, 'practice'), null);
 });

@@ -1764,3 +1764,11 @@ body>.pt-song-menu,body>.pt-work-popover{z-index:300;pointer-events:auto}
 .ly-edit-status.applied { color: #8fd19e; }
 .ly-edit-status.attention { color: #ffb38a; }
 body.lyrics-fs #practice-lyrics .ly-edit-status { display: none; }
+
+/* Ableton Sync > Lyric update mismatches */
+.sync-row.lyric-mismatch { display: block; }
+.lyric-mismatch-head { margin-bottom: 8px; }
+.lyric-mismatch-texts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0 0 10px; font-size: 13px; }
+.lyric-mismatch-texts dt { color: #9fb0a4; }
+.lyric-mismatch-texts dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.lyric-mismatch-actions { display: flex; flex-wrap: wrap; gap: 8px; }

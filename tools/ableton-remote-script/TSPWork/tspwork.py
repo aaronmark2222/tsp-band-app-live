@@ -34,7 +34,7 @@ from _Framework.ControlSurface import ControlSurface
 
 PORT = 47710
 TLS_PORT = 47711
-VERSION = '1.29'
+VERSION = '1.30'
 DEBUG_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requests.log')
 # https listener for the live site in Safari. Certificate made for 127.0.0.1 /
 # localhost only, trusted once in this Mac's Keychain. Files sit next to this
@@ -859,30 +859,45 @@ class TSPWork(ControlSurface):
             if removed_indices and not callable(getattr(track, 'delete_clip', None)):
                 return {'ok': False, 'error': 'clip_remove_unsupported', 'song_id': song_id, 'track_slug': slug,
                         'message': 'This Ableton version does not expose arrangement clip removal.'}
+            conflicts = []
             for i, (clip, old) in enumerate(zip(clips_for_baseline, base)):
                 new = desired_by_base.get(i)
                 current_text = str(clip.name or '').strip()
                 old_text = str(old.get('text', '')).strip()
                 if new is None:
                     if current_text != old_text:
-                        return {'ok': False, 'error': 'source_changed', 'song_id': song_id, 'track_slug': slug,
-                                'line': i + 1, 'message': 'The Ableton clip changed since this Practice edit was based on it.'}
+                        conflicts.append({'line': i + 1, 't': old.get('t'), 'base_text': old_text[:600],
+                                          'practice_text': None, 'live_text': current_text[:600]})
+                        continue
                     delete_plans.append((track, clip, clip.start_time, clip.end_time - clip.start_time,
                                          clip.name, getattr(clip, 'color', None), song_id, slug))
                     continue
                 text = str(new.get('text', '')).strip()
                 if not text or len(text) > 12000:
                     return {'ok': False, 'error': 'invalid_lyrics_text', 'song_id': song_id, 'track_slug': slug, 'line': i + 1}
-                # Preserve manual Ableton edits on clips Practice left alone.
-                # A clip Practice changed is still guarded: it must match either
-                # the original baseline or the requested target text.
-                if current_text != text and current_text != old_text:
-                    if text == old_text:
-                        continue
-                    return {'ok': False, 'error': 'source_changed', 'song_id': song_id, 'track_slug': slug,
-                            'line': i + 1, 'message': 'The Ableton clip changed since this Practice edit was based on it.'}
-                if text != current_text:
+                if current_text == text:
+                    continue
+                # 1.30: the app may list every text Practice itself has put on
+                # this clip ("accept": the saved text and what the relay applied
+                # earlier). A clip holding one of those is Practice's to change;
+                # anything else was typed by hand in Live.
+                accept = new.get('accept')
+                acceptable = set([old_text])
+                if isinstance(accept, list):
+                    acceptable.update(str(a).strip() for a in accept[:8])
+                if current_text in acceptable or new.get('force') is True:
                     plans.append((clip, clip.name, text, song_id, slug))
+                    continue
+                # A hand edit on a clip Practice left alone is preserved.
+                untouched = new.get('untouched') is True if isinstance(accept, list) else text == old_text
+                if untouched:
+                    continue
+                conflicts.append({'line': i + 1, 't': new.get('t'), 'base_text': old_text[:600],
+                                  'practice_text': text[:600], 'live_text': current_text[:600]})
+            if conflicts:
+                return {'ok': False, 'error': 'source_changed', 'song_id': song_id, 'track_slug': slug,
+                        'line': conflicts[0]['line'], 'conflicts': conflicts[:60],
+                        'message': 'The Ableton clip changed since this Practice edit was based on it.'}
         return {'ok': True, 'plans': plans, 'create_plans': create_plans, 'delete_plans': delete_plans,
                 'count': len(plans) + len(create_plans) + len(delete_plans), 'added': len(create_plans), 'removed': len(delete_plans)}
 

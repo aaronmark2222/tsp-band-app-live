@@ -1,6 +1,6 @@
 # TSP Work — App Plan (master document)
 
-_Last reconciled: **2026-11-12** · Frontend cache markers: `app.js?v=20261112-relay3`, `styles.css?v=20261112-relay2` · TSPWork Remote Script **1.29** (repository; check the installed copy's hash before relying on it) · Supabase live ledger: **39 migrations**, latest `20261112073555_lyrics_edit_applied_at` · Edge Functions `practice-audio` v7 and `member-access-admin` v8 · Operations and backups: [docs/OPERATIONS.md](docs/OPERATIONS.md)._
+_Last reconciled: **2026-11-12** · Frontend cache markers: `app.js?v=20261112-mismatch1`, `styles.css?v=20261112-mismatch1` · TSPWork Remote Script **1.30** (repository; check the installed copy's hash before relying on it) · Supabase live ledger: **40 migrations**, latest `20261112090228_lyrics_edit_relay_conflicts` · Edge Functions `practice-audio` v7 and `member-access-admin` v8 · Operations and backups: [docs/OPERATIONS.md](docs/OPERATIONS.md)._
 
 This is the **single source of truth for resuming work** on TSP Work (the TSP Band App) for The String Project. It is written for an AI model (or a person) picking the project up cold. Read sections 0–4 before touching anything. Older documents (section 16) are history; where they disagree with this file, this file wins, and the live code/database win over both.
 
@@ -442,6 +442,11 @@ Aaron is testing whether the export checklist's yellow "changed since upload" fl
 ---
 
 ## 14. Decision log (newest first)
+
+- **2026-11-12 (lyric update mismatches)**
+  - A Practice edit and a hand edit in Live on the **same clip** is a decision for Aaron, not an error: it is listed on **Ableton Sync → Lyric update mismatches** with the Practice text, the text now in Ableton and the saved text. **Use Practice edit** overwrites that clip in Live once; **Keep Ableton** makes the queue adopt Live's text. The choice is applied to the open set straight away. The Ableton chip does not turn red for a mismatch; other devices show "Waiting for a decision".
+  - TSPWork **1.30**: each clip arrives with the texts Practice itself put there (`accept`: saved and previously applied) and `untouched`; a clip holding anything else was typed by hand: kept when Practice left it alone, otherwise reported in `conflicts` with all three texts. `force` on a line overwrites once. A hand change made *after* an edit was applied is now detected too. Older app versions without these fields behave as before.
+  - Mismatch details are stored in `song_lyrics_edits.relay_conflicts`.
 
 - **2026-11-12 (lyrics relay made dependable)**
   - **Queue model:** one row per song and lyrics track in `song_lyrics_edits`: `lines` (what the track should say), `applied_lines` (what the Mac relay last put into Live's memory), `relay_error` (why Live refused it, if it did). The saved `.als` baseline stays in `song_lyrics` until a manual save and Sync confirm the edit.

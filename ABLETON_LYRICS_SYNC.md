@@ -82,3 +82,7 @@ The Drum clip `nothing` added to I1 / first Intro was confirmed to appear in Abl
 - Under the track chips each device shows the state of that track's edit: saved and waiting for the Mac, sending, in Ableton (pending manual save and sync), or not applied.
 - Confirmation is unchanged: save the set in Live, press **Sync Ableton Set**; only edits found in the saved file are cleared.
 - Keep the TSP Work page visible on the Mac. A hidden Safari tab can be slowed or suspended, which delays the relay until the page is shown again.
+
+## Mismatches (TSPWork 1.30, app `mismatch1`)
+
+When a queued Practice edit and a change typed in Live are on the same clip, nothing is overwritten. The track waits, other tracks keep flowing, and the clip appears on **Ableton Sync → Lyric update mismatches** with three texts: the Practice edit, what Ableton has now, and what was saved before. Aaron picks **Use Practice edit** (Live's clip is replaced) or **Keep Ableton** (the queue takes Live's text). The choice is applied to the open set at once; save in Live and press Sync Ableton Set as usual to confirm. A hand edit on a clip Practice did not change is always kept without asking.

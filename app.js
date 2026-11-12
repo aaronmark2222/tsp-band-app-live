@@ -2629,7 +2629,8 @@ async function runAutoLyricsSync() {
     // The queued DB rows are the durable pending marker. This also restores
     // the warning after the Mac app or browser restarts.
     abletonPresence.awaitingSave = pending.updates.some((row) => !autoLyricsSync.refusedRows.has(`${row.song_id}|${row.track_slug}`));
-    abletonPresence.needsAttention = problems.length > 0;
+    abletonPresence.needsAttention = problems.some((item) => !lyricsRelayIsMismatch(item.error));
+    loadLyricConflicts();
     abletonPresence.lastHeartbeat = 0;
     setAbletonConnected(true);
     await publishAbletonPresence(true);
@@ -3129,6 +3130,7 @@ function renderSyncStatus() {
 let syncLyricsPendingChannel = null;
 let syncLyricsPendingRequest = null;
 async function refreshSyncLyricsPendingBadge() {
+  loadLyricConflicts();
   const badge = $('#sync-lyrics-pending');
   if (!badge || state.view !== 'sync') return;
   if (syncLyricsPendingRequest) return syncLyricsPendingRequest;
@@ -3178,7 +3180,7 @@ function renderSyncPage() {
     return;
   }
   if (!sync.snapshot) {
-    content.innerHTML = '<div class="empty-state">Press <b>Sync Ableton Set</b> to read the set you last saved in Live and confirm any Practice lyric edits it contains. TSP Work never saves the set: save it yourself in Live first. Make sure Ableton has the main project open.</div>';
+    content.innerHTML = lyricMismatchSectionHtml() + '<div class="empty-state">Press <b>Sync Ableton Set</b> to read the set you last saved in Live and confirm any Practice lyric edits it contains. TSP Work never saves the set: save it yourself in Live first. Make sure Ableton has the main project open.</div>';
     return;
   }
   const { tasks, meta, notices, snoozed } = computeSyncDiff(sync.snapshot);
@@ -3199,6 +3201,7 @@ function renderSyncPage() {
     return `<li class="sync-row"><button type="button" class="sync-song" data-sync-jump="${escapeHtml(item.songId)}" title="Jump to this song in Ableton"><span class="song-id">${escapeHtml(item.songId)}</span><span>${escapeHtml(item.songName)}</span></button><span class="sync-field">${SYNC_FIELD_LABELS[item.field]}</span><span class="sync-change"><s>${escapeHtml(String(syncValueLabel(item.field, item.from)))}</s> → <b>${escapeHtml(String(syncValueLabel(item.field, item.to)))}</b></span><button type="button" class="button sync-apply" data-sync-meta="${escapeHtml(key)}" ${busy(key)}>Apply</button></li>`;
   }).join('');
   content.innerHTML = `
+    ${lyricMismatchSectionHtml()}
     <section class="sync-card"><header><h2>Task updates <span>${tasks.length}</span></h2>${tasks.length ? '<button type="button" class="button" data-sync-all="tasks">Complete all</button>' : ''}</header>
       <p class="muted">Work Ableton shows as done. Click the task to see it in Ableton, then confirm.</p>
       ${tasks.length ? `<ul class="sync-list">${taskRows}</ul>` : '<p class="sync-empty">Nothing to update.</p>'}
@@ -3386,7 +3389,7 @@ function readProgressTick() {
 const SET_READ_TIMEOUT_MS = 15 * 60 * 1000;
 function lyricsRelayStateLines(lines) {
   return [...(lines || [])].sort((a, b) => Number(a.t) - Number(b.t)).map((line) => {
-    const { is_new_clip, section_index, ...saved } = line;
+    const { is_new_clip, section_index, force, accept, untouched, ...saved } = line;
     return saved;
   });
 }
@@ -3400,12 +3403,16 @@ function lyricsRelayStateMatches(a, b) {
 }
 async function persistAppliedLyricsRelayState(rows) {
   for (const row of rows || []) {
-    const applied = lyricsRelayStateLines(row.source_lines || row.lines);
-    if (lyricsRelayStateMatches(row.applied_lines, applied) && !row.relay_error) continue;
-    const { error } = await db.from('song_lyrics_edits')
-      .update({ applied_lines: applied, applied_at: new Date().toISOString(), relay_error: null })
-      .eq('song_id', row.song_id)
-      .eq('track_slug', row.track_slug);
+    const source = row.source_lines || row.lines;
+    const applied = lyricsRelayStateLines(source);
+    const forced = (source || []).some((line) => line.force);
+    if (lyricsRelayStateMatches(row.applied_lines, applied) && !row.relay_error && !forced) continue;
+    const patch = { applied_lines: applied, applied_at: new Date().toISOString(), relay_error: null, relay_conflicts: null };
+    // "Use Practice edit" overwrites a hand edit once; it must not keep overwriting.
+    if (forced) patch.lines = source.map((line) => { const { force, ...rest } = line; return rest; });
+    let query = db.from('song_lyrics_edits').update(patch).eq('song_id', row.song_id).eq('track_slug', row.track_slug);
+    if (forced) query = query.eq('updated_at', row.updated_at);
+    const { error } = await query;
     if (error) throw error;
   }
 }
@@ -3430,6 +3437,20 @@ function lyricsRelayLines(trackSlug, sourceLines, relayBaseLines, savedBaseLines
   });
   return lines;
 }
+// Tells the bridge (TSPWork 1.30+), per clip, which texts Practice itself has
+// put there: the saved text and what the relay applied earlier ("accept"), and
+// whether Practice leaves the clip as saved ("untouched"). A clip holding any
+// other text was typed by hand in Live: kept if untouched, otherwise a
+// mismatch for Aaron to decide. Older bridges ignore these fields.
+function lyricsRelayAnnotate(lines, savedBaseLines, appliedLines) {
+  const at = (list, t) => (list || []).find((line) => Math.abs(Number(line.t) - Number(t)) <= 0.03);
+  return (lines || []).map((line) => {
+    if (line.is_new_clip) return line;
+    const saved = at(savedBaseLines, line.t); const applied = at(appliedLines, line.t);
+    const accept = [...new Set([saved?.text, applied?.text].filter((text) => typeof text === 'string').map((text) => text.trim()))];
+    return { ...line, accept, untouched: !!saved && String(line.text || '').trim() === String(saved.text || '').trim() };
+  });
+}
 // Which queued edits the relay sends now. Normally only edits whose latest
 // lines are not in Live yet; on a full check (Live or the set was reloaded, the
 // app just opened, or every two minutes) every edit is re-checked, which is
@@ -3442,7 +3463,8 @@ function lyricsRelayPlan(updates, options) {
     const key = `${row.song_id}|${row.track_slug}`;
     const held = refused.get(key);
     if (held && held.updated_at === row.updated_at && now < held.until && !full) { waiting.push(row); continue; }
-    if (full || !lyricsRelayStateMatches(row.applied_lines, row.source_lines || row.lines)) send.push(row);
+    const decided = (row.source_lines || []).some((line) => line.force); // Aaron chose the Practice text for a clip
+    if (full || decided || !lyricsRelayStateMatches(row.applied_lines, row.source_lines || row.lines)) send.push(row);
   }
   return { send, waiting };
 }
@@ -3474,8 +3496,13 @@ async function relayLyricsRows(rows, request) {
     const index = batch.findIndex((item) => item.row.song_id === write?.song_id && item.row.track_slug === write?.track_slug);
     if (index < 0) throw new Error(write?.message || write?.detail || write?.error || 'Ableton could not apply the saved lyric edits.');
     const item = batch[index];
-    if (item.variants.length > 1) { batch[index] = { row: item.row, variants: item.variants.slice(1) }; continue; }
-    refused.push({ song_id: item.row.song_id, track_slug: item.row.track_slug, updated_at: item.row.updated_at, error: write.error || 'refused' });
+    // TSPWork 1.30 names the mismatched clips itself: that answer is final.
+    // Older bridges only say "changed", so the other baseline is tried first.
+    const detailed = write.error === 'source_changed' && Array.isArray(write.conflicts);
+    if (item.variants.length > 1 && !detailed) { batch[index] = { row: item.row, variants: item.variants.slice(1) }; continue; }
+    const savedText = (t) => (item.row.saved_base_lines || []).find((line) => Math.abs(Number(line.t) - Number(t)) <= 0.03)?.text;
+    refused.push({ song_id: item.row.song_id, track_slug: item.row.track_slug, updated_at: item.row.updated_at, error: write.error || 'refused',
+      conflicts: detailed ? write.conflicts.map((c) => ({ ...c, base_text: savedText(c.t) ?? c.base_text })) : null });
     batch.splice(index, 1);
   }
   return { applied, refused, busy: false, remaining: [] };
@@ -3483,15 +3510,98 @@ async function relayLyricsRows(rows, request) {
 async function persistRefusedLyricsRelayState(refused, updates) {
   for (const item of refused || []) {
     const row = (updates || []).find((x) => x.song_id === item.song_id && x.track_slug === item.track_slug);
-    if (row?.relay_error === item.error) continue;
-    const { error } = await db.from('song_lyrics_edits').update({ relay_error: item.error })
+    const conflicts = item.error === 'source_changed' ? (item.conflicts || null) : null;
+    if (row?.relay_error === item.error && JSON.stringify(row?.relay_conflicts || null) === JSON.stringify(conflicts)) continue;
+    const { error } = await db.from('song_lyrics_edits').update({ relay_error: item.error, relay_conflicts: conflicts })
       .eq('song_id', item.song_id).eq('track_slug', item.track_slug).eq('updated_at', item.updated_at);
     if (error) console.warn('Could not record the lyric relay problem', error.message || error);
   }
 }
+// A mismatch between a queued Practice edit and a hand edit in Live is a
+// decision for Aaron (Ableton Sync > Lyric update mismatches), not a fault.
+const lyricsRelayIsMismatch = (error) => error === 'source_changed';
+// Aaron's decision on one mismatched clip. "practice": the Practice text
+// replaces the hand edit in Live (the bridge is told to overwrite that clip
+// once). "ableton": the queue adopts the text now in Live, so Live is left
+// alone and Practice shows it. The relay then runs again.
+function lyricsConflictResolution(lines, conflicts, t, choice, baseLine) {
+  const near = (value) => Math.abs(Number(value) - Number(t)) <= 0.03;
+  const conflict = (conflicts || []).find((c) => near(c.t));
+  if (!conflict) return null;
+  let found = false;
+  let next = (lines || []).map((line) => {
+    if (line.is_new_clip || !near(line.t)) return line;
+    found = true;
+    if (choice === 'practice') return { ...line, force: true };
+    const { force, ...rest } = line;
+    return { ...rest, text: conflict.live_text };
+  });
+  // Practice had removed this clip (Drums/Percussion) and Aaron keeps it.
+  if (!found && choice === 'ableton' && baseLine) { next = [...next, { ...baseLine, text: conflict.live_text }].sort((a, b) => Number(a.t) - Number(b.t)); found = true; }
+  if (!found) return null;
+  return { lines: next, conflicts: (conflicts || []).filter((c) => c !== conflict) };
+}
+async function resolveLyricConflict(songId, slug, t, choice) {
+  const key = `${songId}|${slug}`;
+  if (sync.resolving?.has(key)) return;
+  (sync.resolving ||= new Set()).add(key); renderSyncPage();
+  try {
+    const [{ data: row, error }, { data: base }] = await Promise.all([
+      db.from('song_lyrics_edits').select('lines,updated_at,relay_conflicts').eq('song_id', songId).eq('track_slug', slug).maybeSingle(),
+      db.from('song_lyrics').select('tracks').eq('song_id', songId).maybeSingle()
+    ]);
+    if (error) throw error;
+    if (!row) throw new Error('That edit is no longer queued.');
+    const baseLine = base?.tracks?.find((track) => track.slug === slug)?.lines?.find((line) => Math.abs(Number(line.t) - Number(t)) <= 0.03);
+    const resolved = lyricsConflictResolution(row.lines, row.relay_conflicts, t, choice, baseLine);
+    if (!resolved) throw new Error('That clip is no longer listed as a mismatch.');
+    const updatedAt = new Date(Math.max(Date.now(), Date.parse(row.updated_at) + 1)).toISOString();
+    const { data: updated, error: writeError } = await db.from('song_lyrics_edits')
+      .update({ lines: resolved.lines, updated_at: updatedAt, relay_conflicts: resolved.conflicts.length ? resolved.conflicts : null, relay_error: resolved.conflicts.length ? 'source_changed' : null })
+      .eq('song_id', songId).eq('track_slug', slug).eq('updated_at', row.updated_at).select('updated_at');
+    if (writeError) throw writeError;
+    if (!updated?.length) throw new Error('That track was edited just now. Try again.');
+    autoLyricsSync.refusedRows.delete(key);
+    autoLyricsSync.forceFull = true;
+    showNotice(choice === 'practice' ? 'The Practice edit will replace the clip in Ableton.' : 'Ableton’s version is kept.');
+    scheduleAutoLyricsSync(100);
+  } catch (error) { showNotice(error.message || 'Could not apply that decision.', true); }
+  finally { sync.resolving.delete(key); await loadLyricConflicts(true); }
+}
+async function loadLyricConflicts(force = false) {
+  if (!state.member?.is_admin) return;
+  const { data, error } = await db.from('song_lyrics_edits').select('song_id,track_slug,updated_at,relay_conflicts').eq('relay_error', 'source_changed');
+  if (error) return;
+  const next = (data || []).sort((a, b) => `${a.song_id}|${a.track_slug}`.localeCompare(`${b.song_id}|${b.track_slug}`));
+  const changed = JSON.stringify(next) !== JSON.stringify(sync.lyricConflicts || []);
+  sync.lyricConflicts = next;
+  if ((changed || force) && state.view === 'sync') renderSyncPage();
+}
+function lyricMismatchSectionHtml() {
+  const rows = sync.lyricConflicts || [];
+  const count = rows.reduce((sum, row) => sum + Math.max(1, (row.relay_conflicts || []).length), 0);
+  const items = rows.map((row) => {
+    const song = state.songs.find((x) => x.id === row.song_id);
+    const head = `<span class="song-id">${escapeHtml(row.song_id)}</span> <b>${escapeHtml(song?.name || '')}</b> · ${escapeHtml(lyricsTrackLabel(row.track_slug))}`;
+    const busy = sync.resolving?.has(`${row.song_id}|${row.track_slug}`) ? 'disabled' : '';
+    if (!Array.isArray(row.relay_conflicts) || !row.relay_conflicts.length) {
+      return `<li class="sync-row lyric-mismatch"><div class="lyric-mismatch-head">${head}</div><p class="muted">A clip on this track was changed by hand in Ableton. To see the clips and choose, TSPWork 1.30 must be loaded: in Live set the TSPWork control surface to None, then back to TSPWork.</p></li>`;
+    }
+    return row.relay_conflicts.map((c) => {
+      const id = escapeHtml(`${row.song_id}|${row.track_slug}|${c.t}`);
+      const text = (value) => value === null || value === undefined ? '<i>clip removed</i>' : escapeHtml(lyricsClipTextForEditor(value));
+      return `<li class="sync-row lyric-mismatch"><div class="lyric-mismatch-head">${head} · clip ${Number(c.line) || ''}</div>
+        <dl class="lyric-mismatch-texts"><dt>Practice edit</dt><dd>${text(c.practice_text)}</dd><dt>Ableton now</dt><dd>${text(c.live_text)}</dd><dt>Saved before</dt><dd>${text(c.base_text)}</dd></dl>
+        <div class="lyric-mismatch-actions">${c.practice_text === null || c.practice_text === undefined ? '' : `<button type="button" class="button" data-lyric-resolve="${id}" data-choice="practice" ${busy}>Use Practice edit</button>`}<button type="button" class="button quiet" data-lyric-resolve="${id}" data-choice="ableton" ${busy}>Keep Ableton</button></div></li>`;
+    }).join('');
+  }).join('');
+  return `<section class="sync-card"><header><h2>Lyric update mismatches <span>${count}</span></h2></header>
+    <p class="muted">A lyric edit from Practice and a change typed in Ableton landed on the same clip. Choose which one wins; your choice is applied to the open set straight away (save in Live afterwards as usual).</p>
+    ${rows.length ? `<ul class="sync-list">${items}</ul>` : '<p class="sync-empty">No mismatches.</p>'}</section>`;
+}
 async function pendingAbletonLyricsEdits() {
   const [{ data: edits, error: editError }, { data: baselines, error: baselineError }] = await Promise.all([
-    db.from('song_lyrics_edits').select('song_id,track_slug,lines,updated_at,applied_lines,relay_error'),
+    db.from('song_lyrics_edits').select('song_id,track_slug,lines,updated_at,applied_lines,relay_error,relay_conflicts'),
     db.from('song_lyrics').select('song_id,tracks,sections')
   ]);
   if (editError) throw editError;
@@ -3519,14 +3629,15 @@ async function pendingAbletonLyricsEdits() {
     updates.push({
       song_id: edit.song_id, track_slug: edit.track_slug, updated_at: edit.updated_at,
       base_lines: relayBaseLines,
-      lines: lyricsRelayLines(edit.track_slug, sourceLines, relayBaseLines, savedBaseLines, baseSong.sections),
+      lines: lyricsRelayAnnotate(lyricsRelayLines(edit.track_slug, sourceLines, relayBaseLines, savedBaseLines, baseSong.sections), savedBaseLines, appliedBaseLines),
       // If Live's memory went back to the saved set (Live reopened or the set
       // reloaded without saving), the relay retries against the saved baseline.
       saved_base_lines: savedBaseLines,
-      saved_lines: hasApplied ? lyricsRelayLines(edit.track_slug, sourceLines, savedBaseLines, savedBaseLines, baseSong.sections) : null,
+      saved_lines: hasApplied ? lyricsRelayAnnotate(lyricsRelayLines(edit.track_slug, sourceLines, savedBaseLines, savedBaseLines, baseSong.sections), savedBaseLines, appliedBaseLines) : null,
       source_lines: sourceLines,
       applied_lines: edit.applied_lines || null,
-      relay_error: edit.relay_error || null
+      relay_error: edit.relay_error || null,
+      relay_conflicts: edit.relay_conflicts || null
     });
     // Confirmation against the saved .als must always use the original saved
     // baseline and full intended override, not the most recent memory relay.
@@ -3744,7 +3855,7 @@ async function readAbletonSet() {
         setAbletonConnected(true);
         await publishAbletonPresence(true);
         if (sync.lyricsQueued.length) {
-          showNotice(`Sync finished. Still queued (not in the saved set yet): ${lyricsQueueLabel(sync.lyricsQueued)}. Save the set in Live and sync again; if an edit conflicts with a change made in Live, reopen it in Practice.`, true);
+          showNotice(`Sync finished. Not in the saved set yet: ${lyricsQueueLabel(sync.lyricsQueued)}. Save the set in Live and sync again; anything listed under Lyric update mismatches needs your choice first.`);
         }
       } catch (error) { sync.lyricsSaved = null; showNotice(`Lyrics were not fully saved for Practice: ${error.message}`, true); }
     }
@@ -4354,6 +4465,8 @@ async function exportControl(body, applied, waitingMsg, okMsg, kind) {
   else showNotice(`TSPWork still hasn't confirmed after 4 minutes. ${kind === 'stop' ? 'Try again, or use Cancel.' : 'In Ableton, press Esc to close the Export dialog, then set TSPWork to None and back.'}`, true);
 }
 $('#sync-content').addEventListener('click', (event) => {
+  const resolve = event.target.closest('[data-lyric-resolve]');
+  if (resolve) { const [songId, slug, t] = resolve.dataset.lyricResolve.split('|'); resolveLyricConflict(songId, slug, Number(t), resolve.dataset.choice); return; }
   const jump = event.target.closest('[data-sync-jump]');
   if (jump) { sendAbletonCommand('/jump', { song_id: jump.dataset.syncJump }); return; }
   const select = event.target.closest('[data-sync-select]');
@@ -6425,7 +6538,7 @@ document.addEventListener('click', (event) => {
   else lyricsFsShowControls();
 }, true);
 const LYRICS_RELAY_ERRORS = {
-  source_changed: 'this clip was changed by hand in Ableton, so the edit was not applied. Open the editor and save again, or restore the Ableton version.',
+  source_changed: 'a clip on this track was also changed by hand in Ableton. Aaron will choose which version wins on the Ableton Sync page.',
   clip_count_mismatch: 'the number of clips on this track changed in Ableton. Aaron needs to save and sync the set, then edit again.',
   line_count_changed: 'the number of clips no longer matches Ableton. Restore the Ableton version and edit again.',
   section_clip_exists: 'that section already has a clip in Ableton.',
@@ -6436,6 +6549,7 @@ const LYRICS_RELAY_ERRORS = {
 // One line under the track chips saying where this track's queued edit is.
 function lyricsEditStatus(edit, presence) {
   if (!edit) return null;
+  if (edit.relay_error === 'source_changed') return { state: 'sending', text: `Waiting for a decision: ${LYRICS_RELAY_ERRORS.source_changed}` };
   if (edit.relay_error) return { state: 'attention', text: `Not in Ableton yet: ${LYRICS_RELAY_ERRORS[edit.relay_error] || `Ableton refused the edit (${edit.relay_error}).`}` };
   if (Array.isArray(edit.applied_lines) && lyricsRelayStateMatches(edit.applied_lines, edit.lines)) {
     return { state: 'applied', text: 'Edit is in Ableton. It stays marked as pending until Aaron saves the set and syncs.' };
