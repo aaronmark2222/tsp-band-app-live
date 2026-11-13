@@ -1904,6 +1904,12 @@ body.keyboard-open #practice-transport { display: none !important; }
   -webkit-appearance:none; appearance:none; cursor:pointer;
 }
 #practice-lyrics > header .room-btn svg { display:block; width:17px; height:17px; }
+/* That generic rule carries an id, so it was overruling the plain
+   .has-sync-logo hide and bringing the fallback sync mark back into the
+   middle of the Follow button. It only ever shows when the Ableton logo file
+   is missing (Aaron, 13 Nov 2026). */
+.has-sync-logo #practice-lyrics > header .follow-btn .sync-mark { display:none; }
+#practice-lyrics > header .follow-btn .sync-mark { width:16px; height:16px; }
 #practice-lyrics > header .follow-btn { display:inline-flex; flex-direction:column; gap:1px; }
 #practice-lyrics > header .follow-btn .sync-logo { width:17px; height:8px; }
 #practice-lyrics > header .follow-btn .follow-glyph { width:15px; height:6px; }

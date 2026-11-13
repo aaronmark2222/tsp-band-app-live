@@ -212,3 +212,12 @@ test('a follower waits longer when the chip says the Mac is only slow', () => {
   assert.match(appSource, /const FOLLOW_GIVEUP_SLOW_MS = 90000;/);
   assert.match(appSource, /const patience = abletonBridge\.connected \|\| !abletonPresence\.available \? FOLLOW_GIVEUP_MS : FOLLOW_GIVEUP_SLOW_MS;/);
 });
+
+test('the fallback sync mark stays hidden when the Ableton logo is there', () => {
+  const css = require('node:fs').readFileSync(require('node:path').resolve(__dirname, '../styles.css'), 'utf8');
+  // the generic svg rule carries an id, so the hide must carry one too
+  assert.match(css, /\.has-sync-logo #practice-lyrics > header \.follow-btn \.sync-mark \{ display:none; \}/);
+  const generic = css.indexOf('#practice-lyrics > header .room-btn svg {');
+  const hide = css.indexOf('.has-sync-logo #practice-lyrics > header .follow-btn .sync-mark');
+  assert.ok(hide > generic, 'and come after it');
+});
