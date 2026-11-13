@@ -2460,7 +2460,7 @@ const ABLETON_BRIDGE_URLS = ['https://127.0.0.1:47711', 'http://127.0.0.1:47710'
 const ABLETON_PRESENCE_KEY = 'ableton_bridge_presence';
 const ABLETON_PRESENCE_TTL_MS = 45000;
 const abletonBridge = { connected: false, timer: null, busy: false, started: false, base: null };
-const abletonPresence = { available: false, awaitingSave: false, needsAttention: false, timer: null, lastHeartbeat: 0, lastSync: null };
+const abletonPresence = { available: false, awaitingSave: false, needsAttention: false, timer: null, lastHeartbeat: 0, lastSync: null, failures: 0 };
 const autoLyricsSync = { channel: null, timer: null, busy: false, started: false, rerun: false, lastErrorAt: 0, retryAfter: 0, session: null, lastFullAt: 0, forceFull: true, refusedRows: new Map(), refused: [] };
 
 function abletonMainProjectOpen(status = abletonBridge.status) {
@@ -2578,8 +2578,20 @@ async function publishAbletonPresence(available) {
   if (error) console.warn('Ableton availability was not shared', error.message || error);
 }
 
+// The chip (and with it the Song ID jumps and Follow Ableton) is only as good
+// as this device's own connection: offline, it goes, and so does any
+// following (Aaron, 13 Nov 2026).
+function abletonPresenceLost() {
+  if (!abletonPresence.available && !abletonPresence.awaitingSave && !abletonPresence.needsAttention) return;
+  abletonPresence.available = false;
+  abletonPresence.awaitingSave = false;
+  abletonPresence.needsAttention = false;
+  abletonPresence.lastSync = null;
+  setAbletonConnected(abletonBridge.connected);
+}
 async function refreshSharedAbletonPresence() {
   if (!state.member?.id) return;
+  if (navigator.onLine === false) { abletonPresence.failures = 9; abletonPresenceLost(); return; }
   try {
     const { data, error } = await db.from('app_meta').select('value,updated_at').eq('key', ABLETON_PRESENCE_KEY).maybeSingle();
     if (error) throw error;
@@ -2588,17 +2600,32 @@ async function refreshSharedAbletonPresence() {
     abletonPresence.awaitingSave = !!(fresh && data.value?.awaiting_manual_save === true);
     abletonPresence.needsAttention = !!(fresh && data.value?.needs_attention === true);
     abletonPresence.lastSync = fresh ? data.value?.last_sync_at || null : null;
+    abletonPresence.failures = 0;
     setAbletonConnected(abletonBridge.connected);
     if (state.view === 'sync') refreshSyncLyricsPendingBadge();
-  } catch (error) { console.warn('Could not refresh shared Ableton availability', error?.message || error); }
+  } catch (error) {
+    // One failed read is a blip; a second means this device is cut off.
+    abletonPresence.failures = (abletonPresence.failures || 0) + 1;
+    if (abletonPresence.failures >= 2) abletonPresenceLost();
+    console.warn('Could not refresh shared Ableton availability', error?.message || error);
+  }
 }
 
 function startSharedAbletonPresence() {
   if (abletonPresence.timer) return;
   refreshSharedAbletonPresence();
   abletonPresence.timer = setInterval(refreshSharedAbletonPresence, 12000);
-  window.addEventListener('focus', refreshSharedAbletonPresence);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshSharedAbletonPresence(); });
+  const back = () => {
+    refreshSharedAbletonPresence();
+    // A sleeping tab or a dropped network leaves the relay channel dead: it is
+    // rebuilt here, so nothing needs the app reopening.
+    if ((follow.on || follow.claims.size || abletonBridge.connected) && !abletonRemoteHealthy()) abletonRemoteHeal(true);
+    if (follow.on && !abletonBridge.connected) { followClaim(); followPing(3); }
+  };
+  window.addEventListener('focus', back);
+  window.addEventListener('online', back);
+  window.addEventListener('offline', () => { abletonPresence.failures = 9; abletonPresenceLost(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) back(); });
 }
 
 function scheduleAutoLyricsSync(delay = 700) {
@@ -2790,7 +2817,22 @@ async function sendAbletonCommand(path, body, { review = true } = {}) {
 // the playhead. The Mac checks who is asking against the member list and its
 // own room before it does anything, and the bridge still refuses to move a
 // playing transport.
-const abletonRemote = { channel: null, ready: null, pending: null };
+const abletonRemote = { channel: null, ready: null, pending: null, status: '', joinedAt: 0, healAt: 0 };
+function abletonRemoteHealthy() { return !!abletonRemote.channel && abletonRemote.status === 'SUBSCRIBED'; }
+// A phone that loses its network comes back with a channel that will never
+// join again. Rather than leave it hanging on "Finding Ableton…", the channel
+// is thrown away and built afresh (Aaron, 13 Nov 2026).
+function abletonRemoteHeal(force) {
+  if (!force && abletonRemoteHealthy()) return abletonRemote.channel;
+  if (Date.now() - abletonRemote.healAt < 3000) return abletonRemote.channel; // not more than once every three seconds
+  abletonRemote.healAt = Date.now();
+  const old = abletonRemote.channel;
+  abletonRemote.channel = null;
+  abletonRemote.ready = null;
+  abletonRemote.status = '';
+  if (old) { try { db.removeChannel(old); } catch { /* already gone */ } }
+  return abletonRemoteChannel();
+}
 function abletonRemoteChannel() {
   if (abletonRemote.channel) return abletonRemote.channel;
   const channel = db.channel('tsp-ableton', { config: { broadcast: { self: false } } });
@@ -2812,7 +2854,13 @@ function abletonRemoteChannel() {
         if (abletonBridge.connected && payload?.id) channel.send({ type: 'broadcast', event: 'fpong', payload: { id: payload.id, to: payload.from, t1: Date.now() } });
       })
       .on('broadcast', { event: 'fpong' }, ({ payload }) => { if (payload?.to === roomDeviceId) followOnPong(payload); })
-      .subscribe((status) => { if (status === 'SUBSCRIBED') resolve(true); });
+      .subscribe((status) => {
+        abletonRemote.status = status;
+        if (status === 'SUBSCRIBED') { abletonRemote.joinedAt = Date.now(); resolve(true); return; }
+        // CHANNEL_ERROR, TIMED_OUT or CLOSED: try again shortly, as long as
+        // somebody still needs it.
+        if (follow.on || follow.claims.size || abletonBridge.connected) setTimeout(() => { if (!abletonRemoteHealthy()) abletonRemoteHeal(true); }, 2000);
+      });
   });
   return channel;
 }
@@ -2841,7 +2889,7 @@ function abletonRemoteResult(payload) {
   else if (!payload.ok) showNotice('Ableton could not jump to ' + payload.song_id + '.', true);
 }
 async function abletonRemoteSendJump(songId) {
-  abletonRemoteChannel();
+  abletonRemoteHeal(!abletonRemoteHealthy());
   if (!(await abletonRemote.ready)) { showNotice('Could not reach Aaron’s Mac. Check the connection and try again.', true); return; }
   await abletonRemote.channel.send({ type: 'broadcast', event: 'jump',
     payload: { song_id: songId, member_id: state.member?.id || null, name: state.member?.name || '', device: roomDeviceId, room: room.code || null } });
@@ -4676,9 +4724,12 @@ const practice = {
 const FOLLOW_MIN_VERSION = [1, 32];
 const FOLLOW_POLL_MS = 250;
 const FOLLOW_CLAIM_MS = 30000;
+const FOLLOW_STALE_MS = 6000;    // nothing from the Mac: stop trusting the clock
+const FOLLOW_GIVEUP_MS = 25000;  // still nothing: release this device
 const follow = {
   on: false, state: null, offset: 0, rtt: null, samples: [], pings: new Map(),
-  songRequest: null, note: '', timer: null, pingTimer: null, claims: new Map(), serving: false
+  songRequest: null, note: '', timer: null, pingTimer: null, claims: new Map(), serving: false,
+  lastRelay: 0, stale: false, watchdog: null, frozen: null
 };
 const room = {
   code: null, role: null, channel: null, members: [], state: null, anchor: null,
@@ -8593,13 +8644,18 @@ function lyricsSecondsForBeats(beats) {
 }
 function followPosition() {
   const s = follow.state;
-  if (!s || s.seconds == null) return 0;
+  if (!s || s.seconds == null) return follow.frozen ?? 0;
   if (!s.playing) return s.seconds;
+  // Gone quiet: hold the last place rather than run on a clock nobody is
+  // feeding any more.
+  if (follow.stale) return follow.frozen ?? s.seconds;
   return Math.max(0, s.seconds + (Date.now() + follow.offset - s.at) / 1000);
 }
 // A relayed playhead becomes a position in this device's open song.
 function followApply(payload) {
   if (!follow.on || !payload) return;
+  follow.lastRelay = Date.now();
+  if (follow.stale) { follow.stale = false; follow.frozen = null; }
   const songId = payload.songId || null;
   follow.state = { songId, beat: payload.beat, start: payload.start, playing: !!payload.playing, at: payload.at, seconds: null };
   if (songId && songId !== practice.songId && follow.songRequest !== songId) {
@@ -8616,6 +8672,32 @@ function followApply(payload) {
   }
   renderFollowUi();
 }
+// Nothing has arrived for a while: freeze, try to mend the link, and let go
+// if it stays quiet. This is what stopped a phone that lost its network from
+// playing on by itself, and what gets it back without reopening the app.
+function followWatch() {
+  if (!follow.on) return;
+  const quiet = Date.now() - (follow.lastRelay || 0);
+  const live = abletonBridge.connected ? abletonMainProjectOpen() : (navigator.onLine !== false && abletonPresence.available);
+  if (!live) { followStop('Ableton is no longer reachable, so this device is on its own playback again.'); return; }
+  if (quiet < FOLLOW_STALE_MS) return;
+  if (!follow.stale) {
+    follow.stale = true;
+    follow.frozen = followPosition();
+    follow.note = 'Lost Ableton — reconnecting…';
+    renderFollowUi();
+  }
+  if (quiet > FOLLOW_GIVEUP_MS) {
+    followStop('Lost Ableton for too long, so this device is on its own playback again.');
+    return;
+  }
+  // Mend whatever broke: the channel first, then say again that we are here.
+  if (!abletonBridge.connected) {
+    abletonRemoteHeal(!abletonRemoteHealthy());
+    followClaim();
+    followPing(2);
+  }
+}
 // --- the Mac's side: read Live and relay ----------------------------------
 function followWanted() {
   if (follow.on && abletonBridge.connected) return true;
@@ -8631,7 +8713,10 @@ async function followServe() {
     if (!result?.ok) return;
     const payload = { songId: result.live_song || null, beat: Number(result.live_beat) || 0,
       start: Number(result.live_start) || 0, playing: !!result.playing, at: Date.now() };
-    if (follow.claims.size) abletonRemoteChannel().send({ type: 'broadcast', event: 'ableton', payload });
+    if (follow.claims.size) {
+      if (!abletonRemoteHealthy()) abletonRemoteHeal(true); // a dead channel would swallow every relay
+      abletonRemoteChannel().send({ type: 'broadcast', event: 'ableton', payload });
+    }
     if (follow.on) followApply(payload); // this Mac does not hear its own broadcast
   } catch { /* the bridge answers again in a moment */ }
   finally { follow.serving = false; }
@@ -8681,10 +8766,15 @@ async function followStart() {
   follow.offset = 0;
   follow.state = null;
   follow.note = 'Finding Ableton…';
+  follow.lastRelay = Date.now();
+  follow.stale = false;
+  follow.frozen = null;
   document.body.classList.add('ableton-following');
   ptPauseEverything();
-  abletonRemoteChannel();
+  abletonRemoteHeal(!abletonRemoteHealthy()); // a stale channel is rebuilt before we wait on it
   followStartServing();
+  clearInterval(follow.watchdog);
+  follow.watchdog = setInterval(followWatch, 1000);
   if (!abletonBridge.connected) {
     followClaim();
     followPing(5);
@@ -8694,17 +8784,31 @@ async function followStart() {
   renderFollowUi();
   ptRender();
 }
-function followStop() {
+function followStop(message) {
+  // Stay where Ableton left us rather than snapping back to the start.
+  const at = follow.state && follow.state.seconds != null ? followPosition() : null;
   follow.on = false;
   follow.state = null;
   follow.note = '';
   follow.songRequest = null;
+  follow.stale = false;
+  follow.frozen = null;
   clearInterval(follow.pingTimer);
   follow.pingTimer = null;
+  clearInterval(follow.watchdog);
+  follow.watchdog = null;
   if (!abletonBridge.connected) abletonRemoteChannel().send({ type: 'broadcast', event: 'follow', payload: { device: roomDeviceId, on: false } });
   document.body.classList.remove('ableton-following');
+  if (at != null && Number.isFinite(at)) {
+    practice.position = Math.max(0, at);
+    practice.offset = Math.max(0, at);
+    const audio = $('#practice-mix-audio');
+    if (audio && Number.isFinite(audio.duration)) audio.currentTime = Math.min(at, audio.duration);
+  }
+  if (message) showNotice(message, true);
   renderFollowUi();
   ptRender();
+  practice.lyricIndex = -2;
   practiceLyricsTick(true);
 }
 function followToggle() { if (follow.on) followStop(); else followStart(); }

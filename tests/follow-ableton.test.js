@@ -123,3 +123,44 @@ test('the button stacks the Ableton mark over the follow glyph, inside the circl
   assert.match(css, /\.follow-btn \.follow-glyph \{ flex:none; width:19px; height:8px; fill:currentColor; stroke:none; \}/);
   assert.match(css, /\.follow-btn \{ display:inline-flex; flex-direction:column;/);
 });
+
+test('stopping the follow leaves the playhead where Ableton left it', () => {
+  const fn = appSource.slice(appSource.indexOf('function followStop('), appSource.indexOf('function followToggle('));
+  assert.match(fn, /const at = follow\.state && follow\.state\.seconds != null \? followPosition\(\) : null;/);
+  assert.match(fn, /practice\.position = Math\.max\(0, at\);/);
+  assert.match(fn, /practice\.offset = Math\.max\(0, at\);/);
+});
+
+test('a quiet relay freezes the playhead instead of running on', () => {
+  const now = Date.now();
+  const stale = load(['followPosition'], { follow: { state: { seconds: 10, playing: true, at: now - 9000 }, offset: 0, stale: true, frozen: 12.5 } });
+  assert.equal(stale.followPosition(), 12.5);
+  const live = load(['followPosition'], { follow: { state: { seconds: 10, playing: true, at: now - 2000 }, offset: 0, stale: false, frozen: null } });
+  assert.ok(Math.abs(live.followPosition() - 12) < 0.1);
+});
+
+test('the watchdog freezes, mends and finally lets go', () => {
+  const fn = appSource.slice(appSource.indexOf('function followWatch()'), appSource.indexOf("// --- the Mac's side"));
+  assert.match(fn, /if \(quiet < FOLLOW_STALE_MS\) return;/);
+  assert.match(fn, /follow\.frozen = followPosition\(\);/);
+  assert.match(fn, /if \(quiet > FOLLOW_GIVEUP_MS\) \{\n    followStop\(/);
+  assert.match(fn, /abletonRemoteHeal\(!abletonRemoteHealthy\(\)\);/);
+  assert.match(fn, /if \(!live\) \{ followStop\(/);
+  assert.match(appSource, /follow\.watchdog = setInterval\(followWatch, 1000\);/);
+});
+
+test('a dead relay channel is rebuilt rather than waited on', () => {
+  assert.match(appSource, /function abletonRemoteHealthy\(\) \{ return !!abletonRemote\.channel && abletonRemote\.status === 'SUBSCRIBED'; \}/);
+  assert.match(appSource, /function abletonRemoteHeal\(force\) \{/);
+  assert.match(appSource, /try \{ db\.removeChannel\(old\); \} catch/);
+  assert.match(appSource, /abletonRemoteHeal\(!abletonRemoteHealthy\(\)\); \/\/ a stale channel is rebuilt before we wait on it/);
+  assert.match(appSource, /window\.addEventListener\('online', back\);/);
+});
+
+test('losing the network takes the chip, the jumps and the following with it', () => {
+  assert.match(appSource, /if \(navigator\.onLine === false\) \{ abletonPresence\.failures = 9; abletonPresenceLost\(\); return; \}/);
+  assert.match(appSource, /if \(abletonPresence\.failures >= 2\) abletonPresenceLost\(\);/);
+  assert.match(appSource, /window\.addEventListener\('offline', \(\) => \{ abletonPresence\.failures = 9; abletonPresenceLost\(\); \}\);/);
+  // and the chip going is what hides the button and releases the transport
+  assert.match(appSource, /if \(follow\.on && !songJumpLive\(\)\) followStop\(\);/);
+});
