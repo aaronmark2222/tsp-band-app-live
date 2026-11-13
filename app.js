@@ -7041,7 +7041,7 @@ let lyricsSizeOpen = false;
 function lyricsSizeMenuHtml(size) {
   const one = (value, label) => `<button type="button" class="ly-size ly-size-${value} ${size === value ? 'on' : ''}" data-lyrics-size="${value}" aria-label="${label} text">A</button>`;
   return `<span class="ly-size-wrap">
-    <button type="button" class="ly-size ly-size-toggle ly-size-${size} ${lyricsSizeOpen ? 'open' : ''}" data-lyrics-size-menu aria-haspopup="true" aria-expanded="${lyricsSizeOpen}" title="Text size" aria-label="Text size">A</button>
+    <button type="button" class="ly-size ly-size-toggle ${lyricsSizeOpen ? 'open' : ''}" data-lyrics-size-menu aria-haspopup="true" aria-expanded="${lyricsSizeOpen}" title="Text size" aria-label="Text size"><span class="ly-ab" aria-hidden="true"><span class="ly-ab-s">A</span><span class="ly-ab-l">A</span></span></button>
     ${lyricsSizeOpen ? `<span class="ly-size-menu" role="group" aria-label="Text size">${one('s', 'Small')}${one('m', 'Medium')}${one('l', 'Large')}</span>` : ''}
   </span>`;
 }

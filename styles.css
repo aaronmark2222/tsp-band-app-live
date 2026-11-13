@@ -1559,15 +1559,15 @@ body::after{content:'';position:fixed;inset:-10vmax;z-index:-1;pointer-events:no
 .editor-actions{background:rgba(30,30,34,.85)!important}
 
 /* ---- Buttons: glass pills ---- */
-.button,.tab,.ly-chip,.ly-size,.ly-fs-btn,.pt-group button,.pt-pick,.dashboard-tab,.icon-button,.text-button.linklike,
+.button,.tab,.ly-chip,.ly-size,.ly-fs-btn,#practice-lyrics>header .room-btn,.pt-group button,.pt-pick,.dashboard-tab,.icon-button,.text-button.linklike,
 .export-row .button,.review-controls button,.setlist-tools .button{
   background:var(--glass-fill-2)!important;color:#f2f2f2;
   border:1px solid var(--glass-edge)!important;border-radius:999px!important;
   box-shadow:var(--glass-hi),0 2px 10px rgba(0,0,0,.18)!important;
   transition:background .15s,border-color .15s,transform .15s
 }
-.button:hover,.tab:hover,.ly-chip:hover,.ly-size:hover,.pt-group button:hover,.dashboard-tab:hover,.icon-button:hover{background:var(--glass-fill-hover)!important;border-color:var(--glass-edge-strong)!important}
-.button.primary,.tab.active,.ly-chip.on,.ly-size.on,.pt-modes button.on,.pt-pick.on,.dashboard-tab.active,.dashboard-tab.on{
+.button:hover,.tab:hover,.ly-chip:hover,.ly-size:hover,.ly-fs-btn:hover,#practice-lyrics>header .room-btn:hover,.pt-group button:hover,.dashboard-tab:hover,.icon-button:hover{background:var(--glass-fill-hover)!important;border-color:var(--glass-edge-strong)!important}
+.button.primary,.tab.active,.ly-chip.on,.ly-size.on,#practice-lyrics>header .room-btn.on,.pt-modes button.on,.pt-pick.on,.dashboard-tab.active,.dashboard-tab.on{
   background:var(--glass-accent)!important;border-color:var(--glass-accent-edge)!important;color:#1b1206!important
 }
 .button.danger{background:rgba(255,90,80,.18)!important;border-color:rgba(255,120,110,.45)!important;color:#ffb3aa!important}
@@ -1895,10 +1895,18 @@ body.keyboard-open #practice-transport { display: none !important; }
 /* The lyrics header carries Follow Ableton, Group practice, the text size (one
    button that opens the three) and full screen (Aaron, 13 Nov 2026). */
 #practice-lyrics > header .ly-sizes { display:flex; align-items:center; gap:6px; flex-wrap:nowrap; }
-#practice-lyrics > header .room-btn { width:32px; height:32px; }
-#practice-lyrics > header .room-btn svg { width:18px; height:18px; }
-#practice-lyrics > header .follow-btn .sync-logo { width:18px; height:9px; }
-#practice-lyrics > header .follow-btn .follow-glyph { width:16px; height:7px; }
+/* Follow Ableton and Group practice are the same control as the text size and
+   full-screen buttons: same box, same glass, one gap (Aaron, 13 Nov 2026). */
+#practice-lyrics > header .ly-fs-btn { margin-left:0; }
+#practice-lyrics > header .room-btn {
+  box-sizing:border-box; flex:none; width:30px; height:30px; padding:0; margin:0;
+  display:inline-grid; place-items:center; line-height:0; vertical-align:middle;
+  -webkit-appearance:none; appearance:none; cursor:pointer;
+}
+#practice-lyrics > header .room-btn svg { display:block; width:17px; height:17px; }
+#practice-lyrics > header .follow-btn { display:inline-flex; flex-direction:column; gap:1px; }
+#practice-lyrics > header .follow-btn .sync-logo { width:17px; height:8px; }
+#practice-lyrics > header .follow-btn .follow-glyph { width:15px; height:6px; }
 #practice-lyrics > header .room-chip { font-size:11px; padding:4px 9px; }
 .follow-note:empty { display:none; }
 .follow-note { font-size:11px; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -1933,3 +1941,10 @@ body.ableton-following #practice-transport .pt-break,
 body.ableton-following #practice-transport .pt-lcd,
 body.ableton-following #practice-transport .pt-seek { display:none !important; }
 body.ableton-following #practice-transport .pt-info { flex:1 1 auto; justify-content:flex-start; }
+
+/* The text-size button shows both ends of the scale. */
+.ly-ab { display:inline-flex; align-items:baseline; gap:1px; line-height:1; }
+.ly-ab .ly-ab-s { font-size:10px; }
+.ly-ab .ly-ab-l { font-size:16px; font-weight:600; }
+body.lyrics-fs .ly-ab .ly-ab-s { font-size:11px; }
+body.lyrics-fs .ly-ab .ly-ab-l { font-size:18px; }

@@ -227,3 +227,27 @@ test('following Ableton leaves only the chips that can be read', () => {
   assert.match(rule, /display:none !important;/);
   assert.equal(rule.includes('.pt-info { display:none'), false, 'Key, tempo and work remaining stay');
 });
+
+test('the header buttons are one family: same box, same glass, one gap', () => {
+  const css = require('node:fs').readFileSync(require('node:path').resolve(__dirname, '../styles.css'), 'utf8');
+  // the glass theme must style the two round buttons exactly as it styles the
+  // size and full-screen buttons
+  const pill = css.slice(css.indexOf('/* ---- Buttons: glass pills ---- */'));
+  assert.match(pill.split('{')[0], /\.ly-size,\.ly-fs-btn,#practice-lyrics>header \.room-btn,/);
+  assert.match(css, /\.ly-size:hover,\.ly-fs-btn:hover,#practice-lyrics>header \.room-btn:hover,/);
+  assert.match(css, /\.ly-chip\.on,\.ly-size\.on,#practice-lyrics>header \.room-btn\.on,/);
+  // and the metrics the glass rules do not set come from .ly-fs-btn
+  assert.match(css, /#practice-lyrics > header \.room-btn \{\n  box-sizing:border-box; flex:none; width:30px; height:30px;/);
+  assert.match(css, /#practice-lyrics > header \.ly-fs-btn \{ margin-left:0; \}/);
+  assert.match(css, /#practice-lyrics > header \.ly-sizes \{ display:flex; align-items:center; gap:6px;/);
+});
+
+test('the text-size button shows both ends of the scale', () => {
+  const ctx = load(['lyricsSizeMenuHtml'], { lyricsSizeOpen: false });
+  const html = ctx.lyricsSizeMenuHtml('m');
+  assert.match(html, /<span class="ly-ab" aria-hidden="true"><span class="ly-ab-s">A<\/span><span class="ly-ab-l">A<\/span><\/span>/);
+  assert.equal(/ly-size-toggle ly-size-m/.test(html), false, 'the toggle no longer takes the size class');
+  const css = require('node:fs').readFileSync(require('node:path').resolve(__dirname, '../styles.css'), 'utf8');
+  assert.match(css, /\.ly-ab \.ly-ab-s \{ font-size:10px; \}/);
+  assert.match(css, /\.ly-ab \.ly-ab-l \{ font-size:16px; font-weight:600; \}/);
+});
