@@ -92,7 +92,7 @@ Aaron is the owner and the only person who runs Ableton Sync and exports. He mos
 |---|---|
 | Repo | `aaronmark2222/tsp-band-app-live` (public). Working clone used by Claude: `/home/claude/aaronmark2222/tsp-band-app-live` |
 | Live site | https://aaronmark2222.github.io/tsp-band-app-live/ |
-| Deploy | `.github/workflows/deploy.yml`, on push to `main`. Copies **only** `index.html app.js styles.css sw.js apple-touch-icon.png assets/the-string-project-logo.png assets/ableton-sync-logo.*`. Any new public file must be added there. |
+| Deploy | `.github/workflows/deploy.yml`, on push to `main`. Copies **only** `index.html app.js boot.js styles.css sw.js apple-touch-icon.png vendor/jsqr.js assets/the-string-project-logo.png assets/ableton-sync-logo.*`. Any new public file must be added there (vendor/jsqr.js was missed once and the scanner could not load). |
 | Supabase project | `hzvfrvjuqvmkeqbrgmqu` · `https://hzvfrvjuqvmkeqbrgmqu.supabase.co` · publishable key is in `app.js` (public by design) |
 | Edge Functions | `member-access-admin` (v8, `list_members` returns `role`; service role in secrets; a temporary password also confirms the email) · `practice-audio` (v7, R2 secrets `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, entered by Aaron himself) |
 | Cloudflare R2 | bucket **`tsp-practice`**, keys `songs/<SONG ID>/<element-slug>.m4a` (or older `.mp3`). CORS allows GET/PUT/HEAD from `https://aaronmark2222.github.io`. Free tier 10 GB. |
