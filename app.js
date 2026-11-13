@@ -2460,7 +2460,7 @@ const ABLETON_BRIDGE_URLS = ['https://127.0.0.1:47711', 'http://127.0.0.1:47710'
 const ABLETON_PRESENCE_KEY = 'ableton_bridge_presence';
 const ABLETON_PRESENCE_TTL_MS = 18000;
 const abletonBridge = { connected: false, timer: null, busy: false, started: false, base: null };
-const abletonPresence = { available: false, awaitingSave: false, needsAttention: false, timer: null, lastHeartbeat: 0, lastSync: null, failures: 0, heartbeatAt: 0, expiry: null };
+const abletonPresence = { available: false, awaitingSave: false, needsAttention: false, timer: null, lastHeartbeat: 0, lastSync: null, failures: 0, heartbeatAt: 0, expiry: null, life: 0, lockHeld: false };
 const autoLyricsSync = { channel: null, timer: null, busy: false, started: false, rerun: false, lastErrorAt: 0, retryAfter: 0, session: null, lastFullAt: 0, forceFull: true, refusedRows: new Map(), refused: [] };
 
 function abletonMainProjectOpen(status = abletonBridge.status) {
@@ -2563,12 +2563,28 @@ function setAbletonConnected(connected) {
   updateSongJumpAvailability();
 }
 
+// A window on another macOS desktop is a hidden page, and a hidden page's
+// timers are throttled — after a few minutes, to once a minute. That stopped
+// the heartbeat and made the chip flicker on and off everywhere else (Aaron,
+// 13 Nov 2026). Two answers: hold a Web Lock, which exempts this page from
+// the harshest throttling, and tell the other devices how long to trust a
+// heartbeat, which is longer while this Mac is out of sight.
+const ABLETON_PRESENCE_TTL_HIDDEN_MS = 150000;
+function abletonKeepTimersAlive() {
+  if (abletonPresence.lockHeld || !navigator.locks?.request) return;
+  abletonPresence.lockHeld = true;
+  navigator.locks.request('tspwork-bridge-heartbeat', () => new Promise(() => {})).catch(() => { abletonPresence.lockHeld = false; });
+}
+function abletonPresenceTtl() {
+  return document.hidden ? ABLETON_PRESENCE_TTL_HIDDEN_MS : ABLETON_PRESENCE_TTL_MS;
+}
 async function publishAbletonPresence(available) {
   if (!abletonBridgeEligible() || Date.now() - abletonPresence.lastHeartbeat < 5000) return;
   abletonPresence.lastHeartbeat = Date.now();
   abletonPresence.available = !!available;
   abletonPresence.heartbeatAt = available ? Date.now() : 0; // this Mac is its own heartbeat
   const value = {
+    ttl_ms: abletonPresenceTtl(),
     available: !!available,
     version: abletonBridge.status?.version || null,
     last_sync_at: abletonPresence.lastSync,
@@ -2597,9 +2613,11 @@ async function refreshSharedAbletonPresence() {
     const { data, error } = await db.from('app_meta').select('value,updated_at').eq('key', ABLETON_PRESENCE_KEY).maybeSingle();
     if (error) throw error;
     const writtenAt = data ? Date.parse(data.updated_at) : 0;
-    const fresh = !!writtenAt && Date.now() - writtenAt < ABLETON_PRESENCE_TTL_MS;
+    const ttl = abletonPresenceLife(data?.value);
+    const fresh = !!writtenAt && Date.now() - writtenAt < ttl;
     abletonPresence.available = !!(fresh && data.value?.available === true);
     abletonPresence.heartbeatAt = abletonPresence.available ? writtenAt : 0;
+    abletonPresence.life = ttl;
     abletonPresence.awaitingSave = !!(fresh && data.value?.awaiting_manual_save === true);
     abletonPresence.needsAttention = !!(fresh && data.value?.needs_attention === true);
     abletonPresence.lastSync = fresh ? data.value?.last_sync_at || null : null;
@@ -2618,10 +2636,17 @@ async function refreshSharedAbletonPresence() {
 // time to live, this device drops the chip without asking anybody. That is
 // what makes the Mac closing show up in seconds rather than a minute, and it
 // costs nothing (Aaron, 13 Nov 2026).
+// How long a heartbeat is good for: what the Mac asked for, kept sane.
+function abletonPresenceLife(value) {
+  const asked = Number(value?.ttl_ms);
+  if (!Number.isFinite(asked)) return ABLETON_PRESENCE_TTL_MS;
+  return Math.max(ABLETON_PRESENCE_TTL_MS, Math.min(ABLETON_PRESENCE_TTL_HIDDEN_MS + 30000, asked));
+}
 function abletonPresenceExpiryCheck() {
   if (!abletonPresence.available) return;
   if (abletonBridge.connected && abletonMainProjectOpen()) return; // our own bridge answers for itself
-  if (!abletonPresence.heartbeatAt || Date.now() - abletonPresence.heartbeatAt > ABLETON_PRESENCE_TTL_MS) abletonPresenceLost();
+  const life = abletonPresence.life || ABLETON_PRESENCE_TTL_MS;
+  if (!abletonPresence.heartbeatAt || Date.now() - abletonPresence.heartbeatAt > life) abletonPresenceLost();
 }
 function startSharedAbletonPresence() {
   if (abletonPresence.timer) return;
@@ -2767,11 +2792,19 @@ async function probeAbletonBridge() {
 function startAbletonBridge() {
   if (!abletonBridgeEligible()) return;
   startAutoLyricsSync();
+  abletonKeepTimersAlive();
   probeAbletonBridge();
   if (abletonBridge.started) return;
   abletonBridge.started = true;
   abletonBridge.timer = setInterval(probeAbletonBridge, 6000);
   window.addEventListener('focus', probeAbletonBridge);
+  // Going out of sight (another desktop, another app) changes how long this
+  // Mac's heartbeat should be trusted: say so straight away, both ways.
+  document.addEventListener('visibilitychange', () => {
+    abletonPresence.lastHeartbeat = 0;
+    publishAbletonPresence(abletonBridge.connected && abletonMainProjectOpen());
+    if (!document.hidden) probeAbletonBridge();
+  });
 }
 
 const ABLETON_ERRORS = {
@@ -4740,6 +4773,7 @@ const FOLLOW_POLL_MS = 250;
 const FOLLOW_CLAIM_MS = 30000;
 const FOLLOW_STALE_MS = 6000;    // nothing from the Mac: stop trusting the clock
 const FOLLOW_GIVEUP_MS = 15000;  // still nothing: release this device
+const FOLLOW_GIVEUP_SLOW_MS = 90000; // ...unless the chip says the Mac is there, only slow
 const follow = {
   on: false, state: null, offset: 0, rtt: null, samples: [], pings: new Map(),
   songRequest: null, note: '', timer: null, pingTimer: null, claims: new Map(), serving: false,
@@ -8739,7 +8773,11 @@ function followWatch() {
     follow.note = 'Lost Ableton — reconnecting…';
     renderFollowUi();
   }
-  if (quiet > FOLLOW_GIVEUP_MS) {
+  // The chip is still up, so the Mac is there and only slow (a window on
+  // another desktop has its timers throttled): keep waiting rather than
+  // letting go and being asked to start again.
+  const patience = abletonBridge.connected || !abletonPresence.available ? FOLLOW_GIVEUP_MS : FOLLOW_GIVEUP_SLOW_MS;
+  if (quiet > patience) {
     followStop('Lost Ableton for too long, so this device is on its own playback again.');
     return;
   }

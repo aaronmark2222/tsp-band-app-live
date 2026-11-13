@@ -143,7 +143,7 @@ test('the watchdog freezes, mends and finally lets go', () => {
   const fn = appSource.slice(appSource.indexOf('function followWatch()'), appSource.indexOf("// --- the Mac's side"));
   assert.match(fn, /if \(quiet < FOLLOW_STALE_MS\) return;/);
   assert.match(fn, /follow\.frozen = followPosition\(\);/);
-  assert.match(fn, /if \(quiet > FOLLOW_GIVEUP_MS\) \{\n    followStop\(/);
+  assert.match(fn, /if \(quiet > patience\) \{\n    followStop\(/);
   assert.match(fn, /abletonRemoteHeal\(!abletonRemoteHealthy\(\)\);/);
   assert.match(fn, /if \(!live\) \{ followStop\(/);
   assert.match(appSource, /follow\.watchdog = setInterval\(followWatch, 1000\);/);
@@ -180,11 +180,37 @@ test('a heartbeat that stops being written expires on the device itself', () => 
   assert.match(appSource, /abletonPresence\.expiry = setInterval\(abletonPresenceExpiryCheck, 2000\);/);
   const fn = appSource.slice(appSource.indexOf('function abletonPresenceExpiryCheck()'), appSource.indexOf('function startSharedAbletonPresence()'));
   assert.match(fn, /if \(abletonBridge\.connected && abletonMainProjectOpen\(\)\) return;/);
-  assert.match(fn, /Date\.now\(\) - abletonPresence\.heartbeatAt > ABLETON_PRESENCE_TTL_MS\) abletonPresenceLost\(\);/);
+  assert.match(fn, /Date\.now\(\) - abletonPresence\.heartbeatAt > life\) abletonPresenceLost\(\);/);
 });
 
 test('the Mac beats often enough for that life to be safe', () => {
   assert.match(appSource, /abletonBridge\.timer = setInterval\(probeAbletonBridge, 6000\);/);
   assert.match(appSource, /Date\.now\(\) - abletonPresence\.lastHeartbeat < 5000\) return;/);
   assert.match(appSource, /abletonPresence\.heartbeatAt = available \? Date\.now\(\) : 0;/);
+});
+
+test('a Mac out of sight asks for its heartbeat to be trusted longer', () => {
+  assert.match(appSource, /const ABLETON_PRESENCE_TTL_HIDDEN_MS = 150000;/);
+  assert.match(appSource, /function abletonPresenceTtl\(\) \{\n  return document\.hidden \? ABLETON_PRESENCE_TTL_HIDDEN_MS : ABLETON_PRESENCE_TTL_MS;/);
+  assert.match(appSource, /ttl_ms: abletonPresenceTtl\(\),/);
+  assert.match(appSource, /publishAbletonPresence\(abletonBridge\.connected && abletonMainProjectOpen\(\)\);\n    if \(!document\.hidden\) probeAbletonBridge\(\);/);
+});
+
+test('the published life is honoured but kept within bounds', () => {
+  const ctx = load(['abletonPresenceLife'], { ABLETON_PRESENCE_TTL_MS: 18000, ABLETON_PRESENCE_TTL_HIDDEN_MS: 150000 });
+  assert.equal(ctx.abletonPresenceLife(undefined), 18000);
+  assert.equal(ctx.abletonPresenceLife({ ttl_ms: 150000 }), 150000);
+  assert.equal(ctx.abletonPresenceLife({ ttl_ms: 5 }), 18000, 'never shorter than the default');
+  assert.equal(ctx.abletonPresenceLife({ ttl_ms: 9e9 }), 180000, 'never longer than three minutes');
+  assert.equal(ctx.abletonPresenceLife({ ttl_ms: 'soon' }), 18000);
+});
+
+test('the bridge page holds a lock so its timers are not throttled to a crawl', () => {
+  assert.match(appSource, /navigator\.locks\.request\('tspwork-bridge-heartbeat', \(\) => new Promise\(\(\) => \{\}\)\)/);
+  assert.match(appSource, /abletonKeepTimersAlive\(\);\n  probeAbletonBridge\(\);/);
+});
+
+test('a follower waits longer when the chip says the Mac is only slow', () => {
+  assert.match(appSource, /const FOLLOW_GIVEUP_SLOW_MS = 90000;/);
+  assert.match(appSource, /const patience = abletonBridge\.connected \|\| !abletonPresence\.available \? FOLLOW_GIVEUP_MS : FOLLOW_GIVEUP_SLOW_MS;/);
 });
