@@ -7287,12 +7287,16 @@ async function saveSongLyrics(snapshot, held = new Map(), baselineBySong = new M
 // iPhone (Safari and the home-screen app): while the on-screen keyboard is
 // up, a `bottom: 0` fixed bar is anchored to a viewport that is about to stop
 // existing, and when the keyboard goes it stays where it was — floating above
-// the screen edge with the page showing through underneath. Nudging it was not
-// enough. The bar is now taken out of the layout while the keyboard is up and
-// put back afterwards, which makes Safari place it against the viewport that
-// is actually there (Aaron, 13 Nov 2026).
+// the screen edge with the page showing through underneath. The bar is taken
+// out of the layout while the keyboard is up and put back afterwards, which
+// makes Safari place it against the viewport that is actually there.
+//
+// "Afterwards" cannot be a guess: putting it back while the keyboard is still
+// sliding away glitches it again (Aaron, 13 Nov 2026). So the visual viewport
+// is watched, and the bar returns only once it has stopped moving and is back
+// to full height. Nothing here runs unless the keyboard is up.
 const IPHONE = /iPhone|iPod/.test(navigator.userAgent || '');
-let ptKeyboardTimers = [];
+const ptKeyboard = { timers: [], settle: 0, waiting: false };
 function ptTypingTarget(node) {
   return !!node?.closest?.('input:not([type=range]):not([type=checkbox]):not([type=radio]), textarea, [contenteditable]');
 }
@@ -7304,21 +7308,55 @@ function ptReanchorBar() {
   bar.style.display = '';
   window.scrollTo(window.scrollX, window.scrollY);
 }
+function ptKeyboardClear() {
+  ptKeyboard.timers.forEach(clearTimeout);
+  ptKeyboard.timers = [];
+  clearTimeout(ptKeyboard.settle);
+  ptKeyboard.settle = 0;
+}
 function ptKeyboardOpen() {
   if (!IPHONE) return;
-  ptKeyboardTimers.forEach(clearTimeout);
-  ptKeyboardTimers = [];
+  ptKeyboardClear();
+  ptKeyboard.waiting = false;
   document.body.classList.add('keyboard-open');
+}
+// The viewport is back to its full height and has stopped changing.
+function ptKeyboardGone() {
+  const vv = window.visualViewport;
+  if (!vv) return true;
+  return vv.height >= window.innerHeight - 80;
+}
+function ptKeyboardRestore() {
+  if (!document.body.classList.contains('keyboard-open')) return;
+  if (ptTypingTarget(document.activeElement)) return; // moved to another field: the keyboard stayed up
+  ptKeyboardClear();
+  ptKeyboard.waiting = false;
+  document.body.classList.remove('keyboard-open');
+  ptReanchorBar();
+  setTimeout(ptReanchorBar, 220); // once more after the layout has settled
 }
 function ptKeyboardClosed() {
   if (!IPHONE) return;
-  ptKeyboardTimers.forEach(clearTimeout);
-  const restore = () => {
-    if (ptTypingTarget(document.activeElement)) return; // moved to another field: the keyboard is still up
-    document.body.classList.remove('keyboard-open');
-    ptReanchorBar();
+  ptKeyboardClear();
+  ptKeyboard.waiting = true;
+  const check = () => {
+    if (!ptKeyboard.waiting) return;
+    if (ptTypingTarget(document.activeElement)) { ptKeyboard.waiting = false; return; }
+    if (ptKeyboardGone()) ptKeyboardRestore();
   };
-  ptKeyboardTimers = [120, 350, 700].map((ms) => setTimeout(restore, ms));
+  // Each viewport change while the keyboard slides away restarts this wait, so
+  // the bar comes back after the animation rather than during it.
+  ptKeyboard.timers = [260, 520].map((ms) => setTimeout(check, ms));
+  ptKeyboard.timers.push(setTimeout(ptKeyboardRestore, 1600)); // a browser that never reports: don't strand the bar
+}
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    if (!IPHONE || !document.body.classList.contains('keyboard-open')) return; // idle unless the keyboard is up
+    clearTimeout(ptKeyboard.settle);
+    ptKeyboard.settle = setTimeout(() => {
+      if (ptKeyboard.waiting && !ptTypingTarget(document.activeElement) && ptKeyboardGone()) ptKeyboardRestore();
+    }, 280);
+  });
 }
 document.addEventListener('focusin', (event) => { if (ptTypingTarget(event.target)) ptKeyboardOpen(); });
 document.addEventListener('focusout', (event) => { if (ptTypingTarget(event.target)) ptKeyboardClosed(); });

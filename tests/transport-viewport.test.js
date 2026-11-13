@@ -7,10 +7,19 @@ const assert = require('node:assert/strict');
 const { appSource } = require('./helpers');
 const css = require('node:fs').readFileSync(require('node:path').resolve(__dirname, '../styles.css'), 'utf8');
 
-test('nothing listens to the visual viewport or moves the bar by hand', () => {
-  assert.equal(appSource.includes('visualViewport.addEventListener'), false);
+test('the bar is never moved by hand, and the viewport is only watched while the keyboard is up', () => {
   assert.equal(appSource.includes('--pt-bottom'), false);
   assert.match(css, /\.pt-bar \{ position: fixed; left: 0; right: 0; bottom: 0;/);
+  const listener = appSource.slice(appSource.indexOf("window.visualViewport.addEventListener('resize'"));
+  assert.match(listener, /if \(!IPHONE \|\| !document\.body\.classList\.contains\('keyboard-open'\)\) return;/);
+});
+
+test('the bar waits for the keyboard animation to finish', () => {
+  assert.match(appSource, /function ptKeyboardGone\(\) \{/);
+  assert.match(appSource, /return vv\.height >= window\.innerHeight - 80;/);
+  const closed = appSource.slice(appSource.indexOf('function ptKeyboardClosed()'), appSource.indexOf('if (window.visualViewport) {'));
+  assert.match(closed, /if \(ptKeyboardGone\(\)\) ptKeyboardRestore\(\);/);
+  assert.match(closed, /setTimeout\(ptKeyboardRestore, 1600\)/); // the fallback
 });
 
 test('the bar leaves the layout while the keyboard is up', () => {
@@ -19,9 +28,9 @@ test('the bar leaves the layout while the keyboard is up', () => {
   assert.match(appSource, /document\.body\.classList\.remove\('keyboard-open'\)/);
 });
 
-test('it is put back only once the keyboard has really gone', () => {
-  assert.match(appSource, /if \(ptTypingTarget\(document\.activeElement\)\) return;/);
-  assert.match(appSource, /ptKeyboardTimers = \[120, 350, 700\]\.map/);
+test('it is put back only once no field has focus', () => {
+  assert.match(appSource, /if \(ptTypingTarget\(document\.activeElement\)\) return; \/\/ moved to another field/);
+  assert.match(appSource, /setTimeout\(ptReanchorBar, 220\); \/\/ once more after the layout has settled/);
 });
 
 test('putting it back forces a real reflow', () => {
