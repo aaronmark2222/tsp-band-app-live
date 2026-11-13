@@ -1891,3 +1891,7 @@ body:not(.ableton-jumpable) button.song-jump { pointer-events:none; cursor:defau
 body.ableton-following #practice-transport .pt-modes,
 body.ableton-following #practice-transport .pt-group:not(.pt-modes),
 body.ableton-following #practice-transport .pt-seek { pointer-events:none; opacity:.45; }
+
+/* iPhone: the playback bar steps out of the way while the keyboard is up, so
+   it comes back placed against the viewport that is actually there. */
+body.keyboard-open #practice-transport { display: none !important; }

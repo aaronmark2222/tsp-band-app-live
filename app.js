@@ -7219,33 +7219,45 @@ async function saveSongLyrics(snapshot, held = new Map(), baselineBySong = new M
 // ---------------------------------------------------------------------------
 // Practice transport: one Ableton-style bar at the bottom drives whichever
 // player is chosen (Mixdown or Multitrack); both follow its single playhead.
-// iPhone (Safari and the home-screen app): after the on-screen keyboard
-// closes, Safari can leave a `bottom: 0` fixed bar sitting a little above the
-// screen edge until something makes it re-anchor. One nudge after the
-// keyboard goes away fixes it; nothing here runs while scrolling, which is
-// what the earlier viewport-measuring attempt got wrong (Aaron, 13 Nov 2026).
+// iPhone (Safari and the home-screen app): while the on-screen keyboard is
+// up, a `bottom: 0` fixed bar is anchored to a viewport that is about to stop
+// existing, and when the keyboard goes it stays where it was — floating above
+// the screen edge with the page showing through underneath. Nudging it was not
+// enough. The bar is now taken out of the layout while the keyboard is up and
+// put back afterwards, which makes Safari place it against the viewport that
+// is actually there (Aaron, 13 Nov 2026).
 const IPHONE = /iPhone|iPod/.test(navigator.userAgent || '');
 let ptKeyboardTimers = [];
+function ptTypingTarget(node) {
+  return !!node?.closest?.('input:not([type=range]):not([type=checkbox]):not([type=radio]), textarea, [contenteditable]');
+}
 function ptReanchorBar() {
   const bar = document.getElementById('practice-transport');
   if (!bar) return;
-  const x = window.scrollX;
-  const y = window.scrollY;
-  window.scrollTo(x, y + 1);
-  window.scrollTo(x, y);
-  // A forced reflow of the bar itself, for the times the nudge is not enough.
-  bar.style.transform = 'translateZ(0)';
-  void bar.offsetHeight;
-  bar.style.transform = '';
+  bar.style.display = 'none';
+  void bar.offsetHeight; // a real reflow with the bar out of the layout
+  bar.style.display = '';
+  window.scrollTo(window.scrollX, window.scrollY);
+}
+function ptKeyboardOpen() {
+  if (!IPHONE) return;
+  ptKeyboardTimers.forEach(clearTimeout);
+  ptKeyboardTimers = [];
+  document.body.classList.add('keyboard-open');
 }
 function ptKeyboardClosed() {
   if (!IPHONE) return;
   ptKeyboardTimers.forEach(clearTimeout);
-  ptKeyboardTimers = [120, 400, 800].map((ms) => setTimeout(ptReanchorBar, ms));
+  const restore = () => {
+    if (ptTypingTarget(document.activeElement)) return; // moved to another field: the keyboard is still up
+    document.body.classList.remove('keyboard-open');
+    ptReanchorBar();
+  };
+  ptKeyboardTimers = [120, 350, 700].map((ms) => setTimeout(restore, ms));
 }
-document.addEventListener('focusout', (event) => {
-  if (event.target?.closest?.('input, textarea, select, [contenteditable]')) ptKeyboardClosed();
-});
+document.addEventListener('focusin', (event) => { if (ptTypingTarget(event.target)) ptKeyboardOpen(); });
+document.addEventListener('focusout', (event) => { if (ptTypingTarget(event.target)) ptKeyboardClosed(); });
+window.addEventListener('orientationchange', () => { if (IPHONE) setTimeout(ptReanchorBar, 400); });
 
 const PT_MODE_KEY = 'tsp-practice-mode';
 let ptSongPickerOpen = false;
