@@ -8826,9 +8826,10 @@ function renderFollowUi() {
     roomButton.disabled = follow.on;
     if (follow.on) roomButton.title = 'Stop following Ableton to practise in a room';
   }
-  const note = document.getElementById('practice-song-note');
-  if (note && follow.on) note.textContent = follow.note || (follow.state?.playing ? 'Following Ableton' : 'Following Ableton (stopped)');
-  else if (note && note.textContent.startsWith('Following Ableton')) note.textContent = '';
+  // Its own line, not the song's: a note left behind here used to sit on the
+  // page for good (Aaron, 13 Nov 2026).
+  const note = document.getElementById('follow-note');
+  if (note) note.textContent = follow.on ? (follow.note || (follow.state?.playing ? 'Following Ableton' : 'Following Ableton (stopped)')) : '';
 }
 
 const ROOM_KEY = 'tsp-room-v1';
