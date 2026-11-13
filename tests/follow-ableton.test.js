@@ -112,9 +112,8 @@ test('the transport state objects are declared before the transport reads them',
 });
 
 test('the button stacks the Ableton mark over the follow glyph, inside the circle', () => {
-  const html = require('node:fs').readFileSync(require('node:path').resolve(__dirname, '../index.html'), 'utf8');
   const css = require('node:fs').readFileSync(require('node:path').resolve(__dirname, '../styles.css'), 'utf8');
-  const button = html.slice(html.indexOf('id="follow-ableton"'), html.indexOf('id="room-button"'));
+  const button = appSource.slice(appSource.indexOf('id="follow-ableton"'), appSource.indexOf('id="room-button"'));
   assert.ok(button.indexOf('class="sync-logo"') < button.indexOf('class="follow-glyph"'), 'the mark sits above the glyph');
   assert.match(button, /viewBox="0 0 24 10"/);
   // 38px button: 21x10 mark + 2px gap + 19x8 glyph leaves a margin all round.
@@ -166,8 +165,7 @@ test('losing the network takes the chip, the jumps and the following with it', (
 });
 
 test('the follow note lives on its own line and is cleared when it ends', () => {
-  const html = require('node:fs').readFileSync(require('node:path').resolve(__dirname, '../index.html'), 'utf8');
-  assert.match(html, /<span id="follow-note" class="muted follow-note"><\/span>/);
+  assert.match(appSource, /<span id="follow-note" class="muted follow-note"><\/span>/);
   const fn = appSource.slice(appSource.indexOf('function renderFollowUi()'));
   assert.match(fn, /const note = document\.getElementById\('follow-note'\);/);
   assert.match(fn, /if \(note\) note\.textContent = follow\.on \? \(follow\.note \|\| /);

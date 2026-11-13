@@ -7034,15 +7034,43 @@ function lyricsEditStatus(edit, presence) {
     ? { state: 'sending', text: 'Edit saved. Sending it to Ableton…' }
     : { state: 'queued', text: 'Edit saved. It will go into Ableton when Aaron’s Mac has the app and the set open.' };
 }
+// The lyrics header carries the controls that used to sit by the song list:
+// Follow Ableton, Group practice, the text size (one button that opens the
+// three) and full screen (Aaron, 13 Nov 2026).
+let lyricsSizeOpen = false;
+function lyricsSizeMenuHtml(size) {
+  const one = (value, label) => `<button type="button" class="ly-size ly-size-${value} ${size === value ? 'on' : ''}" data-lyrics-size="${value}" aria-label="${label} text">A</button>`;
+  return `<span class="ly-size-wrap">
+    <button type="button" class="ly-size ly-size-toggle ly-size-${size} ${lyricsSizeOpen ? 'open' : ''}" data-lyrics-size-menu aria-haspopup="true" aria-expanded="${lyricsSizeOpen}" title="Text size" aria-label="Text size">A</button>
+    ${lyricsSizeOpen ? `<span class="ly-size-menu" role="group" aria-label="Text size">${one('s', 'Small')}${one('m', 'Medium')}${one('l', 'Large')}</span>` : ''}
+  </span>`;
+}
+function lyricsHeaderHtml() {
+  const prefs = lyricsPrefs();
+  return `<header><h2>Lyrics</h2><span class="ly-sizes">
+    <button type="button" id="follow-ableton" class="room-btn follow-btn hidden" title="Follow Ableton" aria-label="Follow Ableton" aria-pressed="false"><span class="sync-logo" aria-hidden="true"></span><svg class="sync-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 9A8 8 0 0 0 5.2 7.2M4.5 15a8 8 0 0 0 14.3 1.8" fill="none" stroke="currentColor" stroke-width="2"></path><path d="M19.5 4.5V9h-4.5M4.5 19.5V15h4.5" fill="none" stroke="currentColor" stroke-width="2"></path></svg><svg class="follow-glyph" viewBox="0 0 24 10" aria-hidden="true"><path d="M0 3.4h8.6v3.2H0zM8.2 0.6 13.8 5l-5.6 4.4z"></path><path d="M15.7 3.4h3.3v3.2h-3.3zM20.7 3.4h3.3v3.2h-3.3z"></path></svg></button>
+    <button type="button" id="room-button" class="room-btn" title="Group practice" aria-label="Group practice"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"></circle><circle cx="17" cy="9.5" r="2.4"></circle><path d="M3.5 18.5a5.5 5.5 0 0 1 11 0M15 13.4a4.6 4.6 0 0 1 5.5 4.4"></path></svg></button>
+    <span id="room-chip" class="room-chip hidden"></span>
+    <span id="follow-note" class="muted follow-note"></span>
+    ${lyricsSizeMenuHtml(prefs.size)}
+    <button type="button" class="ly-fs-btn" data-lyrics-fs title="${lyricsFs.on ? 'Exit full screen (Esc)' : 'Full screen (F)'}" aria-label="${lyricsFs.on ? 'Exit full screen' : 'Full screen lyrics'}">${lyricsFs.on ? LY_FS_ICONS.exit : LY_FS_ICONS.enter}</button>
+  </span></header>`;
+}
+// Called after every lyrics render, since the buttons are rebuilt with it.
+function lyricsHeaderRendered() {
+  renderRoomUi();
+  renderFollowUi();
+}
 function renderPracticeLyricsInner() {
   const box = $('#practice-lyrics');
   if (!box) return;
   const prefs = lyricsPrefs();
   const ly = practice.lyrics;
-  if (!ly) { box.innerHTML = '<header><h2>Lyrics</h2></header><p class="muted">Loading…</p>'; return; }
-  if (ly.error) { box.innerHTML = `<header><h2>Lyrics</h2></header><p class="error">${escapeHtml(ly.error)}</p>`; return; }
+  const head = lyricsHeaderHtml();
+  if (!ly) { box.innerHTML = `${head}<p class="muted">Loading…</p>`; lyricsHeaderRendered(); return; }
+  if (ly.error) { box.innerHTML = `${head}<p class="error">${escapeHtml(ly.error)}</p>`; lyricsHeaderRendered(); return; }
   const tracks = ly.tracks || [];
-  if (!tracks.length) { box.innerHTML = '<header><h2>Lyrics</h2></header><p class="muted">No lyrics saved for this song yet. They come from the admin\'s last Ableton Sync read.</p>'; return; }
+  if (!tracks.length) { box.innerHTML = `${head}<p class="muted">No lyrics saved for this song yet. They come from the admin's last Ableton Sync read.</p>`; lyricsHeaderRendered(); return; }
   const current = lyricsTrack();
   const shown = lyricsShownSlug();
   const editSlug = lyricsEditorTrackForMember(shown);
@@ -7095,7 +7123,7 @@ function renderPracticeLyricsInner() {
     if (n) withDots.push({ type: 'dots', t: it.t, t1: nextT, n });
   });
   const song = state.songs.find((row) => row.id === practice.songId);
-  box.innerHTML = `<header><h2>Lyrics</h2><span class="ly-sizes">${['s', 'm', 'l'].map((size) => `<button type="button" class="ly-size ${prefs.size === size ? 'on' : ''}" data-lyrics-size="${size}">${size === 's' ? 'A' : size === 'm' ? 'A' : 'A'}</button>`).join('')}<button type="button" class="ly-fs-btn" data-lyrics-fs title="${lyricsFs.on ? 'Exit full screen (Esc)' : 'Full screen (F)'}" aria-label="${lyricsFs.on ? 'Exit full screen' : 'Full screen lyrics'}">${lyricsFs.on ? LY_FS_ICONS.exit : LY_FS_ICONS.enter}</button></span></header>
+  box.innerHTML = `${head}
     <div class="ly-chips">${chips}</div>${missing}
     <div class="ly-scroll ly-size-${prefs.size} ly-track-${escapeHtml(current?.slug || 'none')}" id="practice-lyrics-scroll">${editing ? lyricsEditorBodyHtml() : `${song ? `<div class="ly-title">${escapeHtml(song.name)}</div>` : ''}${withDots.map((it) => it.type === 'dots'
       ? `<div class="ly-dots" data-t="${it.t}" data-t1="${it.t1}">${'<span class="ly-dot"></span>'.repeat(it.n)}</div>`
@@ -7105,6 +7133,7 @@ function renderPracticeLyricsInner() {
     <p class="muted ly-foot">${editing
       ? 'Tap a clip to edit it. The lyrics keep following playback; scroll back to the playing clip to pick the scrolling up again.'
       : `From the Ableton set read ${ly.updated_at ? new Date(ly.updated_at).toLocaleDateString() : ''}. Click a line to jump there.`}</p>`;
+  lyricsHeaderRendered();
   practice.lyricIndex = -2;
   practiceLyricsTick(true);
   practiceCheckLyricsLength();
@@ -7290,8 +7319,9 @@ $('#practice-lyrics').addEventListener('click', (event) => {
   if (lyricsEditDraft && handleLyricsEditorClick(event)) return;
   const chip = event.target.closest('[data-lyrics-track]');
   if (chip) { saveLyricsPrefs({ track: chip.dataset.lyricsTrack }); renderPracticeLyrics(); return; }
+  if (event.target.closest('[data-lyrics-size-menu]')) { lyricsSizeOpen = !lyricsSizeOpen; renderPracticeLyrics(); return; }
   const size = event.target.closest('[data-lyrics-size]');
-  if (size) { saveLyricsPrefs({ size: size.dataset.lyricsSize }); renderPracticeLyrics(); return; }
+  if (size) { lyricsSizeOpen = false; saveLyricsPrefs({ size: size.dataset.lyricsSize }); renderPracticeLyrics(); return; }
   const line = event.target.closest('.ly-line, .ly-section');
   if (line && !lyricsEditingHere()) {
     // Land just after the start, so the previous section's count dots stay off.
@@ -9222,6 +9252,7 @@ function renderRoomUi() {
   renderRoomDialog();
 }
 document.addEventListener('click', (event) => {
+  if (lyricsSizeOpen && !event.target.closest('.ly-size-wrap')) { lyricsSizeOpen = false; renderPracticeLyrics(); }
   if (event.target.closest('#follow-ableton')) { followToggle(); return; }
   if (event.target.closest('#room-button, #room-chip')) { if (follow.on) return; roomOpenDialog(); }
 });

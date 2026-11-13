@@ -108,8 +108,12 @@ function renderWith(editing) {
   };
   const ctx = load([
     'renderPracticeLyricsInner', 'lyricsEditorBodyHtml', 'lyricsEditorItems', 'lyricsEditorSectionIndex',
-    'lyricsEditBarHtml', 'lyricsEditorHasChanges', 'lyricsEditorMatchesAbleton'
+    'lyricsEditBarHtml', 'lyricsEditorHasChanges', 'lyricsEditorMatchesAbleton',
+    'lyricsHeaderHtml', 'lyricsSizeMenuHtml', 'lyricsHeaderRendered'
   ], {
+    lyricsSizeOpen: false,
+    renderRoomUi: () => {},
+    renderFollowUi: () => {},
     $: (sel) => (sel === '#practice-lyrics' ? box : null),
     practice: { songId: 'E1', lyrics: { tracks: [{ slug: 'guitar', label: 'Guitar', lines }], sections: [{ t: 0, name: 'Intro', c: '#2f4f7a' }, { t: 4, name: 'Verse', c: '#3f6f4a' }], duration_seconds: 20, lyricsEdits: [] } },
     state: { songs: [{ id: 'E1', name: 'Song' }], member: { is_admin: true } },
@@ -160,7 +164,7 @@ test('the track chips, sizes and the pencil stay while editing', () => {
   const editing = renderWith(true);
   assert.match(editing, /data-lyrics-track="chords"/);
   assert.match(editing, /data-lyrics-edit="guitar"/);
-  assert.match(editing, /data-lyrics-size="l"/);
+  assert.match(editing, /data-lyrics-size-menu/);
 });
 
 test('full screen keeps the editor, with its buttons as their own row', () => {
@@ -187,4 +191,39 @@ test('the toolbar order puts Restore first and Save last', () => {
   const bar = appSource.slice(appSource.indexOf('function lyricsEditBarHtml'), appSource.indexOf('function renderLyricsEditBar'));
   assert.ok(bar.indexOf('data-edit-restore') < bar.indexOf('data-edit-close'));
   assert.ok(bar.indexOf('data-edit-close') < bar.indexOf('data-edit-save'));
+});
+
+test('the header holds the controls, with one text-size button', () => {
+  const ctx = load(['lyricsHeaderHtml', 'lyricsSizeMenuHtml'], {
+    lyricsPrefs: () => ({ size: 'm', track: 'guitar' }),
+    lyricsSizeOpen: false, lyricsFs: { on: false }, LY_FS_ICONS: { enter: '<svg/>', exit: '<svg/>' }
+  });
+  const head = ctx.lyricsHeaderHtml();
+  assert.match(head, /id="follow-ableton"/);
+  assert.match(head, /id="room-button"/);
+  assert.match(head, /data-lyrics-size-menu/);
+  assert.match(head, /data-lyrics-fs/);
+  // the three sizes are behind the one button until it is opened
+  assert.equal(/data-lyrics-size="s"/.test(head), false);
+  const open = load(['lyricsHeaderHtml', 'lyricsSizeMenuHtml'], {
+    lyricsPrefs: () => ({ size: 'm' }), lyricsSizeOpen: true, lyricsFs: { on: false }, LY_FS_ICONS: { enter: '', exit: '' }
+  }).lyricsHeaderHtml();
+  for (const size of ['s', 'm', 'l']) assert.match(open, new RegExp(`data-lyrics-size="${size}"`));
+  assert.match(open, /class="ly-size ly-size-m on"/);
+});
+
+test('every state of the lyrics card keeps the header', () => {
+  const fn = appSource.slice(appSource.indexOf('function renderPracticeLyricsInner()'), appSource.indexOf('function practiceCheckLyricsLength'));
+  assert.equal((fn.match(/\$\{head\}/g) || []).length, 4, 'loading, error, empty and the real one');
+  assert.equal((fn.match(/lyricsHeaderRendered\(\)/g) || []).length, 4);
+});
+
+test('following Ableton leaves only the chips that can be read', () => {
+  const css = require('node:fs').readFileSync(require('node:path').resolve(__dirname, '../styles.css'), 'utf8');
+  const rule = css.slice(css.indexOf('body.ableton-following #practice-transport .pt-modes'));
+  for (const part of ['pt-modes', 'pt-song-wrap', 'pt-buttons', 'pt-break', 'pt-lcd', 'pt-seek']) {
+    assert.match(rule, new RegExp(`\\.${part}`), part);
+  }
+  assert.match(rule, /display:none !important;/);
+  assert.equal(rule.includes('.pt-info { display:none'), false, 'Key, tempo and work remaining stay');
 });
