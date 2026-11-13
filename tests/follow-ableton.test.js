@@ -164,3 +164,27 @@ test('losing the network takes the chip, the jumps and the following with it', (
   // and the chip going is what hides the button and releases the transport
   assert.match(appSource, /if \(follow\.on && !songJumpLive\(\)\) followStop\(\);/);
 });
+
+test('the follow note lives on its own line and is cleared when it ends', () => {
+  const html = require('node:fs').readFileSync(require('node:path').resolve(__dirname, '../index.html'), 'utf8');
+  assert.match(html, /<span id="follow-note" class="muted follow-note"><\/span>/);
+  const fn = appSource.slice(appSource.indexOf('function renderFollowUi()'));
+  assert.match(fn, /const note = document\.getElementById\('follow-note'\);/);
+  assert.match(fn, /if \(note\) note\.textContent = follow\.on \? \(follow\.note \|\| /);
+  // and it must not borrow the song's line any more
+  assert.equal(fn.includes("getElementById('practice-song-note')"), false);
+});
+
+test('a heartbeat that stops being written expires on the device itself', () => {
+  assert.match(appSource, /const ABLETON_PRESENCE_TTL_MS = 18000;/);
+  assert.match(appSource, /abletonPresence\.expiry = setInterval\(abletonPresenceExpiryCheck, 2000\);/);
+  const fn = appSource.slice(appSource.indexOf('function abletonPresenceExpiryCheck()'), appSource.indexOf('function startSharedAbletonPresence()'));
+  assert.match(fn, /if \(abletonBridge\.connected && abletonMainProjectOpen\(\)\) return;/);
+  assert.match(fn, /Date\.now\(\) - abletonPresence\.heartbeatAt > ABLETON_PRESENCE_TTL_MS\) abletonPresenceLost\(\);/);
+});
+
+test('the Mac beats often enough for that life to be safe', () => {
+  assert.match(appSource, /abletonBridge\.timer = setInterval\(probeAbletonBridge, 6000\);/);
+  assert.match(appSource, /Date\.now\(\) - abletonPresence\.lastHeartbeat < 5000\) return;/);
+  assert.match(appSource, /abletonPresence\.heartbeatAt = available \? Date\.now\(\) : 0;/);
+});

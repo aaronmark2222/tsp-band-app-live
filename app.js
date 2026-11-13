@@ -2458,9 +2458,9 @@ db.auth.getSession().then(async ({ data, error }) => {
 // plain http. The http port (47710) stays for Chrome and the local test copy.
 const ABLETON_BRIDGE_URLS = ['https://127.0.0.1:47711', 'http://127.0.0.1:47710'];
 const ABLETON_PRESENCE_KEY = 'ableton_bridge_presence';
-const ABLETON_PRESENCE_TTL_MS = 45000;
+const ABLETON_PRESENCE_TTL_MS = 18000;
 const abletonBridge = { connected: false, timer: null, busy: false, started: false, base: null };
-const abletonPresence = { available: false, awaitingSave: false, needsAttention: false, timer: null, lastHeartbeat: 0, lastSync: null, failures: 0 };
+const abletonPresence = { available: false, awaitingSave: false, needsAttention: false, timer: null, lastHeartbeat: 0, lastSync: null, failures: 0, heartbeatAt: 0, expiry: null };
 const autoLyricsSync = { channel: null, timer: null, busy: false, started: false, rerun: false, lastErrorAt: 0, retryAfter: 0, session: null, lastFullAt: 0, forceFull: true, refusedRows: new Map(), refused: [] };
 
 function abletonMainProjectOpen(status = abletonBridge.status) {
@@ -2564,9 +2564,10 @@ function setAbletonConnected(connected) {
 }
 
 async function publishAbletonPresence(available) {
-  if (!abletonBridgeEligible() || Date.now() - abletonPresence.lastHeartbeat < 18000) return;
+  if (!abletonBridgeEligible() || Date.now() - abletonPresence.lastHeartbeat < 5000) return;
   abletonPresence.lastHeartbeat = Date.now();
   abletonPresence.available = !!available;
+  abletonPresence.heartbeatAt = available ? Date.now() : 0; // this Mac is its own heartbeat
   const value = {
     available: !!available,
     version: abletonBridge.status?.version || null,
@@ -2595,8 +2596,10 @@ async function refreshSharedAbletonPresence() {
   try {
     const { data, error } = await db.from('app_meta').select('value,updated_at').eq('key', ABLETON_PRESENCE_KEY).maybeSingle();
     if (error) throw error;
-    const fresh = data && Date.now() - Date.parse(data.updated_at) < ABLETON_PRESENCE_TTL_MS;
+    const writtenAt = data ? Date.parse(data.updated_at) : 0;
+    const fresh = !!writtenAt && Date.now() - writtenAt < ABLETON_PRESENCE_TTL_MS;
     abletonPresence.available = !!(fresh && data.value?.available === true);
+    abletonPresence.heartbeatAt = abletonPresence.available ? writtenAt : 0;
     abletonPresence.awaitingSave = !!(fresh && data.value?.awaiting_manual_save === true);
     abletonPresence.needsAttention = !!(fresh && data.value?.needs_attention === true);
     abletonPresence.lastSync = fresh ? data.value?.last_sync_at || null : null;
@@ -2611,10 +2614,21 @@ async function refreshSharedAbletonPresence() {
   }
 }
 
+// The heartbeat has a life of its own: once the last one is older than the
+// time to live, this device drops the chip without asking anybody. That is
+// what makes the Mac closing show up in seconds rather than a minute, and it
+// costs nothing (Aaron, 13 Nov 2026).
+function abletonPresenceExpiryCheck() {
+  if (!abletonPresence.available) return;
+  if (abletonBridge.connected && abletonMainProjectOpen()) return; // our own bridge answers for itself
+  if (!abletonPresence.heartbeatAt || Date.now() - abletonPresence.heartbeatAt > ABLETON_PRESENCE_TTL_MS) abletonPresenceLost();
+}
 function startSharedAbletonPresence() {
   if (abletonPresence.timer) return;
   refreshSharedAbletonPresence();
-  abletonPresence.timer = setInterval(refreshSharedAbletonPresence, 12000);
+  abletonPresence.timer = setInterval(refreshSharedAbletonPresence, 10000);
+  clearInterval(abletonPresence.expiry);
+  abletonPresence.expiry = setInterval(abletonPresenceExpiryCheck, 2000);
   const back = () => {
     refreshSharedAbletonPresence();
     // A sleeping tab or a dropped network leaves the relay channel dead: it is
@@ -2756,7 +2770,7 @@ function startAbletonBridge() {
   probeAbletonBridge();
   if (abletonBridge.started) return;
   abletonBridge.started = true;
-  abletonBridge.timer = setInterval(probeAbletonBridge, 15000);
+  abletonBridge.timer = setInterval(probeAbletonBridge, 6000);
   window.addEventListener('focus', probeAbletonBridge);
 }
 
@@ -4725,7 +4739,7 @@ const FOLLOW_MIN_VERSION = [1, 32];
 const FOLLOW_POLL_MS = 250;
 const FOLLOW_CLAIM_MS = 30000;
 const FOLLOW_STALE_MS = 6000;    // nothing from the Mac: stop trusting the clock
-const FOLLOW_GIVEUP_MS = 25000;  // still nothing: release this device
+const FOLLOW_GIVEUP_MS = 15000;  // still nothing: release this device
 const follow = {
   on: false, state: null, offset: 0, rtt: null, samples: [], pings: new Map(),
   songRequest: null, note: '', timer: null, pingTimer: null, claims: new Map(), serving: false,
